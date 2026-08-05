@@ -2,15 +2,35 @@ import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { createScanPlan } from './scanner.mjs'
+import { createScanPlan } from './core/scanner.mjs'
+import { createSettingsStore } from './core/settings.mjs'
+import { createTaskCenter } from './core/task-center.mjs'
+import type { AppSettings, TaskEvent } from '../shared/types'
+
+const settingsStore = createSettingsStore(join(app.getPath('userData'), 'settings.json'))
+
+const broadcastTaskEvent = (event: TaskEvent): void => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('tasks:event', event)
+  }
+}
+
+// 全局任务中心：统一并发调度，事件实时推送给渲染进程（任务中心抽屉）
+export const taskCenter = createTaskCenter({ emit: broadcastTaskEvent })
 
 function createWindow(): void {
-  // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1240,
+    height: 820,
+    minWidth: 1024,
+    minHeight: 700,
     show: false,
     autoHideMenuBar: true,
+    backgroundColor: '#f5f6f8',
+    title: 'Media Scraper',
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 } }
+      : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -36,43 +56,35 @@ function createWindow(): void {
   }
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
-
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
-
+function registerIpcHandlers(): void {
   ipcMain.handle('dialog:select-workspace', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return result.canceled ? null : result.filePaths[0]
   })
   ipcMain.handle('workspace:scan-plan', async (_event, root: string) => createScanPlan(root))
+  ipcMain.handle('settings:get', async () => settingsStore.get())
+  ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) =>
+    settingsStore.update(patch)
+  )
+}
 
+app.whenReady().then(() => {
+  electronApp.setAppUserModelId('com.mediascraper.desktop')
+
+  app.on('browser-window-created', (_, window) => {
+    optimizer.watchWindowShortcuts(window)
+  })
+
+  registerIpcHandlers()
   createWindow()
 
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.

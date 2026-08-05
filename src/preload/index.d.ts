@@ -1,14 +1,5 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-
-type ScanPlan = {
-  root: string
-  keep: { relativePath: string; kind: string; posterFor?: string }[]
-  deleteItems: { relativePath: string; kind: string; reason?: string }[]
-  moves: { from: string; to: string }[]
-  skippedHidden: string[]
-  conflicts: { image: string; videos: string[] }[]
-  summary: Record<string, number>
-}
+import type { AppSettings, ScanPlan, TaskEvent } from '../shared/types'
 
 declare global {
   interface Window {
@@ -16,6 +7,11 @@ declare global {
     api: {
       selectWorkspace: () => Promise<string | null>
       scanPlan: (root: string) => Promise<ScanPlan>
+      getSettings: () => Promise<AppSettings>
+      updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>
+      onTaskEvent: (callback: (event: TaskEvent) => void) => () => void
     }
   }
 }
+
+export {}

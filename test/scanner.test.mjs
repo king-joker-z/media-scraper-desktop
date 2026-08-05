@@ -1,6 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { classifyPath, isHiddenName, normalizedName } from '../src/main/scanner.mjs'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  classifyPath,
+  createScanPlan,
+  isHiddenName,
+  normalizedName
+} from '../src/main/core/scanner.mjs'
 
 test('classifies mainstream media extensions', () => {
   assert.equal(classifyPath('movie.MKV'), 'video')
@@ -12,4 +20,192 @@ test('identifies hidden names and normalizes poster names', () => {
   assert.equal(isHiddenName('.DS_Store'), true)
   assert.equal(isHiddenName('video.mp4'), false)
   assert.equal(normalizedName('视频 6-poster.jpg'), normalizedName('视频_6.mp4'))
+  // 全角空格同样忽略
+  assert.equal(normalizedName('Movie　A.jpg'), normalizedName('Movie A.mp4'))
+})
+
+async function withFixture(structure, fn) {
+  const root = await mkdtemp(join(tmpdir(), 'msd-scan-'))
+  try {
+    for (const [relativePath, content] of Object.entries(structure)) {
+      const target = join(root, relativePath)
+      await mkdir(join(target, '..'), { recursive: true })
+      await writeFile(target, content)
+    }
+    return await fn(root)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+}
+
+const names = (items) => items.map((item) => item.relativePath).sort()
+
+test('frozen example: 保留匹配对、删除孤儿图与其他文件、生成上移预览', async () => {
+  await withFixture(
+    {
+      'Movie A.mp4': 'v',
+      'Movie A.jpg': 'i',
+      'Movie B.mp4': 'v',
+      'Movie B-poster.jpg': 'i',
+      'Orphan.jpg': 'i',
+      'notes.nfo': 'x',
+      [join('sub', 'Movie C.mp4')]: 'v',
+      [join('sub', 'Movie C.png')]: 'i'
+    },
+    async (root) => {
+      const plan = await createScanPlan(root)
+      assert.equal(plan.summary.videos, 3)
+      assert.equal(plan.summary.images, 4)
+      assert.equal(plan.summary.otherFiles, 1)
+
+      // 视频全部保留
+      assert.deepEqual(
+        names(plan.keep.filter((item) => item.kind === 'video')),
+        ['Movie A.mp4', 'Movie B.mp4', join('sub', 'Movie C.mp4')].sort()
+      )
+      // 匹配图保留并标注 posterFor
+      const posters = plan.keep.filter((item) => item.kind === 'image')
+      assert.equal(posters.length, 3)
+      assert.equal(
+        posters.find((p) => p.relativePath === 'Movie B-poster.jpg').posterFor,
+        'Movie B.mp4'
+      )
+      // 孤儿图与其他文件进入删除候选
+      assert.deepEqual(names(plan.deleteItems), ['Orphan.jpg', 'notes.nfo'].sort())
+      // 子目录保留项生成上移预览
+      assert.deepEqual(
+        plan.moves.map((m) => m.from).sort(),
+        [join('sub', 'Movie C.mp4'), join('sub', 'Movie C.png')].sort()
+      )
+    }
+  )
+})
+
+test('hidden files and hidden directory subtrees are fully skipped', async () => {
+  await withFixture(
+    {
+      'Movie A.mp4': 'v',
+      '.DS_Store': 'x',
+      [join('.hidden', 'Secret.mp4')]: 'v',
+      [join('.hidden', 'sub', 'Deep.mp4')]: 'v'
+    },
+    async (root) => {
+      const plan = await createScanPlan(root)
+      assert.equal(plan.summary.videos, 1)
+      assert.equal(plan.summary.hiddenSkipped, 2)
+      assert.ok(plan.skippedHidden.some((p) => p.startsWith('.hidden')))
+      assert.ok(plan.skippedHidden.includes('.DS_Store'))
+    }
+  )
+})
+
+test('matching is restricted to the same directory level', async () => {
+  await withFixture(
+    {
+      'A.mp4': 'v',
+      [join('sub', 'A.jpg')]: 'i'
+    },
+    async (root) => {
+      const plan = await createScanPlan(root)
+      // 不同层不匹配：图片删除，视频保留但无 poster
+      assert.equal(plan.keep.length, 1)
+      assert.equal(plan.keep[0].relativePath, 'A.mp4')
+      assert.equal(plan.deleteItems.length, 1)
+      assert.equal(plan.deleteItems[0].reason, '未匹配同层视频')
+    }
+  )
+})
+
+test('one video with multiple images: -poster wins, losers become delete candidates', async () => {
+  await withFixture(
+    {
+      'V.mp4': 'v',
+      'V.jpg': 'i',
+      'V-poster.jpg': 'i'
+    },
+    async (root) => {
+      const plan = await createScanPlan(root)
+      const poster = plan.keep.find((item) => item.kind === 'image')
+      assert.equal(poster.relativePath, 'V-poster.jpg')
+      const loser = plan.deleteItems.find((item) => item.kind === 'image')
+      assert.equal(loser.relativePath, 'V.jpg')
+      assert.equal(loser.reason, '未被选为 poster 的候选图')
+      assert.equal(plan.pendingPick.length, 0)
+    }
+  )
+})
+
+test('one video with multiple images: exact same name wins when no -poster exists', async () => {
+  await withFixture(
+    {
+      'W.mp4': 'v',
+      'W.jpg': 'i',
+      'W .jpg': 'i' // 归一化后同为 w，但词干不完全相同
+    },
+    async (root) => {
+      const plan = await createScanPlan(root)
+      const poster = plan.keep.find((item) => item.kind === 'image')
+      assert.equal(poster.relativePath, 'W.jpg')
+      assert.equal(plan.pendingPick.length, 0)
+    }
+  )
+})
+
+test('one video with multiple indistinguishable images goes to pendingPick', async () => {
+  await withFixture(
+    {
+      'X.mp4': 'v',
+      'X .jpg': 'i',
+      'X_.jpg': 'i'
+    },
+    async (root) => {
+      const plan = await createScanPlan(root)
+      // 视频保留，但两张图都不删也不留，等待人工选择
+      assert.equal(plan.keep.length, 1)
+      assert.equal(plan.keep[0].kind, 'video')
+      assert.equal(plan.deleteItems.length, 0)
+      assert.equal(plan.pendingPick.length, 1)
+      assert.equal(plan.pendingPick[0].video, 'X.mp4')
+      assert.deepEqual(plan.pendingPick[0].candidates.sort(), ['X .jpg', 'X_.jpg'].sort())
+      assert.equal(plan.conflicts[0].type, 'video-multi-image')
+    }
+  )
+})
+
+test('one image matching multiple videos is an ambiguity conflict', async () => {
+  await withFixture(
+    {
+      'Dup.mp4': 'v',
+      'Dup .mkv': 'v',
+      'Dup.jpg': 'i'
+    },
+    async (root) => {
+      const plan = await createScanPlan(root)
+      // 两个视频都保留但都没有 poster；图片歧义删除
+      assert.equal(plan.keep.length, 2)
+      assert.ok(plan.keep.every((item) => item.kind === 'video'))
+      assert.equal(plan.deleteItems.length, 1)
+      assert.equal(plan.deleteItems[0].reason, '图片匹配多个视频，按规则不保留')
+      assert.equal(plan.conflicts.length, 1)
+      assert.equal(plan.conflicts[0].type, 'image-multi-video')
+    }
+  )
+})
+
+test('scan plan is read-only and never touches the filesystem', async () => {
+  await withFixture(
+    {
+      'Movie A.mp4': 'v',
+      'Orphan.jpg': 'i',
+      [join('sub', 'Movie C.mp4')]: 'v'
+    },
+    async (root) => {
+      await createScanPlan(root)
+      // 所有文件原样存在
+      const { access } = await import('node:fs/promises')
+      await access(join(root, 'Movie A.mp4'))
+      await access(join(root, 'Orphan.jpg'))
+      await access(join(root, 'sub', 'Movie C.mp4'))
+    }
+  )
 })

@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: media-scraper-desktop
+appId: com.mediascraper.desktop
+productName: Media Scraper
 directories:
   buildResources: build
 files:
@@ -11,8 +11,9 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+  - node_modules/ffprobe-static/**
 win:
-  executableName: media-scraper-desktop
+  executableName: MediaScraper
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
