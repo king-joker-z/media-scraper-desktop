@@ -1,7 +1,8 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { createScanPlan } from './scanner.mjs'
 
 function createWindow(): void {
   // Create the browser window.
@@ -49,8 +50,11 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  ipcMain.handle('dialog:select-workspace', async () => {
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    return result.canceled ? null : result.filePaths[0]
+  })
+  ipcMain.handle('workspace:scan-plan', async (_event, root: string) => createScanPlan(root))
 
   createWindow()
 
