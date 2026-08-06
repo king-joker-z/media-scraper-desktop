@@ -26,6 +26,8 @@ function PosterPage({
   const [selections, setSelections] = useState<Selections>({})
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  // 封面保存后递增，给图片 URL 加版本号破除 Chromium 图片缓存
+  const [coverEpoch, setCoverEpoch] = useState(0)
 
   const refresh = async (): Promise<void> => {
     if (!workspace) return
@@ -129,6 +131,7 @@ function PosterPage({
         for (const rel of savedRel) delete next[rel]
         return next
       })
+      setCoverEpoch((epoch) => epoch + 1)
       setNotice(
         `批量保存完成：成功 ${report.savedCount} 个` +
           (report.failedCount ? `，失败 ${report.failedCount} 个` : '') +
@@ -225,7 +228,11 @@ function PosterPage({
               >
                 <span className="video-thumb">
                   {cover ? (
-                    <img src={mediaUrl(cover)} alt={video.name} loading="lazy" />
+                    <img
+                      src={`${mediaUrl(cover)}?v=${coverEpoch}`}
+                      alt={video.name}
+                      loading="lazy"
+                    />
                   ) : (
                     <span className="video-thumb-empty">🎬</span>
                   )}
@@ -250,12 +257,14 @@ function PosterPage({
           workspace={workspace}
           candidates={candidatesMap[detail.relativePath] ?? []}
           selection={selections[detail.relativePath] ?? detail.posterPath}
+          version={coverEpoch}
           onSelect={(frame) => setSelections((prev) => ({ ...prev, [detail.relativePath]: frame }))}
           onCandidates={(frames) =>
             setCandidatesMap((prev) => ({ ...prev, [detail.relativePath]: frames }))
           }
           onSaved={(savedPath) => {
             const rel = detail.relativePath
+            setCoverEpoch((epoch) => epoch + 1)
             setVideos((prev) =>
               prev.map((v) => (v.relativePath === rel ? { ...v, posterPath: savedPath } : v))
             )

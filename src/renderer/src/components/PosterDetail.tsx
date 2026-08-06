@@ -8,6 +8,7 @@ function PosterDetail({
   workspace,
   candidates,
   selection,
+  version,
   onSelect,
   onCandidates,
   onSaved,
@@ -17,6 +18,8 @@ function PosterDetail({
   workspace: string
   candidates: string[]
   selection: string | null
+  /** 封面保存版本号，用于破除图片缓存 */
+  version: number
   onSelect: (frame: string) => void
   onCandidates: (frames: string[]) => void
   onSaved: (savedPath: string) => void
@@ -138,7 +141,7 @@ function PosterDetail({
               className={`candidate ${selection === frame ? 'selected' : ''}`}
               onClick={() => onSelect(frame)}
             >
-              <img src={mediaUrl(frame)} alt="候选帧" loading="lazy" />
+              <img src={`${mediaUrl(frame)}?v=${version}`} alt="候选帧" loading="lazy" />
               {frame === video.posterPath && <span className="candidate-tag">当前封面</span>}
             </button>
           ))}

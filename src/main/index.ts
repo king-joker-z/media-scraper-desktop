@@ -1,9 +1,9 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron'
-import { join, sep } from 'path'
+import { extname, join, sep } from 'path'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { createScanPlan } from './core/scanner.mjs'
+import { createScanPlan, IMAGE_EXTENSIONS } from './core/scanner.mjs'
 import { createSettingsStore } from './core/settings.mjs'
 import { createTaskCenter } from './core/task-center.mjs'
 import { resolveFfmpegPath } from './core/frames.mjs'
@@ -264,14 +264,31 @@ function registerIpcHandlers(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.mediascraper.desktop')
 
-  protocol.handle('media', (request) => {
+  protocol.handle('media', async (request) => {
     // 渲染端格式：media://local<encodeURI(绝对路径)>
     const decoded = decodeURIComponent(new URL(request.url).pathname)
     const filePath = /^\/[A-Za-z]:/.test(decoded) ? decoded.slice(1) : decoded
     if (!isMediaAllowed(filePath)) {
       return new Response('Forbidden', { status: 403 })
     }
-    return net.fetch(pathToFileURL(filePath).toString())
+    // 视频拖动进度条依赖 Range 请求，透传给文件读取
+    const fetchHeaders = new Headers()
+    const range = request.headers.get('range')
+    if (range) fetchHeaders.set('range', range)
+    const response = await net.fetch(pathToFileURL(filePath).toString(), {
+      headers: fetchHeaders
+    })
+    // 封面保存是同路径就地覆盖写入，必须禁止图片缓存，否则界面展示旧图
+    if (IMAGE_EXTENSIONS.has(extname(filePath).toLowerCase())) {
+      const headers = new Headers(response.headers)
+      headers.set('Cache-Control', 'no-store')
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+      })
+    }
+    return response
   })
 
   app.on('browser-window-created', (_, window) => {
