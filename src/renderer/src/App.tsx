@@ -6,6 +6,7 @@ import PosterPage from './pages/PosterPage'
 import RenamePage from './pages/RenamePage'
 import SettingsPage from './pages/SettingsPage'
 import TaskCenter from './components/TaskCenter'
+import TaskProgress from './components/TaskProgress'
 
 export type PageKey = 'clean' | 'merge' | 'rename' | 'poster' | 'nfo' | 'settings'
 
@@ -92,6 +93,7 @@ function App(): React.JSX.Element {
         <div className="sidebar-footer">v1.0.0 · 本地处理，隐私安全</div>
       </aside>
       <main className="content">{renderPage()}</main>
+      <TaskProgress />
       <TaskCenter />
     </div>
   )

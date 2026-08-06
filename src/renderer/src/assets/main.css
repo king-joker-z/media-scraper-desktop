@@ -794,6 +794,75 @@ h2 {
   font-size: 10px;
 }
 
+/* ---------- 全局任务进度条 ---------- */
+.task-progress-stack {
+  position: fixed;
+  right: 22px;
+  bottom: 84px;
+  z-index: 60;
+  display: grid;
+  gap: 10px;
+  width: 320px;
+}
+.task-progress-card {
+  padding: 12px 14px;
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-pop);
+  display: grid;
+  gap: 8px;
+  animation: slide-up 0.18s ease;
+}
+@keyframes slide-up {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.task-progress-card.finished {
+  opacity: 0.85;
+}
+.task-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+.task-progress-head span {
+  color: var(--label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.task-progress-head em {
+  font-style: normal;
+}
+.progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--fill-quaternary);
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+.progress-bar.cancelled {
+  background: var(--warning);
+}
+.task-progress-current {
+  margin: 0;
+  font-size: 11px;
+  color: var(--label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- 重命名 / NFO ---------- */
 .mode-tabs {
   display: flex;
@@ -851,6 +920,10 @@ h2 {
   border-bottom: 1px solid var(--separator);
   font-size: 12px;
 }
+/* 长无空格文本（URL 编码名等）必须可断行，防止溢出重叠 */
+.rename-row > span {
+  min-width: 0;
+}
 .rename-row.rename-head {
   color: var(--label-tertiary);
   font-size: 11px;
@@ -883,8 +956,15 @@ h2 {
 .rename-new small {
   color: var(--label-tertiary);
   flex-shrink: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 .ok-text {
+  color: var(--success);
+}
+.notice-inline {
+  margin: 4px 0;
+  font-size: 13px;
   color: var(--success);
 }
 

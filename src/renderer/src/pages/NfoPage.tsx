@@ -163,8 +163,7 @@ function NfoPage({
                 </span>
                 <span className="rename-new">
                   <small>
-                    {item.targetDir}/ → {item.stem} 视频
-                    {item.posterRel ? ' + poster' : ''} + {item.targetDir}.nfo
+                    {item.targetDir}/（视频{item.posterRel ? ' + poster' : ''} + nfo）
                   </small>
                 </span>
                 <span className="rename-status">

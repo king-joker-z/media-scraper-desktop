@@ -334,18 +334,18 @@ function RenamePage({
               <p className="muted">
                 只修改文件后缀。真实容器非 MP4 的文件可能被部分播放器拒绝，请先探测。
               </p>
-              <div className="actions">
-                <button
-                  className="secondary"
-                  onClick={runProbe}
-                  disabled={loading || pairs.length === 0}
-                >
-                  {loading ? '探测中…' : '探测真实容器'}
-                </button>
-                {riskyExtCount > 0 && (
-                  <span className="danger-text">⚠️ {riskyExtCount} 个文件真实容器不是 MP4</span>
-                )}
-              </div>
+              {pairs.length === 0 ? (
+                <p className="notice-inline">✅ 所有视频均已是 .mp4 扩展名，无需处理。</p>
+              ) : (
+                <div className="actions">
+                  <button className="secondary" onClick={runProbe} disabled={loading}>
+                    {loading ? '探测中…' : `探测真实容器（${pairs.length}）`}
+                  </button>
+                  {riskyExtCount > 0 && (
+                    <span className="danger-text">⚠️ {riskyExtCount} 个文件真实容器不是 MP4</span>
+                  )}
+                </div>
+              )}
             </section>
           )}
 
