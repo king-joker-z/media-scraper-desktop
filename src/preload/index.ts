@@ -5,6 +5,9 @@ import type {
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  MergeResult,
+  MergeSourceItem,
+  MergeVideoItem,
   NfoPlan,
   NfoPlanItem,
   NfoReport,
@@ -55,6 +58,19 @@ const api = {
   executeNfoArchive: (root: string, items: NfoPlanItem[], actorName: string): Promise<NfoReport> =>
     ipcRenderer.invoke('nfo:execute', root, items, actorName),
   cancelNfo: (): Promise<void> => ipcRenderer.invoke('nfo:cancel'),
+  scanMergeVideos: (root: string): Promise<{ videos: MergeVideoItem[]; freeBytes: number }> =>
+    ipcRenderer.invoke('merge:scan', root),
+  executeMerge: (root: string, items: MergeVideoItem[], outputName: string): Promise<MergeResult> =>
+    ipcRenderer.invoke('merge:execute', root, items, outputName),
+  deleteMergeSources: (
+    root: string,
+    items: MergeSourceItem[]
+  ): Promise<{
+    cancelled: boolean
+    deletedCount: number
+    failed: { target: string; error: string }[]
+  }> => ipcRenderer.invoke('merge:delete-sources', root, items),
+  cancelMerge: (): Promise<void> => ipcRenderer.invoke('merge:cancel'),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:update', patch),

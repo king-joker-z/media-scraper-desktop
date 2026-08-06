@@ -4,6 +4,9 @@ import type {
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  MergeResult,
+  MergeSourceItem,
+  MergeVideoItem,
   NfoPlan,
   NfoPlanItem,
   NfoReport,
@@ -53,6 +56,21 @@ declare global {
         actorName: string
       ) => Promise<NfoReport>
       cancelNfo: () => Promise<void>
+      scanMergeVideos: (root: string) => Promise<{ videos: MergeVideoItem[]; freeBytes: number }>
+      executeMerge: (
+        root: string,
+        items: MergeVideoItem[],
+        outputName: string
+      ) => Promise<MergeResult>
+      deleteMergeSources: (
+        root: string,
+        items: MergeSourceItem[]
+      ) => Promise<{
+        cancelled: boolean
+        deletedCount: number
+        failed: { target: string; error: string }[]
+      }>
+      cancelMerge: () => Promise<void>
       getSettings: () => Promise<AppSettings>
       updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>
       onTaskEvent: (callback: (event: TaskEvent) => void) => () => void

@@ -161,7 +161,10 @@ function NfoPage({
                 <span className="rename-old" title={item.videoRel}>
                   {item.videoRel}
                 </span>
-                <span className="rename-new">
+                <span
+                  className="rename-new nfo-structure"
+                  title={`${item.targetDir}/（视频${item.posterRel ? ' + poster' : ''} + nfo）`}
+                >
                   <small>
                     {item.targetDir}/（视频{item.posterRel ? ' + poster' : ''} + nfo）
                   </small>

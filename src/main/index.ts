@@ -12,6 +12,8 @@ import { executeCleanPlan } from './modules/clean/execute.mjs'
 import { executeRename } from './modules/rename/execute.mjs'
 import { requestAiNames } from './modules/rename/ai.mjs'
 import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
+import { deleteMergeSources, mergeVideos } from './modules/merge/merge.mjs'
+import { diskFreeBytes } from './core/fs-ops.mjs'
 import {
   captureAt,
   captureCandidates,
@@ -22,6 +24,8 @@ import {
 import type {
   AiFileInput,
   AppSettings,
+  MergeSourceItem,
+  MergeVideoItem,
   NfoPlanItem,
   PosterPicks,
   PosterVideoItem,
@@ -137,6 +141,7 @@ let activeCleanTaskId: string | null = null
 let activePosterTaskId: string | null = null
 let activeRenameTaskId: string | null = null
 let activeNfoTaskId: string | null = null
+let activeMergeAbort: AbortController | null = null
 
 function registerIpcHandlers(): void {
   ipcMain.handle('dialog:select-workspace', async () => {
@@ -347,6 +352,80 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle('nfo:cancel', async () => {
     if (activeNfoTaskId) taskCenter.cancel(activeNfoTaskId)
+  })
+
+  // ---------- 模块二：视频合并 ----------
+  ipcMain.handle('merge:scan', async (_event, root: string) => {
+    allowMediaRoot(root)
+    const videos = await listPosterVideos(root)
+    const settings = await settingsStore.get()
+    const probed = await taskCenter.run({
+      taskId: `merge-probe-${Date.now()}`,
+      label: '读取媒体信息',
+      items: videos,
+      concurrency: settings.concurrency,
+      worker: async (video) => {
+        try {
+          return { ...video, media: await probeMedia(video.path, resolveFfprobePath()) }
+        } catch {
+          return { ...video, media: null }
+        }
+      }
+    })
+    const freeBytes = await diskFreeBytes(root).catch(() => 0)
+    return {
+      videos: probed.results.map((entry, index) =>
+        entry.ok ? entry.value : { ...videos[index], media: null }
+      ),
+      freeBytes
+    }
+  })
+  ipcMain.handle(
+    'merge:execute',
+    async (_event, root: string, items: MergeVideoItem[], outputName: string) => {
+      if (activeMergeAbort) throw new Error('已有合并任务在执行中')
+      const taskId = `merge-${Date.now()}`
+      const abort = new AbortController()
+      activeMergeAbort = abort
+      const emit = (type: TaskEvent['type'], percent: number, stage: string): void =>
+        broadcastTaskEvent({
+          type,
+          taskId,
+          label: '视频合并',
+          total: 100,
+          completed: percent,
+          failed: 0,
+          current: stage,
+          at: Date.now()
+        })
+      try {
+        emit('start', 0, '准备合并')
+        const result = await mergeVideos({
+          items: items.map((item) => ({ path: item.path, name: item.name, media: item.media })),
+          outputDir: root,
+          outputName,
+          ffmpegPath: resolveFfmpegPath(),
+          ffprobePath: resolveFfprobePath(),
+          signal: abort.signal,
+          onProgress: (percent, stage) => emit('progress', percent, stage)
+        })
+        emit(result.cancelled ? 'cancelled' : 'done', 100, result.verifyNote)
+        return result
+      } finally {
+        activeMergeAbort = null
+      }
+    }
+  )
+  ipcMain.handle('merge:delete-sources', async (_event, root: string, items: MergeSourceItem[]) => {
+    const settings = await settingsStore.get()
+    return deleteMergeSources(root, items, {
+      taskCenter,
+      taskId: `merge-clean-${Date.now()}`,
+      concurrency: settings.concurrency
+    })
+  })
+  ipcMain.handle('merge:cancel', async () => {
+    activeMergeAbort?.abort()
   })
 }
 

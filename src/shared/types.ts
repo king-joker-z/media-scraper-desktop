@@ -246,4 +246,55 @@ export interface MediaInfo {
   videoCodec: string | null
   audioCodec: string | null
   fps: number
+  /** 视频像素格式（如 yuv420p），无视频流时为 null */
+  pixFmt: string | null
+  /** 音频采样率 Hz */
+  sampleRate: number | null
+  /** 音频声道数 */
+  channels: number | null
+}
+
+/* ------------------------- 模块二：视频合并 ------------------------- */
+
+export interface MergeVideoItem extends PosterVideoItem {
+  media: MediaInfo | null
+}
+
+export type MergeMode = 'all' | 'landscape' | 'portrait' | 'custom'
+
+export interface MergeCompatibility {
+  compatible: boolean
+  /** 不兼容原因（中文可读） */
+  reasons: string[]
+  /** 转码统一目标参数（取首个片段） */
+  target: {
+    width: number
+    height: number
+    fps: number
+    pixFmt: string
+  } | null
+}
+
+export interface MergePlanInfo {
+  outputName: string
+  totalBytes: number
+  totalDurationMs: number
+  estimatedBytes: number
+  freeBytes: number
+  compatibility: MergeCompatibility
+}
+
+export interface MergeResult {
+  cancelled: boolean
+  outputPath: string | null
+  verified: boolean
+  /** 校验结论描述 */
+  verifyNote: string
+  transcoded: boolean
+  error?: string
+}
+
+export interface MergeSourceItem {
+  videoRel: string
+  posterRel: string | null
 }

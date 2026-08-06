@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import CleanPage from './pages/CleanPage'
+import MergePage from './pages/MergePage'
 import NfoPage from './pages/NfoPage'
-import PlaceholderPage from './pages/PlaceholderPage'
 import PosterPage from './pages/PosterPage'
 import RenamePage from './pages/RenamePage'
 import SettingsPage from './pages/SettingsPage'
@@ -36,17 +36,7 @@ function App(): React.JSX.Element {
         return <CleanPage workspace={workspace} onChooseWorkspace={chooseWorkspace} />
       case 'merge':
         return (
-          <PlaceholderPage
-            icon="🎬"
-            title="视频物理合并"
-            milestone="M4"
-            points={[
-              '缩略图列表：标题 / 大小 / 时长 / 分辨率 / 方向 / 编码',
-              '全合并 · 横屏合并 · 竖屏合并 · 自由组合（拖拽排序）',
-              '兼容素材无重编码秒级拼接，不兼容自动转码统一',
-              '合并校验通过后才会列出源片段删除清单'
-            ]}
-          />
+          <MergePage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
         )
       case 'rename':
         return (

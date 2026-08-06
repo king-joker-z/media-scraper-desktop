@@ -60,7 +60,10 @@ export function parseProbeJson(raw) {
     orientation: width >= height ? 'landscape' : 'portrait',
     videoCodec: video?.codec_name ?? null,
     audioCodec: audio?.codec_name ?? null,
-    fps: parseFrameRate(video?.r_frame_rate)
+    fps: parseFrameRate(video?.r_frame_rate),
+    pixFmt: video?.pix_fmt ?? null,
+    sampleRate: audio?.sample_rate ? Number(audio.sample_rate) : null,
+    channels: audio?.channels ? Number(audio.channels) : null
   }
 }
 

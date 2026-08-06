@@ -1,4 +1,4 @@
-import { access, mkdir, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, rename, rm, rmdir, statfs, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 
 /**
@@ -57,6 +57,18 @@ export async function renameWithCollision(from, newName) {
   const target = await ensureUniquePath(desired)
   await rename(from, target)
   return target
+}
+
+/** 确保目录存在（递归创建）。 */
+export async function ensureDir(dir) {
+  await mkdir(dir, { recursive: true })
+  return dir
+}
+
+/** 目标目录所在磁盘剩余空间（字节）。 */
+export async function diskFreeBytes(dir) {
+  const stats = await statfs(dir)
+  return Number(stats.bavail) * Number(stats.bsize)
 }
 
 /** 读取目录条目名；目录不存在返回空数组。 */
