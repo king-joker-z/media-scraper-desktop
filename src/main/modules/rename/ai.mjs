@@ -18,6 +18,7 @@ const SYSTEM_MESSAGE = [
   '你是文件重命名助手。用户会按编号给出多个文件的信息与命名要求。',
   '你必须只输出一个 JSON 字符串数组（不要输出任何其他文字、解释或 markdown 代码块），',
   '数组顺序与输入编号一一对应，元素为不含扩展名的新文件名。',
+  '每个文件独立命名：只依据该文件自身的信息，不要参考或复用其他文件的输出。',
   '新文件名不得包含 \\ / : * ? " < > | 这些字符。'
 ].join('\n')
 
@@ -64,7 +65,8 @@ export async function requestAiNames({
   model,
   template,
   files,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  onBatch
 }) {
   if (!token) throw new Error('当前平台未配置 API Token，请先到设置页填写')
   if (!baseUrl) throw new Error('当前平台未配置 baseUrl')
@@ -96,6 +98,7 @@ export async function requestAiNames({
       throw new Error(`AI 返回数量（${chunkNames.length}）与请求数量（${chunk.length}）不一致`)
     }
     names.push(...chunkNames.map((name) => String(name).trim()))
+    onBatch?.(names.length)
   }
   return names
 }

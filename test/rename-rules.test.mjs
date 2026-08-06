@@ -6,7 +6,8 @@ import {
   compareTitles,
   padSeq,
   sortVideos,
-  validateStems
+  validateStems,
+  withSequencePrefix
 } from '../src/shared/rename-rules.mjs'
 
 test('padSeq pads with zeros and respects digits', () => {
@@ -50,6 +51,20 @@ test('buildSequenceStems generates padded serial with separator', () => {
   assert.deepEqual(pairs, [
     { videoRel: 'a.mp4', newStem: '01.a' },
     { videoRel: 'b.mp4', newStem: '02.b' }
+  ])
+})
+
+test('withSequencePrefix prefixes stems in given order', () => {
+  const out = withSequencePrefix(
+    [
+      { videoRel: 'a.mp4', stem: '干净的 a' },
+      { videoRel: 'b.mp4', stem: '干净的 b' }
+    ],
+    { digits: 3, separator: '.' }
+  )
+  assert.deepEqual(out, [
+    { videoRel: 'a.mp4', newStem: '001.干净的 a' },
+    { videoRel: 'b.mp4', newStem: '002.干净的 b' }
   ])
 })
 

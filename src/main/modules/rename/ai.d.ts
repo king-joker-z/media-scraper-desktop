@@ -19,5 +19,7 @@ declare module './ai.mjs' {
     template: string
     files: AiFileInput[]
     fetchImpl?: typeof fetch
+    /** 每批完成回调：已完成数量 */
+    onBatch?: (done: number) => void
   }): Promise<string[]>
 }

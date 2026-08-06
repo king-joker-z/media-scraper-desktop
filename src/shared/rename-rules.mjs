@@ -44,6 +44,18 @@ export function buildSequenceStems(
 }
 
 /**
+ * 为已排序的词干列表添加序号前缀（AI 命名后叠加序号等场景复用）。
+ * @param {Array<{videoRel: string, stem: string}>} items 已按期望顺序排列
+ * @returns {Array<{videoRel: string, newStem: string}>}
+ */
+export function withSequencePrefix(items, { digits = 2, separator = '.' } = {}) {
+  return items.map((item, index) => ({
+    videoRel: item.videoRel,
+    newStem: `${padSeq(index + 1, digits)}${separator}${item.stem}`
+  }))
+}
+
+/**
  * 依次应用正则规则清洗词干；非法规则跳过。
  * @param {string} stem
  * @param {Array<{pattern: string, replacement: string, flags: string}>} rules

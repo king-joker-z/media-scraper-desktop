@@ -305,13 +305,35 @@ function registerIpcHandlers(): void {
   ipcMain.handle('rename:ai', async (_event, files: AiFileInput[]) => {
     const settings = await settingsStore.get()
     const provider = activeProvider(settings)
-    return requestAiNames({
-      baseUrl: provider.baseUrl,
-      token: provider.token,
-      model: provider.selectedModel,
-      template: settings.promptTemplate,
-      files
-    })
+    // 接入全局进度条：AI 生成按批次上报进度
+    const taskId = `ai-${Date.now()}`
+    const emit = (type: TaskEvent['type'], completed: number, stage: string): void =>
+      broadcastTaskEvent({
+        type,
+        taskId,
+        label: `AI 生成命名（${provider.name}）`,
+        total: files.length,
+        completed,
+        failed: 0,
+        current: stage,
+        at: Date.now()
+      })
+    try {
+      emit('start', 0, provider.selectedModel)
+      const names = await requestAiNames({
+        baseUrl: provider.baseUrl,
+        token: provider.token,
+        model: provider.selectedModel,
+        template: settings.promptTemplate,
+        files,
+        onBatch: (done) => emit('progress', done, `已生成 ${done}/${files.length}`)
+      })
+      emit('done', files.length, '完成')
+      return names
+    } catch (error) {
+      emit('done', 0, '失败')
+      throw error
+    }
   })
   ipcMain.handle('rename:execute', async (_event, root: string, pairs: RenamePairInput[]) => {
     if (activeRenameTaskId) throw new Error('已有重命名任务在执行中')

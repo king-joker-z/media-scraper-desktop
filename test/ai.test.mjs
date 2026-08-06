@@ -122,12 +122,14 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
     fileName: `f${i}`,
     extension: '.mp4'
   }))
+  const batchReports = []
   const names = await requestAiNames({
     baseUrl: 'https://x',
     token: 'sk',
     model: 'm',
     template: '',
     files,
+    onBatch: (done) => batchReports.push(done),
     fetchImpl: async (_url, init) => {
       calls += 1
       const count = JSON.parse(init.body).messages[1].content.split('\n\n').length
@@ -145,4 +147,5 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
   })
   assert.equal(calls, 3) // 50 + 50 + 20
   assert.equal(names.length, 120)
+  assert.deepEqual(batchReports, [50, 100, 120]) // 进度回调累计
 })

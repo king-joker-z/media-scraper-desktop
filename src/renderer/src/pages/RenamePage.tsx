@@ -12,7 +12,8 @@ import {
   extOfName,
   sortVideos,
   stemOfName,
-  validateStems
+  validateStems,
+  withSequencePrefix
 } from '../../../shared/rename-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
 
@@ -53,7 +54,7 @@ function RenamePage({
   const [activeRules, setActiveRules] = useState<number[]>([0])
   const [customRule, setCustomRule] = useState({ pattern: '', replacement: '', flags: 'g' })
   const [useCustom, setUseCustom] = useState(false)
-  const [aiNames, setAiNames] = useState<string[] | null>(null)
+  const [aiNamesMap, setAiNamesMap] = useState<Record<string, string> | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [probes, setProbes] = useState<Record<string, ProbeContainerItem>>({})
   const [edits, setEdits] = useState<Record<string, string>>({})
@@ -78,7 +79,7 @@ function RenamePage({
     setLoading(true)
     setError('')
     setReport(null)
-    setAiNames(null)
+    setAiNamesMap(null)
     setEdits({})
     setProbes({})
     try {
@@ -109,9 +110,19 @@ function RenamePage({
         .map((v) => withPoster(v, stemOfName(v.name), '.mp4'))
     }
     if (mode === 'ai') {
-      if (!aiNames) return []
-      const sorted = sortVideos(videos, 'title', 'asc')
-      return sorted.map((v, index) => withPoster(v, aiNames[index] ?? stemOfName(v.name)))
+      if (!aiNamesMap) return []
+      // AI 命名后叠加序号前缀，排序/位数/分隔符与纯序号一致
+      const sorted = sortVideos(videos, seq.sortBy, seq.order)
+      return withSequencePrefix(
+        sorted.map((v) => ({
+          videoRel: v.relativePath,
+          stem: aiNamesMap[v.relativePath] ?? stemOfName(v.name)
+        })),
+        seq
+      ).map((p) => {
+        const video = videos.find((v) => v.relativePath === p.videoRel)
+        return withPoster(video!, p.newStem)
+      })
     }
     if (mode === 'regex') {
       const rules = [
@@ -132,7 +143,7 @@ function RenamePage({
       const video = videos.find((v) => v.relativePath === p.videoRel)
       return withPoster(video!, p.newStem)
     })
-  }, [videos, mode, seq, templates, activeRules, customRule, useCustom, aiNames])
+  }, [videos, mode, seq, templates, activeRules, customRule, useCustom, aiNamesMap])
 
   /** 用户手动编辑覆盖 */
   const pairs = useMemo(
@@ -170,7 +181,11 @@ function RenamePage({
           extension: extOfName(v.name)
         }))
       )
-      setAiNames(names)
+      setAiNamesMap(
+        Object.fromEntries(
+          sorted.map((v, index) => [v.relativePath, names[index] ?? stemOfName(v.name)])
+        )
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -331,9 +346,14 @@ function RenamePage({
                 )}
                 。仅发送文件名与父目录名，不上传视频；平台/模型/prompt 均可在设置页调整。
               </p>
+              <p className="muted">
+                全部文件名按编号一次性批量发送（每 50 个一批，统一返回），每个名称独立生成互不影响；
+                返回后自动叠加序号前缀：
+              </p>
+              <SeqControls seq={seq} onChange={setSeq} />
               <div className="actions">
                 <button onClick={runAi} disabled={aiLoading || videos.length === 0}>
-                  {aiLoading ? 'AI 生成中…' : aiNames ? '重新生成' : '生成 AI 命名'}
+                  {aiLoading ? 'AI 生成中…' : aiNamesMap ? '重新生成' : '生成 AI 命名'}
                 </button>
               </div>
             </section>
