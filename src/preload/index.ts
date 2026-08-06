@@ -4,6 +4,7 @@ import type {
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  PosterBatchSaveReport,
   PosterPicks,
   PosterSaveResult,
   PosterVideoItem,
@@ -31,6 +32,10 @@ const api = {
     chosenFramePath: string
     oldPosterPath: string | null
   }): Promise<PosterSaveResult> => ipcRenderer.invoke('poster:save', payload),
+  savePostersBatch: (
+    videos: PosterVideoItem[],
+    selections: Record<string, string>
+  ): Promise<PosterBatchSaveReport> => ipcRenderer.invoke('poster:save-batch', videos, selections),
   cancelPosterCapture: (): Promise<void> => ipcRenderer.invoke('poster:cancel'),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>

@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { PosterVideoItem } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
+import PosterDetail from '../components/PosterDetail'
 import { formatBytes } from '../utils/format'
 import { mediaUrl } from '../utils/media'
+
+type Selections = Record<string, string>
+type CandidatesMap = Record<string, string[]>
 
 function PosterPage({
   workspace,
@@ -15,7 +19,12 @@ function PosterPage({
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
   const [capturing, setCapturing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [confirmingBatch, setConfirmingBatch] = useState(false)
   const [detail, setDetail] = useState<PosterVideoItem | null>(null)
+  const [candidatesMap, setCandidatesMap] = useState<CandidatesMap>({})
+  const [selections, setSelections] = useState<Selections>({})
+  const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
   const refresh = async (): Promise<void> => {
@@ -32,26 +41,103 @@ function PosterPage({
     }
   }
 
-  const noPoster = useMemo(() => videos.filter((v) => !v.posterPath), [videos])
+  /** 卡片实际展示的封面：显式选择 > 现存 poster > 首个候选帧 */
+  const effectiveCover = (video: PosterVideoItem): string | null =>
+    selections[video.relativePath] ??
+    video.posterPath ??
+    candidatesMap[video.relativePath]?.[0] ??
+    null
 
+  /** 待确认 = 显式选择了与现存 poster 不同的帧 */
+  const pending = useMemo(
+    () =>
+      videos.filter((video) => {
+        const selected = selections[video.relativePath]
+        return selected && selected !== video.posterPath
+      }),
+    [videos, selections]
+  )
+  const replaceCount = pending.filter((video) => video.posterPath).length
+  const withoutCandidates = useMemo(
+    () => videos.filter((video) => !candidatesMap[video.relativePath]),
+    [videos, candidatesMap]
+  )
+
+  /** 为全部尚未生成候选的视频截帧（含已有封面的，原封面仍是默认选中） */
   const captureAll = async (): Promise<void> => {
-    if (!workspace || noPoster.length === 0) return
+    if (!workspace || withoutCandidates.length === 0) return
     setCapturing(true)
     setError('')
+    setNotice('')
     try {
       const { outcomes } = await window.api.capturePosters(
         workspace,
-        noPoster.map((v) => v.relativePath)
+        withoutCandidates.map((v) => v.relativePath)
       )
-      const failed = outcomes.filter((o) => o.error)
-      if (failed.length > 0) {
-        setError(`${failed.length} 个视频截帧失败：${failed[0].relativePath} 等`)
+      const nextCandidates: CandidatesMap = {}
+      const nextSelections: Selections = {}
+      const failed: string[] = []
+      for (const outcome of outcomes) {
+        if (outcome.error || outcome.frames.length === 0) {
+          failed.push(outcome.relativePath)
+          continue
+        }
+        nextCandidates[outcome.relativePath] = outcome.frames
+        // 无封面视频默认选中第一张候选 → 卡片立即渲染首帧
+        const video = videos.find((v) => v.relativePath === outcome.relativePath)
+        if (video && !video.posterPath && !selections[video.relativePath]) {
+          nextSelections[outcome.relativePath] = outcome.frames[0]
+        }
       }
-      await refresh()
+      setCandidatesMap((prev) => ({ ...prev, ...nextCandidates }))
+      setSelections((prev) => ({ ...prev, ...nextSelections }))
+      const ok = Object.keys(nextCandidates).length
+      setNotice(
+        failed.length
+          ? `已生成 ${ok} 个视频的候选帧，${failed.length} 个失败`
+          : `已生成 ${ok} 个视频的候选帧，默认选中第一张，可直接一键确认`
+      )
+      if (failed.length) setError(`截帧失败示例：${failed[0]}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setCapturing(false)
+    }
+  }
+
+  /** 一键确认：批量保存所有"待确认"封面 */
+  const saveBatch = async (): Promise<void> => {
+    setConfirmingBatch(false)
+    setSaving(true)
+    setError('')
+    try {
+      const report = await window.api.savePostersBatch(videos, selections)
+      const savedRel = new Set(report.outcomes.filter((o) => o.saved).map((o) => o.relativePath))
+      setVideos((prev) =>
+        prev.map((video) => {
+          const outcome = report.outcomes.find((o) => o.relativePath === video.relativePath)
+          return outcome?.saved ? { ...video, posterPath: outcome.saved } : video
+        })
+      )
+      setCandidatesMap((prev) => {
+        const next = { ...prev }
+        for (const rel of savedRel) delete next[rel]
+        return next
+      })
+      setSelections((prev) => {
+        const next = { ...prev }
+        for (const rel of savedRel) delete next[rel]
+        return next
+      })
+      setNotice(
+        `批量保存完成：成功 ${report.savedCount} 个` +
+          (report.failedCount ? `，失败 ${report.failedCount} 个` : '') +
+          (report.cancelled ? '（已取消）' : '')
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -62,24 +148,34 @@ function PosterPage({
           <p className="eyebrow">模块四 · 封面管理</p>
           <h1>Poster 封面</h1>
           <p className="muted">
-            无封面视频默认截取 5 张候选（10/30/50/70/90%），点击卡片进入详情手动选帧。
+            为全部视频生成候选帧并默认选中第一张；不满意的进详情换帧，最后一键批量确认。
           </p>
         </div>
         <div className="actions">
-          <button className="secondary" onClick={onChooseWorkspace} disabled={capturing}>
+          <button className="secondary" onClick={onChooseWorkspace} disabled={capturing || saving}>
             选择工作区
           </button>
           <button
             className="secondary"
             onClick={refresh}
-            disabled={!workspace || loading || capturing}
+            disabled={!workspace || loading || capturing || saving}
           >
             {loading ? '扫描中…' : '刷新列表'}
           </button>
-          <button disabled={!workspace || capturing || noPoster.length === 0} onClick={captureAll}>
-            {capturing ? '截帧中…' : `为无封面视频生成候选（${noPoster.length}）`}
+          <button
+            className="secondary"
+            disabled={!workspace || capturing || saving || withoutCandidates.length === 0}
+            onClick={captureAll}
+          >
+            {capturing ? '截帧中…' : `生成候选帧（${withoutCandidates.length}）`}
           </button>
-          {capturing && (
+          <button
+            disabled={pending.length === 0 || saving || capturing}
+            onClick={() => setConfirmingBatch(true)}
+          >
+            {saving ? '保存中…' : `一键确认封面（${pending.length} 待确认）`}
+          </button>
+          {(capturing || saving) && (
             <button className="secondary" onClick={() => window.api.cancelPosterCapture()}>
               取消
             </button>
@@ -93,6 +189,7 @@ function PosterPage({
       </section>
 
       {error && <section className="error-banner">{error}</section>}
+      {notice && <section className="notice-banner">{notice}</section>}
 
       {!workspace && (
         <section className="empty">
@@ -115,27 +212,34 @@ function PosterPage({
 
       {videos.length > 0 && (
         <section className="video-grid">
-          {videos.map((video) => (
-            <button
-              key={video.relativePath}
-              className="video-card"
-              onClick={() => setDetail(video)}
-            >
-              <span className="video-thumb">
-                {video.posterPath ? (
-                  <img src={mediaUrl(video.posterPath)} alt={video.name} loading="lazy" />
-                ) : (
-                  <span className="video-thumb-empty">🎬</span>
-                )}
-              </span>
-              <span className="video-meta">
-                <b>{video.name}</b>
-                <span className="muted">
-                  {formatBytes(video.size)} · {video.posterPath ? '已有封面' : '无封面'}
+          {videos.map((video) => {
+            const cover = effectiveCover(video)
+            const isPending =
+              !!selections[video.relativePath] &&
+              selections[video.relativePath] !== video.posterPath
+            return (
+              <button
+                key={video.relativePath}
+                className="video-card"
+                onClick={() => setDetail(video)}
+              >
+                <span className="video-thumb">
+                  {cover ? (
+                    <img src={mediaUrl(cover)} alt={video.name} loading="lazy" />
+                  ) : (
+                    <span className="video-thumb-empty">🎬</span>
+                  )}
                 </span>
-              </span>
-            </button>
-          ))}
+                <span className="video-meta">
+                  <b>{video.name}</b>
+                  <span className={isPending ? 'pending-text' : 'muted'}>
+                    {formatBytes(video.size)} ·{' '}
+                    {isPending ? '待确认' : video.posterPath ? '已有封面' : '无封面'}
+                  </span>
+                </span>
+              </button>
+            )
+          })}
         </section>
       )}
 
@@ -144,144 +248,45 @@ function PosterPage({
           key={detail.relativePath}
           video={detail}
           workspace={workspace}
-          onClose={() => setDetail(null)}
-          onSaved={async () => {
+          candidates={candidatesMap[detail.relativePath] ?? []}
+          selection={selections[detail.relativePath] ?? detail.posterPath}
+          onSelect={(frame) => setSelections((prev) => ({ ...prev, [detail.relativePath]: frame }))}
+          onCandidates={(frames) =>
+            setCandidatesMap((prev) => ({ ...prev, [detail.relativePath]: frames }))
+          }
+          onSaved={(savedPath) => {
+            const rel = detail.relativePath
+            setVideos((prev) =>
+              prev.map((v) => (v.relativePath === rel ? { ...v, posterPath: savedPath } : v))
+            )
+            setCandidatesMap((prev) => {
+              const next = { ...prev }
+              delete next[rel]
+              return next
+            })
+            setSelections((prev) => {
+              const next = { ...prev }
+              delete next[rel]
+              return next
+            })
             setDetail(null)
-            await refresh()
+            setNotice(`已保存封面：${detail.name}`)
           }}
+          onClose={() => setDetail(null)}
         />
       )}
-    </div>
-  )
-}
 
-function PosterDetail({
-  video,
-  workspace,
-  onClose,
-  onSaved
-}: {
-  video: PosterVideoItem
-  workspace: string
-  onClose: () => void
-  onSaved: () => Promise<void>
-}): React.JSX.Element {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const [candidates, setCandidates] = useState<string[]>([])
-  const [selected, setSelected] = useState<string | null>(video.posterPath)
-  // 无现存封面时初始即为 busy（挂载后自动生成 5 张候选）
-  const [busy, setBusy] = useState(() => !video.posterPath)
-  const [confirming, setConfirming] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (video.posterPath) return
-    let alive = true
-    window.api
-      .capturePosters(workspace, [video.relativePath])
-      .then(({ outcomes }) => {
-        if (!alive) return
-        const frames = outcomes[0]?.frames ?? []
-        setCandidates(frames)
-        if (frames.length > 0) setSelected(frames[0])
-        if (outcomes[0]?.error) setError(outcomes[0].error)
-      })
-      .catch((err) => alive && setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => alive && setBusy(false))
-    return () => {
-      alive = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [video.relativePath])
-
-  const captureCurrent = async (): Promise<void> => {
-    const player = videoRef.current
-    if (!player) return
-    setBusy(true)
-    setError('')
-    try {
-      const frame = await window.api.capturePosterAt(video.path, player.currentTime)
-      setCandidates((prev) => [...prev, frame])
-      setSelected(frame)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const allCandidates = useMemo(
-    () => (video.posterPath ? [video.posterPath, ...candidates] : candidates),
-    [video.posterPath, candidates]
-  )
-
-  const save = async (): Promise<void> => {
-    if (!selected) return
-    setConfirming(false)
-    setBusy(true)
-    setError('')
-    try {
-      await window.api.savePoster({
-        videoPath: video.path,
-        chosenFramePath: selected,
-        oldPosterPath: video.posterPath
-      })
-      await onSaved()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setBusy(false)
-    }
-  }
-
-  const needConfirm = !!video.posterPath && !!selected && selected !== video.posterPath
-
-  return (
-    <div className="dialog-overlay" onClick={onClose}>
-      <div className="detail-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="detail-header">
-          <b>{video.name}</b>
-          <button className="chip-remove" onClick={onClose}>
-            关闭
-          </button>
-        </div>
-        <video ref={videoRef} src={mediaUrl(video.path)} controls className="detail-player" />
-        <div className="detail-actions">
-          <button className="secondary" disabled={busy} onClick={captureCurrent}>
-            截取当前帧
-          </button>
-          <button
-            disabled={!selected || busy}
-            onClick={() => (needConfirm ? setConfirming(true) : save())}
-          >
-            {busy ? '处理中…' : '保存封面'}
-          </button>
-        </div>
-        {error && <p className="danger-text">{error}</p>}
-        <div className="candidate-strip">
-          {busy && allCandidates.length === 0 && <p className="muted">正在截取候选帧…</p>}
-          {allCandidates.map((frame) => (
-            <button
-              key={frame}
-              className={`candidate ${selected === frame ? 'selected' : ''}`}
-              onClick={() => setSelected(frame)}
-            >
-              <img src={mediaUrl(frame)} alt="候选帧" loading="lazy" />
-              {frame === video.posterPath && <span className="candidate-tag">当前封面</span>}
-            </button>
-          ))}
-        </div>
-        {confirming && (
-          <ConfirmDialog
-            title="替换现有封面"
-            deleteCount={1}
-            deleteBytes={0}
-            danger={false}
-            extra={`保存后，旧封面与未选中的候选图将被永久删除，新封面保存为「${video.name.replace(/\.[^.]+$/, '')}-poster.jpg」。`}
-            onConfirm={save}
-            onCancel={() => setConfirming(false)}
-          />
-        )}
-      </div>
+      {confirmingBatch && (
+        <ConfirmDialog
+          title="一键确认封面"
+          deleteCount={replaceCount}
+          deleteBytes={0}
+          danger={replaceCount > 50}
+          extra={`将为 ${pending.length} 个视频保存所选封面（${replaceCount} 个会替换并永久删除旧封面），未选中的候选图将被清理。封面统一保存为「视频名-poster.jpg」。`}
+          onConfirm={saveBatch}
+          onCancel={() => setConfirmingBatch(false)}
+        />
+      )}
     </div>
   )
 }

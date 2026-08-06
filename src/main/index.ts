@@ -12,10 +12,17 @@ import { executeCleanPlan } from './modules/clean/execute.mjs'
 import {
   captureAt,
   captureCandidates,
+  computePendingSaves,
   listPosterVideos,
   savePoster
 } from './modules/poster/poster.mjs'
-import type { AppSettings, PosterPicks, ScanPlan, TaskEvent } from '../shared/types'
+import type {
+  AppSettings,
+  PosterPicks,
+  PosterVideoItem,
+  ScanPlan,
+  TaskEvent
+} from '../shared/types'
 
 const settingsStore = createSettingsStore(join(app.getPath('userData'), 'settings.json'))
 const framesRoot = join(app.getPath('temp'), 'media-scraper-frames')
@@ -208,6 +215,46 @@ function registerIpcHandlers(): void {
       _event,
       payload: { videoPath: string; chosenFramePath: string; oldPosterPath: string | null }
     ) => savePoster(payload)
+  )
+  ipcMain.handle(
+    'poster:save-batch',
+    async (_event, videos: PosterVideoItem[], selections: Record<string, string>) => {
+      if (activePosterTaskId) throw new Error('已有封面任务在执行中')
+      const items = computePendingSaves(videos, selections)
+      if (items.length === 0)
+        return { cancelled: false, savedCount: 0, failedCount: 0, outcomes: [] }
+      const settings = await settingsStore.get()
+      activePosterTaskId = `poster-save-${Date.now()}`
+      const taskId = activePosterTaskId
+      try {
+        const result = await taskCenter.run({
+          taskId,
+          label: '批量保存封面',
+          items,
+          concurrency: settings.concurrency,
+          worker: async (item) => {
+            const saved = await savePoster(item)
+            return { relativePath: item.relativePath, saved: saved.saved }
+          }
+        })
+        const outcomes = result.results.map((entry, index) =>
+          entry.ok
+            ? entry.value
+            : {
+                relativePath: items[index].relativePath,
+                error: entry.cancelled ? '已取消' : (entry.error ?? '未知错误')
+              }
+        )
+        return {
+          cancelled: result.cancelled,
+          savedCount: outcomes.filter((o) => o.saved).length,
+          failedCount: outcomes.filter((o) => o.error).length,
+          outcomes
+        }
+      } finally {
+        activePosterTaskId = null
+      }
+    }
   )
   ipcMain.handle('poster:cancel', async () => {
     if (activePosterTaskId) taskCenter.cancel(activePosterTaskId)

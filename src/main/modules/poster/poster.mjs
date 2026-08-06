@@ -99,6 +99,25 @@ export async function savePoster({ videoPath, chosenFramePath, oldPosterPath }) 
   return { saved: target, deletedOld }
 }
 
+/**
+ * 计算待保存清单（纯函数）：选择项与现存 poster 不一致的视频需要落盘。
+ * @param {Array} videos PosterVideoItem 列表
+ * @param {Record<string, string>} selections relativePath -> 选中的帧/poster 路径
+ */
+export function computePendingSaves(videos, selections) {
+  return videos
+    .filter((video) => {
+      const selected = selections[video.relativePath]
+      return selected && selected !== video.posterPath
+    })
+    .map((video) => ({
+      relativePath: video.relativePath,
+      videoPath: video.path,
+      chosenFramePath: selections[video.relativePath],
+      oldPosterPath: video.posterPath
+    }))
+}
+
 /** 清理指定视频或全部临时候选目录。 */
 export async function cleanupFrames(framesRoot, videoPath) {
   await permanentDelete(videoPath ? framesDirFor(framesRoot, videoPath) : framesRoot)

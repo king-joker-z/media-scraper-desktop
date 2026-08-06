@@ -3,6 +3,7 @@ import type {
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  PosterBatchSaveReport,
   PosterPicks,
   PosterSaveResult,
   PosterVideoItem,
@@ -29,6 +30,10 @@ declare global {
         chosenFramePath: string
         oldPosterPath: string | null
       }) => Promise<PosterSaveResult>
+      savePostersBatch: (
+        videos: PosterVideoItem[],
+        selections: Record<string, string>
+      ) => Promise<PosterBatchSaveReport>
       cancelPosterCapture: () => Promise<void>
       getSettings: () => Promise<AppSettings>
       updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>

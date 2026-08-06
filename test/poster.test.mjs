@@ -7,6 +7,7 @@ import { createScanPlan } from '../src/main/core/scanner.mjs'
 import { pathExists } from '../src/main/core/fs-ops.mjs'
 import { convertToJpg } from '../src/main/core/image.mjs'
 import {
+  computePendingSaves,
   framesDirFor,
   listPosterVideos,
   mapPosterVideos,
@@ -105,4 +106,44 @@ test('savePoster is a no-op when choosing the current poster itself', async () =
 
 test('videoStem strips extension', () => {
   assert.equal(videoStem('/a/b/Movie.Name.mp4'), 'Movie.Name')
+})
+
+test('computePendingSaves only includes videos whose selection differs from current poster', () => {
+  const videos = [
+    {
+      path: '/r/A.mp4',
+      relativePath: 'A.mp4',
+      name: 'A.mp4',
+      size: 1,
+      posterPath: null,
+      posterRelativePath: null
+    },
+    {
+      path: '/r/B.mp4',
+      relativePath: 'B.mp4',
+      name: 'B.mp4',
+      size: 1,
+      posterPath: '/r/B-poster.jpg',
+      posterRelativePath: 'B-poster.jpg'
+    },
+    {
+      path: '/r/C.mp4',
+      relativePath: 'C.mp4',
+      name: 'C.mp4',
+      size: 1,
+      posterPath: '/r/C-poster.jpg',
+      posterRelativePath: 'C-poster.jpg'
+    }
+  ]
+  const selections = {
+    'A.mp4': '/tmp/frames/a1.jpg', // 无封面选了候选帧 → 待保存
+    'B.mp4': '/tmp/frames/b1.jpg', // 有封面但换了帧 → 待保存
+    'C.mp4': '/r/C-poster.jpg' // 选择与原封面一致 → 不保存
+  }
+  const pending = computePendingSaves(videos, selections)
+  assert.equal(pending.length, 2)
+  assert.deepEqual(pending.map((p) => p.relativePath).sort(), ['A.mp4', 'B.mp4'])
+  assert.equal(pending.find((p) => p.relativePath === 'B.mp4').oldPosterPath, '/r/B-poster.jpg')
+  // 未选择的视频也不进入待保存
+  assert.equal(computePendingSaves(videos, {}).length, 0)
 })

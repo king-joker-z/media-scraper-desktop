@@ -22,4 +22,13 @@ declare module './poster.mjs' {
   }): Promise<{ saved: string; deletedOld: string[] }>
   export function cleanupFrames(framesRoot: string, videoPath?: string): Promise<void>
   export function videoStem(videoPath: string): string
+  export function computePendingSaves(
+    videos: PosterVideoItem[],
+    selections: Record<string, string>
+  ): {
+    relativePath: string
+    videoPath: string
+    chosenFramePath: string
+    oldPosterPath: string | null
+  }[]
 }

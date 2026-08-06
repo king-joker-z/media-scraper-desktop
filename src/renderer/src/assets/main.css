@@ -649,6 +649,21 @@ h2 {
   user-select: text;
 }
 
+.notice-banner {
+  padding: 12px 18px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--success) 12%, var(--bg-card));
+  color: var(--success);
+  font-size: 13px;
+  box-shadow: var(--shadow-card);
+}
+.pending-text {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 /* ---------- 封面管理 ---------- */
 .video-grid {
   display: grid;

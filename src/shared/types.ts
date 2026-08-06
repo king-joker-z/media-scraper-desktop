@@ -144,6 +144,19 @@ export interface PosterSaveResult {
   deletedOld: string[]
 }
 
+export interface PosterBatchSaveOutcome {
+  relativePath: string
+  saved?: string
+  error?: string
+}
+
+export interface PosterBatchSaveReport {
+  cancelled: boolean
+  savedCount: number
+  failedCount: number
+  outcomes: PosterBatchSaveOutcome[]
+}
+
 /* ---------------------------- 任务中心 ---------------------------- */
 
 export type TaskEventType = 'start' | 'progress' | 'item-done' | 'item-error' | 'done' | 'cancelled'
