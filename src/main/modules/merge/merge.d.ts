@@ -2,6 +2,11 @@ declare module './merge.mjs' {
   import type { MediaInfo, MergeResult, MergeSourceItem } from '../../../shared/types'
   import type { TaskCenter } from '../../core/task-center.mjs'
 
+  export function mergeWorkDir(
+    items: { path: string }[],
+    target: { width: number; height: number; fps: number; pixFmt: string } | null
+  ): string
+
   export function mergeVideos(options: {
     items: { path: string; name: string; media: MediaInfo | null }[]
     outputDir: string

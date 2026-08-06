@@ -30,6 +30,39 @@ export function buildPrompt(template, { parentFolder, fileName, extension }) {
     .replaceAll('{{extension}}', extension)
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * 带超时与指数退避重试的 fetch：
+ * 网络错误/超时/5xx/429 重试（默认 2 次，1s → 2s），4xx 业务错误不重试。
+ */
+export async function fetchWithRetry(
+  url,
+  init,
+  { fetchImpl = fetch, retries = 2, timeoutMs = 30_000, retryDelayMs = 1000 } = {}
+) {
+  let lastError
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+      if (
+        !response.ok &&
+        (response.status >= 500 || response.status === 429) &&
+        attempt < retries
+      ) {
+        await sleep(retryDelayMs * 2 ** attempt)
+        continue
+      }
+      return response
+    } catch (error) {
+      lastError = error
+      if (attempt >= retries) break
+      await sleep(retryDelayMs * 2 ** attempt)
+    }
+  }
+  throw new Error(`网络请求失败（已重试 ${retries} 次）：${lastError?.message ?? lastError}`)
+}
+
 /** 从模型输出中提取 JSON 数组（容忍 markdown 代码块与前后杂文本） */
 export function extractJsonArray(content) {
   const text = String(content ?? '')
@@ -79,7 +112,8 @@ export async function requestAiNames({
   files,
   fetchImpl = fetch,
   onBatch,
-  useCache = true
+  useCache = true,
+  retryDelayMs = 1000
 }) {
   if (!token) throw new Error('当前平台未配置 API Token，请先到设置页填写')
   if (!baseUrl) throw new Error('当前平台未配置 baseUrl')
@@ -98,23 +132,27 @@ export async function requestAiNames({
 
   for (let i = 0; i < missing.length; i += AI_BATCH_SIZE) {
     const chunk = missing.slice(i, i + AI_BATCH_SIZE)
-    const response = await fetchImpl(chatCompletionsUrl(baseUrl), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://github.com/king-joker-z/media-scraper-desktop',
-        'X-Title': 'Media Scraper'
+    const response = await fetchWithRetry(
+      chatCompletionsUrl(baseUrl),
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/king-joker-z/media-scraper-desktop',
+          'X-Title': 'Media Scraper'
+        },
+        body: JSON.stringify({
+          model,
+          messages: buildAiMessages(
+            template,
+            chunk.map((entry) => entry.file)
+          ),
+          temperature: 0.2
+        })
       },
-      body: JSON.stringify({
-        model,
-        messages: buildAiMessages(
-          template,
-          chunk.map((entry) => entry.file)
-        ),
-        temperature: 0.2
-      })
-    })
+      { fetchImpl, retryDelayMs }
+    )
     if (!response.ok) {
       throw new Error(`AI 平台请求失败 ${response.status}：${await response.text()}`)
     }

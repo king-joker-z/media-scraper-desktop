@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { AiProviderConfig, AppSettings } from '../../../shared/types'
+import OpLogPanel from '../components/OpLogPanel'
 
 function SettingsPage(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
@@ -273,6 +274,8 @@ function SettingsPage(): React.JSX.Element {
           }}
         />
       </section>
+
+      <OpLogPanel />
     </div>
   )
 }

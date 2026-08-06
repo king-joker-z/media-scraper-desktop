@@ -9,6 +9,7 @@ import {
   buildCaptureArgs,
   buildFrameTimestamps,
   captureFrame,
+  detectSceneCuts,
   resolveFfmpegPath
 } from '../src/main/core/frames.mjs'
 import { pathExists } from '../src/main/core/fs-ops.mjs'
@@ -37,6 +38,34 @@ test('buildCaptureArgs uses two-stage seek for long videos', () => {
   const iIndex = long.indexOf('-i')
   assert.equal(long[iIndex + 2], '-ss')
   assert.equal(long[iIndex + 3], '10')
+})
+
+test('detectSceneCuts finds the color switch point', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-scene-'))
+  try {
+    const video = join(dir, 'scene.mp4')
+    // 红 2s + 蓝 2s 拼接，2s 处必然发生场景突变
+    await execFileAsync(resolveFfmpegPath(), [
+      '-v',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=red:size=320x240:duration=2:rate=10[a];color=blue:size=320x240:duration=2:rate=10[b];[a][b]concat=n=2:v=1',
+      '-pix_fmt',
+      'yuv420p',
+      '-y',
+      video
+    ])
+    const cuts = await detectSceneCuts(video, { threshold: 0.3 })
+    assert.ok(cuts.length >= 1, 'should detect at least one cut')
+    assert.ok(
+      cuts.some((t) => Math.abs(t - 2) < 0.6),
+      `cut should be near 2s, got ${JSON.stringify(cuts)}`
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test('captureFrame extracts real jpegs via both seek paths', async () => {

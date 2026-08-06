@@ -1,10 +1,18 @@
 import { useMemo, useState } from 'react'
-import type { PosterVideoItem } from '../../../shared/types'
+import type { MergeVideoItem, Orientation } from '../../../shared/types'
 import VideoModal from '../components/VideoModal'
 import { formatBytes } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 
-/** 媒体库：归档后的海报墙 + 点击播放（只读，不做任何写操作） */
+type SortKey = 'name' | 'size' | 'duration'
+type OrientationFilter = 'all' | Orientation
+
+const formatDuration = (ms: number): string => {
+  const total = Math.round(ms / 1000)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+/** 媒体库：海报墙 + 排序/筛选/搜索 + 点播（播放进度记忆）。只读视图。 */
 function LibraryPage({
   workspace,
   onChooseWorkspace
@@ -12,11 +20,13 @@ function LibraryPage({
   workspace: string
   onChooseWorkspace: () => Promise<void>
 }): React.JSX.Element {
-  const [videos, setVideos] = useState<PosterVideoItem[]>([])
+  const [videos, setVideos] = useState<MergeVideoItem[]>([])
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
   const [keyword, setKeyword] = useState('')
-  const [playing, setPlaying] = useState<PosterVideoItem | null>(null)
+  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [orientation, setOrientation] = useState<OrientationFilter>('all')
+  const [playing, setPlaying] = useState<MergeVideoItem | null>(null)
   const [error, setError] = useState('')
 
   const refresh = async (): Promise<void> => {
@@ -24,7 +34,9 @@ function LibraryPage({
     setLoading(true)
     setError('')
     try {
-      setVideos(await window.api.listPosterVideos(workspace))
+      // 复用合并扫描（带媒体信息 + 探测缓存，二次进入秒开）
+      const data = await window.api.scanMergeVideos(workspace)
+      setVideos(data.videos)
       setLoaded(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -35,9 +47,15 @@ function LibraryPage({
 
   const filtered = useMemo(() => {
     const key = keyword.trim().toLowerCase()
-    if (!key) return videos
-    return videos.filter((v) => v.name.toLowerCase().includes(key))
-  }, [videos, keyword])
+    let list = videos
+    if (key) list = list.filter((v) => v.name.toLowerCase().includes(key))
+    if (orientation !== 'all') list = list.filter((v) => v.media?.orientation === orientation)
+    return [...list].sort((a, b) => {
+      if (sortKey === 'size') return b.size - a.size
+      if (sortKey === 'duration') return (b.media?.durationMs ?? 0) - (a.media?.durationMs ?? 0)
+      return a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true })
+    })
+  }, [videos, keyword, sortKey, orientation])
 
   return (
     <div className="page">
@@ -45,7 +63,7 @@ function LibraryPage({
         <div>
           <p className="eyebrow">媒体库</p>
           <h1>媒体库浏览</h1>
-          <p className="muted">海报墙浏览工作区内的视频，点击播放。只读视图。</p>
+          <p className="muted">海报墙浏览工作区视频，点击播放（自动记忆播放进度）。只读视图。</p>
         </div>
         <div className="actions">
           <button className="secondary" onClick={onChooseWorkspace}>
@@ -71,6 +89,28 @@ function LibraryPage({
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
+          <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+            <option value="name">按名称</option>
+            <option value="size">按大小</option>
+            <option value="duration">按时长</option>
+          </select>
+          <div className="mode-tabs">
+            {(
+              [
+                ['all', '全部'],
+                ['landscape', '横屏'],
+                ['portrait', '竖屏']
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                className={`mode-tab ${orientation === key ? 'active' : ''}`}
+                onClick={() => setOrientation(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -91,7 +131,10 @@ function LibraryPage({
               </span>
               <span className="video-meta">
                 <b>{video.name}</b>
-                <span className="muted">{formatBytes(video.size)}</span>
+                <span className="muted">
+                  {formatBytes(video.size)}
+                  {video.media ? ` · ${formatDuration(video.media.durationMs)}` : ''}
+                </span>
               </span>
             </button>
           ))}
@@ -112,7 +155,12 @@ function LibraryPage({
       )}
 
       {playing && (
-        <VideoModal path={playing.path} title={playing.name} onClose={() => setPlaying(null)} />
+        <VideoModal
+          path={playing.path}
+          title={playing.name}
+          rememberKey={playing.path}
+          onClose={() => setPlaying(null)}
+        />
       )}
     </div>
   )

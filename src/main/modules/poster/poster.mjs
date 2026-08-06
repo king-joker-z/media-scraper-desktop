@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { createScanPlan, posterFinalName } from '../../core/scanner.mjs'
-import { captureFrame, buildFrameTimestamps } from '../../core/frames.mjs'
+import { captureFrame, buildFrameTimestamps, detectSceneCuts } from '../../core/frames.mjs'
 import { probeMedia } from '../../core/probe.mjs'
 import { convertToJpg } from '../../core/image.mjs'
 import { permanentDelete } from '../../core/fs-ops.mjs'
@@ -46,8 +46,9 @@ export function framesDirFor(framesRoot, videoPath) {
 }
 
 /**
- * 为一个视频截取默认 5 张候选帧（10/30/50/70/90%）。
- * 时长未知或过短时退化为片头第 0 帧。
+ * 为一个视频截取候选帧：
+ * 优先用场景切换检测找内容突变帧（更可能是有信息的画面）；
+ * 检测不足 3 个或失败时回退到固定百分比（10/30/50/70/90%）。
  */
 export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffprobePath } = {}) {
   const outDir = framesDirFor(framesRoot, videoPath)
@@ -58,7 +59,20 @@ export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffp
   } catch {
     durationMs = 0
   }
-  const timestamps = durationMs > 1000 ? buildFrameTimestamps(durationMs) : [0]
+
+  let timestamps = []
+  if (durationMs > 1000) {
+    try {
+      timestamps = (await detectSceneCuts(videoPath, { ffmpegPath, limit: 5 })).filter(
+        (t) => t * 1000 < durationMs - 200
+      )
+    } catch {
+      timestamps = []
+    }
+    if (timestamps.length < 3) timestamps = buildFrameTimestamps(durationMs)
+  } else {
+    timestamps = [0]
+  }
   const frames = []
   for (let i = 0; i < timestamps.length; i += 1) {
     const target = join(outDir, `candidate-${String(i + 1).padStart(2, '0')}.jpg`)

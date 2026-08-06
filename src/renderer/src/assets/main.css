@@ -1125,10 +1125,47 @@ h2 {
 }
 .library-toolbar {
   margin-bottom: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 .library-toolbar input {
   width: 100%;
   max-width: 360px;
+}
+.op-log-list {
+  display: grid;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.op-log-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--label-primary);
+  font-size: 12px;
+  font-weight: 400;
+  text-align: left;
+}
+.op-log-row:hover {
+  background: var(--fill-quaternary);
+}
+.op-log-module {
+  font-weight: 600;
+}
+.op-log-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-secondary);
+}
+.op-log-time {
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 900px) {

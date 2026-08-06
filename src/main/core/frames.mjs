@@ -46,6 +46,33 @@ export function buildCaptureArgs(videoPath, seconds, targetPath) {
   return args
 }
 
+/**
+ * 场景切换检测：低分辨率快速解码全片，select 滤镜筛出内容突变帧，
+ * 经 showinfo 输出时间戳。返回秒数组（按出现顺序）。
+ */
+export async function detectSceneCuts(
+  videoPath,
+  { ffmpegPath = resolveFfmpegPath(), threshold = 0.4, limit = 8 } = {}
+) {
+  const { stderr } = await execFileAsync(
+    ffmpegPath,
+    [
+      '-v',
+      'info',
+      '-i',
+      videoPath,
+      '-vf',
+      `scale=320:-2,select='gt(scene,${threshold})',showinfo`,
+      '-f',
+      'null',
+      '-'
+    ],
+    { maxBuffer: 64 * 1024 * 1024 }
+  )
+  const times = [...stderr.matchAll(/pts_time:([\d.]+)/g)].map((match) => Number(match[1]))
+  return times.slice(0, limit)
+}
+
 /** 截取单帧为 JPG；失败（无输出文件）抛错。 */
 export async function captureFrame(
   videoPath,

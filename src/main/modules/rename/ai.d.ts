@@ -23,6 +23,18 @@ declare module './ai.mjs' {
     onBatch?: (done: number) => void
     /** 默认 true：命中会话缓存的文件不重复请求 */
     useCache?: boolean
+    /** 重试基础间隔 ms（指数退避），默认 1000 */
+    retryDelayMs?: number
   }): Promise<string[]>
   export function clearAiCache(): void
+  export function fetchWithRetry(
+    url: string,
+    init: RequestInit,
+    options?: {
+      fetchImpl?: typeof fetch
+      retries?: number
+      timeoutMs?: number
+      retryDelayMs?: number
+    }
+  ): Promise<Response>
 }

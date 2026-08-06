@@ -1,7 +1,14 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureDir, ensureUniquePath, permanentDelete, writeTextFile } from '../../core/fs-ops.mjs'
+import {
+  ensureDir,
+  ensureUniquePath,
+  pathExists,
+  permanentDelete,
+  writeTextFile
+} from '../../core/fs-ops.mjs'
 import { probeMedia } from '../../core/probe.mjs'
 import {
   buildConcatCopyArgs,
@@ -50,6 +57,28 @@ function runFfmpeg(ffmpegPath, args, { signal, onProgress, totalMs }) {
   })
 }
 
+/** 确定性临时目录：同一片段集合 + 同一目标参数 → 同一目录，支撑断点续传 */
+export function mergeWorkDir(items, target) {
+  const key = items.map((item) => item.path).join('|') + JSON.stringify(target ?? {})
+  const hash = createHash('md5').update(key).digest('hex').slice(0, 10)
+  return join(tmpdir(), `msd-merge-${hash}`)
+}
+
+/**
+ * 中间段是否已就绪：存在、可读、且时长与源片段一致（±1s）。
+ * 时长校验是关键——上次取消留下的截断段必须重转，否则输出时长校验会失败。
+ */
+async function segmentReady(segment, ffprobePath, expectedMs) {
+  if (!(await pathExists(segment))) return false
+  try {
+    const info = await probeMedia(segment, ffprobePath)
+    if (expectedMs > 0 && Math.abs(info.durationMs - expectedMs) > 1000) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * 合并视频（冻结稿 §4）：
  * 兼容 → concat 无重编码拼接；不兼容 → 逐段转码为统一参数 TS 后再拼接。
@@ -73,10 +102,10 @@ export async function mergeVideos({
   onProgress,
   signal
 }) {
-  const workDir = join(tmpdir(), `msd-merge-${Date.now()}`)
+  const compatibility = checkCompatibility(items)
+  const workDir = mergeWorkDir(items, compatibility.target)
   await ensureDir(workDir)
   const outputPath = await ensureUniquePath(join(outputDir, outputName))
-  const compatibility = checkCompatibility(items)
   const totalMs = items.reduce((sum, item) => sum + (item.media?.durationMs ?? 0), 0)
 
   try {
@@ -100,6 +129,12 @@ export async function mergeVideos({
         const segment = join(workDir, `seg-${String(i).padStart(3, '0')}.mp4`)
         const base = Math.round((i / items.length) * 90)
         const span = Math.round(90 / items.length)
+        // 断点续传：已就绪的中间段直接跳过
+        if (await segmentReady(segment, ffprobePath, item.media?.durationMs ?? 0)) {
+          onProgress?.(base + span, `跳过已完成段 ${i + 1}/${items.length} · ${item.name}`)
+          segments.push(segment)
+          continue
+        }
         await runFfmpeg(ffmpegPath, buildTranscodeArgs(item.path, target, segment), {
           signal,
           totalMs: item.media?.durationMs ?? 0,
@@ -147,11 +182,12 @@ export async function mergeVideos({
     const cancelled = signal?.aborted || error.message === '已取消'
     await permanentDelete(outputPath)
     if (cancelled) {
+      // 取消：保留中间产物，下次同参数合并可断点续传
       return {
         cancelled: true,
         outputPath: null,
         verified: false,
-        verifyNote: '已取消',
+        verifyNote: '已取消（已完成的转码段已保留，下次继续）',
         transcoded: false
       }
     }
@@ -159,12 +195,13 @@ export async function mergeVideos({
       cancelled: false,
       outputPath: null,
       verified: false,
-      verifyNote: '合并失败',
+      verifyNote: '合并失败（已完成的转码段已保留，重新执行可续传）',
       transcoded: !compatibility.compatible,
       error: error.message
     }
   } finally {
-    await permanentDelete(workDir)
+    // 成功：清理临时目录；失败/取消：保留供断点续传
+    if (await pathExists(outputPath)) await permanentDelete(workDir)
   }
 }
 

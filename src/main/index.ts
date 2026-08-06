@@ -15,6 +15,7 @@ import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
 import { deleteMergeSources, mergeVideos } from './modules/merge/merge.mjs'
 import { findDuplicates } from './modules/dedupe/dedupe.mjs'
 import { permanentDelete } from './core/fs-ops.mjs'
+import { listOpLogs, writeOpLog } from './core/op-log.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
 import { diskFreeBytes } from './core/fs-ops.mjs'
 import {
@@ -39,6 +40,12 @@ import type {
 
 const settingsStore = createSettingsStore(join(app.getPath('userData'), 'settings.json'))
 const framesRoot = join(app.getPath('temp'), 'media-scraper-frames')
+const opLogDir = join(app.getPath('userData'), 'op-logs')
+
+/** 记录一条操作日志（不阻塞主流程） */
+const logOp = (module: string, payload: object): void => {
+  writeOpLog(opLogDir, module, payload).catch(() => {})
+}
 
 /**
  * media:// 自定义协议：向渲染进程提供本地图片/视频。
@@ -166,12 +173,18 @@ function registerIpcHandlers(): void {
     const settings = await settingsStore.get()
     activeCleanTaskId = `clean-${Date.now()}`
     try {
-      return await executeCleanPlan(plan, {
+      const report = await executeCleanPlan(plan, {
         picks,
         taskCenter,
         taskId: activeCleanTaskId,
         concurrency: settings.concurrency
       })
+      logOp('clean', {
+        root: plan.root,
+        report,
+        summary: `删除 ${report.deletedCount}，上移 ${report.moved.length}，转码 ${report.converted.length}`
+      })
+      return report
     } finally {
       activeCleanTaskId = null
     }
@@ -342,11 +355,13 @@ function registerIpcHandlers(): void {
     const settings = await settingsStore.get()
     activeRenameTaskId = `rename-${Date.now()}`
     try {
-      return await executeRename(root, pairs, {
+      const report = await executeRename(root, pairs, {
         taskCenter,
         taskId: activeRenameTaskId,
         concurrency: settings.concurrency
       })
+      logOp('rename', { root, report, summary: `改名 ${report.renamedCount} 项` })
+      return report
     } finally {
       activeRenameTaskId = null
     }
@@ -367,11 +382,13 @@ function registerIpcHandlers(): void {
       const settings = await settingsStore.get()
       activeNfoTaskId = `nfo-${Date.now()}`
       try {
-        return await executeNfoPlan(root, items, actorName, {
+        const report = await executeNfoPlan(root, items, actorName, {
           taskCenter,
           taskId: activeNfoTaskId,
           concurrency: settings.concurrency
         })
+        logOp('nfo', { root, actorName, report, summary: `归档 ${report.archivedCount} 个视频` })
+        return report
       } finally {
         activeNfoTaskId = null
       }
@@ -446,11 +463,18 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle('merge:delete-sources', async (_event, root: string, items: MergeSourceItem[]) => {
     const settings = await settingsStore.get()
-    return deleteMergeSources(root, items, {
+    const report = await deleteMergeSources(root, items, {
       taskCenter,
       taskId: `merge-clean-${Date.now()}`,
       concurrency: settings.concurrency
     })
+    logOp('merge-delete-sources', {
+      root,
+      items,
+      report,
+      summary: `删除源文件 ${report.deletedCount} 个`
+    })
+    return report
   })
   ipcMain.handle('merge:cancel', async () => {
     activeMergeAbort?.abort()
@@ -481,7 +505,20 @@ function registerIpcHandlers(): void {
         entry.ok ? null : { target: relativePaths[index], error: entry.error ?? '未知错误' }
       )
       .filter(Boolean)
-    return { cancelled: result.cancelled, deletedCount: result.completed, failed }
+    const report = { cancelled: result.cancelled, deletedCount: result.completed, failed }
+    logOp('dedupe-delete', {
+      root,
+      items: relativePaths,
+      report,
+      summary: `删除重复文件 ${result.completed} 个`
+    })
+    return report
+  })
+
+  // ---------- 操作日志 ----------
+  ipcMain.handle('op-logs:list', async () => listOpLogs(opLogDir))
+  ipcMain.handle('op-logs:reveal', async (_event, file: string) => {
+    shell.showItemInFolder(file)
   })
 }
 

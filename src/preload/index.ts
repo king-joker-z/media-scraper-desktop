@@ -83,6 +83,10 @@ const api = {
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:update', patch),
+  listOpLogs: (): Promise<
+    { file: string; module: string; finishedAt: string; summary: string }[]
+  > => ipcRenderer.invoke('op-logs:list'),
+  revealOpLog: (file: string): Promise<void> => ipcRenderer.invoke('op-logs:reveal', file),
   onTaskEvent: (callback: (event: TaskEvent) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, payload: TaskEvent): void => callback(payload)
     ipcRenderer.on('tasks:event', listener)

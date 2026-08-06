@@ -88,6 +88,10 @@ declare global {
       }>
       getSettings: () => Promise<AppSettings>
       updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>
+      listOpLogs: () => Promise<
+        { file: string; module: string; finishedAt: string; summary: string }[]
+      >
+      revealOpLog: (file: string) => Promise<void>
       onTaskEvent: (callback: (event: TaskEvent) => void) => () => void
     }
   }

@@ -6,6 +6,7 @@ import {
   chatCompletionsUrl,
   clearAiCache,
   extractJsonArray,
+  fetchWithRetry,
   requestAiNames
 } from '../src/main/modules/rename/ai.mjs'
 
@@ -51,6 +52,67 @@ test('requestAiNames caches results within the session', async () => {
   })
   assert.equal(calls, 2)
   assert.deepEqual(third, ['cached-name', 'b-name']) // 顺序与输入一致
+})
+
+test('fetchWithRetry retries network errors and 5xx, not 4xx', async () => {
+  // 网络错误两次后成功
+  let calls = 0
+  const ok = await fetchWithRetry(
+    'https://x',
+    {},
+    {
+      retryDelayMs: 1,
+      fetchImpl: async () => {
+        calls += 1
+        if (calls < 3) throw new TypeError('socket hangup')
+        return { ok: true, status: 200 }
+      }
+    }
+  )
+  assert.equal(ok.ok, true)
+  assert.equal(calls, 3)
+
+  // 5xx 重试后仍失败 → 抛最后一次响应
+  let calls5xx = 0
+  const resp = await fetchWithRetry(
+    'https://x',
+    {},
+    {
+      retryDelayMs: 1,
+      fetchImpl: async () => {
+        calls5xx += 1
+        return { ok: false, status: 502 }
+      }
+    }
+  )
+  assert.equal(resp.status, 502)
+  assert.equal(calls5xx, 3)
+
+  // 400 不重试
+  let calls4xx = 0
+  const resp4xx = await fetchWithRetry(
+    'https://x',
+    {},
+    {
+      retryDelayMs: 1,
+      fetchImpl: async () => {
+        calls4xx += 1
+        return { ok: false, status: 400 }
+      }
+    }
+  )
+  assert.equal(resp4xx.status, 400)
+  assert.equal(calls4xx, 1)
+
+  // 网络错误全部耗尽 → 抛错
+  await assert.rejects(
+    fetchWithRetry(
+      'https://x',
+      {},
+      { retryDelayMs: 1, fetchImpl: async () => Promise.reject(new Error('down')) }
+    ),
+    /重试 2 次/
+  )
 })
 
 test('buildPrompt substitutes all template variables', () => {

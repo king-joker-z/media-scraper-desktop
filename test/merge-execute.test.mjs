@@ -5,7 +5,8 @@ import { promisify } from 'node:util'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mergeVideos } from '../src/main/modules/merge/merge.mjs'
+import { mergeVideos, mergeWorkDir } from '../src/main/modules/merge/merge.mjs'
+import { checkCompatibility } from '../src/shared/merge-rules.mjs'
 import { resolveFfmpegPath } from '../src/main/core/frames.mjs'
 import { probeMedia, resolveFfprobePath } from '../src/main/core/probe.mjs'
 import { pathExists } from '../src/main/core/fs-ops.mjs'
@@ -89,6 +90,59 @@ test('mergeVideos transcodes incompatible clips to unified params', async () => 
     assert.equal(out.width, 320) // 统一到首个片段
     assert.equal(out.height, 240)
     assert.ok(Math.abs(out.durationMs - 4000) < 2000)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeWorkDir is deterministic per item set and target', () => {
+  const items = [{ path: '/a/1.mp4' }, { path: '/a/2.mp4' }]
+  const target = { width: 1920, height: 1080, fps: 30, pixFmt: 'yuv420p' }
+  assert.equal(mergeWorkDir(items, target), mergeWorkDir(items, target))
+  assert.notEqual(mergeWorkDir(items, target), mergeWorkDir([{ path: '/a/9.mp4' }], target))
+})
+
+test('merge keeps workdir on cancel for resume and cleans on success', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const clips = []
+    for (let i = 0; i < 3; i += 1) {
+      clips.push(
+        await probeItem(
+          await makeClip(join(dir, `r${i}.mp4`), {
+            seconds: 15,
+            size: i === 0 ? '1280x720' : '640x480'
+          })
+        )
+      )
+    }
+    const target = checkCompatibility(clips).target
+    const workDir = mergeWorkDir(clips, target)
+
+    // 第一次：中途取消 → 临时目录保留
+    const abort = new AbortController()
+    setTimeout(() => abort.abort(), 400)
+    const first = await mergeVideos({
+      items: clips,
+      outputDir: dir,
+      outputName: 'out.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      signal: abort.signal
+    })
+    assert.equal(first.cancelled, true)
+    assert.equal(await pathExists(workDir), true)
+
+    // 第二次：继续执行 → 成功，临时目录被清理
+    const second = await mergeVideos({
+      items: clips,
+      outputDir: dir,
+      outputName: 'out.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath()
+    })
+    assert.equal(second.verified, true)
+    assert.equal(await pathExists(workDir), false)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
