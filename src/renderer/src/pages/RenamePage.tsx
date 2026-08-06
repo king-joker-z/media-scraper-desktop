@@ -12,6 +12,7 @@ import {
   extOfName,
   sortVideos,
   stemOfName,
+  stripSeqPrefix,
   validateStems,
   withSequencePrefix
 } from '../../../shared/rename-rules.mjs'
@@ -116,7 +117,8 @@ function RenamePage({
       return withSequencePrefix(
         sorted.map((v) => ({
           videoRel: v.relativePath,
-          stem: aiNamesMap[v.relativePath] ?? stemOfName(v.name)
+          // 剥离旧序号前缀（含 AI 返回中可能带的前缀）
+          stem: stripSeqPrefix(aiNamesMap[v.relativePath] ?? stemOfName(v.name))
         })),
         seq
       ).map((p) => {
@@ -177,7 +179,8 @@ function RenamePage({
       const names = await window.api.requestAiNames(
         sorted.map((v) => ({
           parentFolder: workspace.split(/[\\/]/).pop() ?? '',
-          fileName: stemOfName(v.name),
+          // 发送给 AI 的文件名先剥离旧序号前缀，避免模型沿用
+          fileName: stripSeqPrefix(stemOfName(v.name)),
           extension: extOfName(v.name)
         }))
       )

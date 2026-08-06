@@ -6,6 +6,7 @@ import {
   compareTitles,
   padSeq,
   sortVideos,
+  stripSeqPrefix,
   validateStems,
   withSequencePrefix
 } from '../src/shared/rename-rules.mjs'
@@ -51,6 +52,29 @@ test('buildSequenceStems generates padded serial with separator', () => {
   assert.deepEqual(pairs, [
     { videoRel: 'a.mp4', newStem: '01.a' },
     { videoRel: 'b.mp4', newStem: '02.b' }
+  ])
+})
+
+test('stripSeqPrefix removes stacked serials but protects years', () => {
+  assert.equal(stripSeqPrefix('01.abc'), 'abc')
+  assert.equal(stripSeqPrefix('01.02.abc'), 'abc') // 多层叠加连续剥离
+  assert.equal(stripSeqPrefix('03 - 演唱会'), '演唱会')
+  assert.equal(stripSeqPrefix('003_live'), 'live')
+  assert.equal(stripSeqPrefix('0001.abc'), 'abc')
+  assert.equal(stripSeqPrefix('2024 演唱会'), '2024 演唱会') // 年份保护
+  assert.equal(stripSeqPrefix('abc'), 'abc')
+  assert.equal(stripSeqPrefix('视频 2'), '视频 2')
+})
+
+test('buildSequenceStems is idempotent over already-numbered names', () => {
+  const videos = [
+    { name: '01.abc.mp4', size: 1, relativePath: '01.abc.mp4' },
+    { name: '02.def.mp4', size: 2, relativePath: '02.def.mp4' }
+  ]
+  const pairs = buildSequenceStems(videos, { digits: 2, separator: '.' })
+  assert.deepEqual(pairs, [
+    { videoRel: '01.abc.mp4', newStem: '01.abc' },
+    { videoRel: '02.def.mp4', newStem: '02.def' }
   ])
 })
 

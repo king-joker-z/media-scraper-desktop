@@ -30,6 +30,20 @@ export function sortVideos(videos, sortBy = 'title', order = 'asc') {
 }
 
 /**
+ * 剥离已有的序号前缀（如 "01."、"02 - "、"003_"），可连续剥离多层。
+ * 用于加序号前归零，保证重复执行不会叠加出 "01.01."。
+ * 注意保护年份：4-6 位数字仅在紧跟点号分隔符时才视为序号（"2024 演唱会" 不受影响）。
+ */
+export function stripSeqPrefix(stem) {
+  let result = String(stem)
+  for (;;) {
+    const next = result.replace(/^\d{1,3}\s*[.、．\-_ ]+\s*/, '').replace(/^\d{4,6}[.、．]+\s*/, '')
+    if (next === result) return result
+    result = next
+  }
+}
+
+/**
  * 纯序号：生成 "<序号><分隔符><原标题词干>"。
  * @returns {Array<{videoRel: string, newStem: string}>}
  */
@@ -39,7 +53,7 @@ export function buildSequenceStems(
 ) {
   return sortVideos(videos, sortBy, order).map((video, index) => ({
     videoRel: video.relativePath,
-    newStem: `${padSeq(index + 1, digits)}${separator}${stemOfName(video.name)}`
+    newStem: `${padSeq(index + 1, digits)}${separator}${stripSeqPrefix(stemOfName(video.name))}`
   }))
 }
 
