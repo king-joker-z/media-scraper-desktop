@@ -13,6 +13,7 @@ import { executeRename } from './modules/rename/execute.mjs'
 import { requestAiNames } from './modules/rename/ai.mjs'
 import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
 import { deleteMergeSources, mergeVideos } from './modules/merge/merge.mjs'
+import { isMergeOutputName } from '../shared/merge-rules.mjs'
 import { diskFreeBytes } from './core/fs-ops.mjs'
 import {
   captureAt,
@@ -359,7 +360,8 @@ function registerIpcHandlers(): void {
   // ---------- 模块二：视频合并 ----------
   ipcMain.handle('merge:scan', async (_event, root: string) => {
     allowMediaRoot(root)
-    const videos = await listPosterVideos(root)
+    // 排除本产品生成的合并产物，避免再次参与合并
+    const videos = (await listPosterVideos(root)).filter((v) => !isMergeOutputName(v.name))
     const settings = await settingsStore.get()
     const probed = await taskCenter.run({
       taskId: `merge-probe-${Date.now()}`,

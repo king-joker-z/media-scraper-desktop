@@ -77,11 +77,13 @@ export function mergeOutputName(workspaceName, mode) {
       ? '-landscape-merged'
       : mode === 'portrait'
         ? '-portrait-merged'
-        : mode === 'custom'
-          ? '-custom-merged'
-          : '-merged'
+        : '-merged'
   return `${workspaceName}${suffix}.mp4`
 }
+
+/** 判断是否为本产品生成的合并产物（扫描时排除，避免产物再次参与合并） */
+export const isMergeOutputName = (name) =>
+  /-(landscape-|portrait-|custom-)?merged( \(\d+\))?\.mp4$/i.test(name)
 
 /** concat 清单文件内容（转义单引号） */
 export function buildConcatList(paths) {

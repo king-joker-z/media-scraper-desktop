@@ -12,8 +12,7 @@ import { formatBytes } from '../utils/format'
 const MODE_TABS: { key: MergeMode; label: string }[] = [
   { key: 'all', label: '全合并' },
   { key: 'landscape', label: '横屏合并' },
-  { key: 'portrait', label: '竖屏合并' },
-  { key: 'custom', label: '自由组合' }
+  { key: 'portrait', label: '竖屏合并' }
 ]
 
 function MergePage({
@@ -29,7 +28,7 @@ function MergePage({
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState<MergeMode>('all')
   const [order, setOrder] = useState<string[]>([])
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -49,7 +48,7 @@ function MergePage({
       setFreeBytes(data.freeBytes)
       setLoaded(true)
       setOrder([])
-      setSelected(new Set())
+      setExcluded(new Set())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -57,14 +56,12 @@ function MergePage({
     }
   }
 
-  /** 当前模式的片段集合（按用户顺序；无自定义顺序时按标题） */
-  const items = useMemo((): MergeVideoItem[] => {
+  /** 当前模式的全部片段（含被置灰排除的，按用户顺序展示） */
+  const rows = useMemo((): MergeVideoItem[] => {
     const byRel = new Map(videos.map((v) => [v.relativePath, v]))
-    let pool: MergeVideoItem[] = []
-    if (mode === 'all') pool = videos
-    else if (mode === 'landscape') pool = videos.filter((v) => v.media?.orientation === 'landscape')
+    let pool: MergeVideoItem[] = videos
+    if (mode === 'landscape') pool = videos.filter((v) => v.media?.orientation === 'landscape')
     else if (mode === 'portrait') pool = videos.filter((v) => v.media?.orientation === 'portrait')
-    else pool = videos.filter((v) => selected.has(v.relativePath))
 
     const poolRels = new Set(pool.map((v) => v.relativePath))
     const ordered = order.filter((rel) => poolRels.has(rel))
@@ -72,7 +69,13 @@ function MergePage({
       .filter((v) => !ordered.includes(v.relativePath))
       .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }))
     return [...ordered.map((rel) => byRel.get(rel)!), ...remaining]
-  }, [videos, mode, order, selected])
+  }, [videos, mode, order])
+
+  /** 实际参与合并的片段（排除置灰项） */
+  const items = useMemo(
+    () => rows.filter((item) => !excluded.has(item.relativePath)),
+    [rows, excluded]
+  )
 
   const compatibility = useMemo(() => checkCompatibility(items), [items])
   const workspaceName = workspace.split(/[\\/]/).filter(Boolean).pop() ?? 'workspace'
@@ -94,6 +97,8 @@ function MergePage({
     try {
       const merged = await window.api.executeMerge(workspace, items, outputName)
       setResult(merged)
+      // 校验通过 → 自动弹出源片段删除确认（冻结稿 §4：单独展示与确认）
+      if (merged.verified && !merged.cancelled) setConfirmingDelete(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -120,8 +125,8 @@ function MergePage({
     }
   }
 
-  const toggle = (rel: string): void => {
-    setSelected((prev) => {
+  const toggleExclude = (rel: string): void => {
+    setExcluded((prev) => {
       const next = new Set(prev)
       if (next.has(rel)) next.delete(rel)
       else next.add(rel)
@@ -214,14 +219,15 @@ function MergePage({
             </section>
           )}
 
-          {mode === 'custom' && (
-            <p className="muted">勾选要合并的视频，拖动 ⠿ 调整顺序（自上而下依次拼接）。</p>
-          )}
+          <p className="muted">
+            拖动 ⠿
+            调整拼接顺序；点右侧「参与」可将单个视频置灰排除（不参与本次合并），再点恢复。当前参与{' '}
+            {items.length} 段。
+          </p>
           <MergeSortableList
-            items={items}
-            selectable={mode === 'custom'}
-            selected={selected}
-            onToggle={toggle}
+            items={rows}
+            excluded={excluded}
+            onToggleExclude={toggleExclude}
             onReorder={(next) => setOrder(next.map((item) => item.relativePath))}
           />
         </>

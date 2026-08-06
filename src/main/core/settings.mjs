@@ -28,8 +28,8 @@ export const PROVIDER_PRESETS = [
   {
     id: 'aicodemirror',
     name: 'AiCodeMirror',
-    baseUrl: 'https://api.aicodemirror.ai/v1',
-    models: []
+    baseUrl: 'https://api.aicodemirror.ai/api/codex/backend-api/codex/v1',
+    models: ['gpt-5.6-luna']
   }
 ]
 

@@ -5,9 +5,13 @@
 
 export const AI_BATCH_SIZE = 50
 
-/** OpenAI 兼容端点：baseUrl + /chat/completions */
+/**
+ * OpenAI 兼容端点：baseUrl + /chat/completions。
+ * 若用户直接粘贴了完整端点（已含 /chat/completions）则原样使用，避免双重拼接 404。
+ */
 export function chatCompletionsUrl(baseUrl) {
-  return `${String(baseUrl).replace(/\/+$/, '')}/chat/completions`
+  const cleaned = String(baseUrl).replace(/\/+$/, '')
+  return cleaned.endsWith('/chat/completions') ? cleaned : `${cleaned}/chat/completions`
 }
 
 const SYSTEM_MESSAGE = [

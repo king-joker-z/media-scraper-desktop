@@ -267,7 +267,7 @@ export interface MergeVideoItem extends PosterVideoItem {
   media: MediaInfo | null
 }
 
-export type MergeMode = 'all' | 'landscape' | 'portrait' | 'custom'
+export type MergeMode = 'all' | 'landscape' | 'portrait'
 
 export interface MergeCompatibility {
   compatible: boolean

@@ -3,9 +3,24 @@ import assert from 'node:assert/strict'
 import {
   buildAiMessages,
   buildPrompt,
+  chatCompletionsUrl,
   extractJsonArray,
   requestAiNames
 } from '../src/main/modules/rename/ai.mjs'
+
+test('chatCompletionsUrl appends endpoint without double-appending', () => {
+  assert.equal(
+    chatCompletionsUrl('https://api.deepseek.com'),
+    'https://api.deepseek.com/chat/completions'
+  )
+  assert.equal(
+    chatCompletionsUrl('https://api.deepseek.com/'),
+    'https://api.deepseek.com/chat/completions'
+  )
+  // 用户粘贴完整端点时原样使用
+  const full = 'https://api.aicodemirror.ai/api/codex/backend-api/codex/v1/chat/completions'
+  assert.equal(chatCompletionsUrl(full), full)
+})
 
 test('buildPrompt substitutes all template variables', () => {
   const out = buildPrompt('父目录={{parentFolder}} 文件={{fileName}} 扩展={{extension}}', {

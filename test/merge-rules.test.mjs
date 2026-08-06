@@ -6,6 +6,7 @@ import {
   buildTranscodeArgs,
   checkCompatibility,
   estimateOutputBytes,
+  isMergeOutputName,
   mergeOutputName,
   verifyMergeOutput
 } from '../src/shared/merge-rules.mjs'
@@ -59,7 +60,15 @@ test('mergeOutputName follows the frozen naming', () => {
   assert.equal(mergeOutputName('合集', 'all'), '合集-merged.mp4')
   assert.equal(mergeOutputName('合集', 'landscape'), '合集-landscape-merged.mp4')
   assert.equal(mergeOutputName('合集', 'portrait'), '合集-portrait-merged.mp4')
-  assert.equal(mergeOutputName('合集', 'custom'), '合集-custom-merged.mp4')
+})
+
+test('isMergeOutputName detects our own merge outputs', () => {
+  assert.equal(isMergeOutputName('合集-merged.mp4'), true)
+  assert.equal(isMergeOutputName('合集-landscape-merged.mp4'), true)
+  assert.equal(isMergeOutputName('合集-custom-merged.mp4'), true)
+  assert.equal(isMergeOutputName('合集-merged (1).mp4'), true)
+  assert.equal(isMergeOutputName('正常视频.mp4'), false)
+  assert.equal(isMergeOutputName('merged.mkv'), false)
 })
 
 test('buildConcatList escapes single quotes', () => {

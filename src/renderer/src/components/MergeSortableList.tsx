@@ -5,6 +5,7 @@ import {
   useSortable,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
+import { useMemo } from 'react'
 import { CSS } from '@dnd-kit/utilities'
 import type { MergeVideoItem } from '../../../shared/types'
 import { formatBytes } from '../utils/format'
@@ -17,18 +18,19 @@ function formatDuration(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-/** 合并片段拖拽排序列表（自由组合模式带勾选框） */
+/**
+ * 合并片段列表：拖动 ⠿ 排序；点击右侧开关可将单个视频置灰排除（不参与本次合并），
+ * 再次点击恢复。
+ */
 function MergeSortableList({
   items,
-  selectable,
-  selected,
-  onToggle,
+  excluded,
+  onToggleExclude,
   onReorder
 }: {
   items: MergeVideoItem[]
-  selectable: boolean
-  selected: Set<string>
-  onToggle: (relativePath: string) => void
+  excluded: Set<string>
+  onToggleExclude: (relativePath: string) => void
   onReorder: (next: MergeVideoItem[]) => void
 }): React.JSX.Element {
   const handleDragEnd = (event: DragEndEvent): void => {
@@ -39,6 +41,19 @@ function MergeSortableList({
     onReorder(arrayMove(items, from, to))
   }
 
+  // 序号只给参与合并的片段（预先计算，避免渲染期变更）
+  const orderMap = useMemo(() => {
+    const map = new Map<string, number>()
+    let counter = 0
+    for (const item of items) {
+      if (!excluded.has(item.relativePath)) {
+        counter += 1
+        map.set(item.relativePath, counter)
+      }
+    }
+    return map
+  }, [items, excluded])
+
   return (
     <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext
@@ -46,14 +61,13 @@ function MergeSortableList({
         strategy={verticalListSortingStrategy}
       >
         <div className="merge-list">
-          {items.map((item, index) => (
+          {items.map((item) => (
             <SortableRow
               key={item.relativePath}
               item={item}
-              index={index}
-              selectable={selectable}
-              checked={selected.has(item.relativePath)}
-              onToggle={onToggle}
+              order={orderMap.get(item.relativePath) ?? null}
+              excluded={excluded.has(item.relativePath)}
+              onToggleExclude={onToggleExclude}
             />
           ))}
         </div>
@@ -64,16 +78,14 @@ function MergeSortableList({
 
 function SortableRow({
   item,
-  index,
-  selectable,
-  checked,
-  onToggle
+  order,
+  excluded,
+  onToggleExclude
 }: {
   item: MergeVideoItem
-  index: number
-  selectable: boolean
-  checked: boolean
-  onToggle: (relativePath: string) => void
+  order: number | null
+  excluded: boolean
+  onToggleExclude: (relativePath: string) => void
 }): React.JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.relativePath
@@ -82,16 +94,13 @@ function SortableRow({
   return (
     <div
       ref={setNodeRef}
-      className={`merge-row ${isDragging ? 'dragging' : ''}`}
+      className={`merge-row ${isDragging ? 'dragging' : ''} ${excluded ? 'excluded' : ''}`}
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >
       <span className="merge-drag" {...attributes} {...listeners}>
         ⠿
       </span>
-      <span className="merge-order">{index + 1}</span>
-      {selectable && (
-        <input type="checkbox" checked={checked} onChange={() => onToggle(item.relativePath)} />
-      )}
+      <span className="merge-order">{order ?? '—'}</span>
       <span className="merge-thumb">
         {item.posterPath ? (
           <img src={mediaUrl(item.posterPath)} alt="" loading="lazy" />
@@ -109,6 +118,13 @@ function SortableRow({
             } · ${media.videoCodec ?? '?'}/${media.audioCodec ?? '无音轨'} · ${media.fps.toFixed(0)}fps`
           : '媒体信息读取失败'}
       </span>
+      <button
+        className={`merge-toggle ${excluded ? 'off' : ''}`}
+        title={excluded ? '恢复参与合并' : '置灰排除，不参与本次合并'}
+        onClick={() => onToggleExclude(item.relativePath)}
+      >
+        {excluded ? '已排除' : '参与'}
+      </button>
     </div>
   )
 }

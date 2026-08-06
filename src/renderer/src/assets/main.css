@@ -1058,6 +1058,25 @@ h2 {
   flex-shrink: 0;
   font-size: 11px;
 }
+.merge-row.excluded {
+  opacity: 0.45;
+}
+.merge-row.excluded .merge-name {
+  text-decoration: line-through;
+}
+.merge-toggle {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+.merge-toggle.off {
+  background: var(--fill-tertiary);
+  color: var(--label-secondary);
+}
 
 @media (max-width: 900px) {
   .grid {
