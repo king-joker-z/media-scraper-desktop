@@ -20,6 +20,11 @@ export interface FileRecord {
 export interface KeepItem extends FileRecord {
   /** 作为 poster 时指向对应视频的 relativePath */
   posterFor?: string
+  /**
+   * 计划中的最终文件名：保留的 poster 统一标准化为 <视频基名>-poster.jpg，
+   * 预览与执行都以此为准（执行时仍有重名 (n) 兼底）。
+   */
+  finalName?: string
 }
 
 export interface DeleteItem extends FileRecord {
@@ -28,7 +33,10 @@ export interface DeleteItem extends FileRecord {
 
 export interface MoveItem {
   from: string
+  /** 上移后的目标文件名（含重名 (n) 预测） */
   to: string
+  /** 预测会因重名被追加 (n) 后缀 */
+  renamed?: boolean
 }
 
 export type ScanConflict =
@@ -53,6 +61,8 @@ export interface ScanSummary {
   conflicts: number
 }
 
+export type PlanRisk = 'normal' | 'danger'
+
 export interface ScanPlan {
   root: string
   keep: KeepItem[]
@@ -63,6 +73,28 @@ export interface ScanPlan {
   conflicts: ScanConflict[]
   skippedHidden: string[]
   summary: ScanSummary
+  /** 删除候选总体积（字节） */
+  deleteBytes: number
+  /** 危险场景（删除数>50、体积>1GB、无视频）需确认词二次确认 */
+  risk: PlanRisk
+}
+
+/* ---------------------------- 模块一：清理 ---------------------------- */
+
+/** pendingPick 的人工选择结果：视频 relativePath -> 选中图片 relativePath */
+export type PosterPicks = Record<string, string>
+
+export interface CleanReport {
+  taskId: string
+  cancelled: boolean
+  deletedCount: number
+  deletedBytes: number
+  converted: { from: string; to: string }[]
+  renamed: { from: string; to: string }[]
+  moved: { from: string; to: string }[]
+  removedDirs: string[]
+  failed: { target: string; error: string }[]
+  durationMs: number
 }
 
 /* ------------------------------ 设置 ------------------------------ */

@@ -5,7 +5,8 @@ import icon from '../../resources/icon.png?asset'
 import { createScanPlan } from './core/scanner.mjs'
 import { createSettingsStore } from './core/settings.mjs'
 import { createTaskCenter } from './core/task-center.mjs'
-import type { AppSettings, TaskEvent } from '../shared/types'
+import { executeCleanPlan } from './modules/clean/execute.mjs'
+import type { AppSettings, PosterPicks, ScanPlan, TaskEvent } from '../shared/types'
 
 const settingsStore = createSettingsStore(join(app.getPath('userData'), 'settings.json'))
 
@@ -56,6 +57,8 @@ function createWindow(): void {
   }
 }
 
+let activeCleanTaskId: string | null = null
+
 function registerIpcHandlers(): void {
   ipcMain.handle('dialog:select-workspace', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
@@ -66,6 +69,24 @@ function registerIpcHandlers(): void {
   ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) =>
     settingsStore.update(patch)
   )
+  ipcMain.handle('clean:execute', async (_event, plan: ScanPlan, picks: PosterPicks) => {
+    if (activeCleanTaskId) throw new Error('已有清理任务在执行中')
+    const settings = await settingsStore.get()
+    activeCleanTaskId = `clean-${Date.now()}`
+    try {
+      return await executeCleanPlan(plan, {
+        picks,
+        taskCenter,
+        taskId: activeCleanTaskId,
+        concurrency: settings.concurrency
+      })
+    } finally {
+      activeCleanTaskId = null
+    }
+  })
+  ipcMain.handle('clean:cancel', async () => {
+    if (activeCleanTaskId) taskCenter.cancel(activeCleanTaskId)
+  })
 }
 
 app.whenReady().then(() => {

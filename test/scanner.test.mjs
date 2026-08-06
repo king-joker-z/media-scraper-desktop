@@ -4,10 +4,12 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  assessRisk,
   classifyPath,
   createScanPlan,
   isHiddenName,
-  normalizedName
+  normalizedName,
+  predictMoves
 } from '../src/main/core/scanner.mjs'
 
 test('classifies mainstream media extensions', () => {
@@ -188,6 +190,52 @@ test('one image matching multiple videos is an ambiguity conflict', async () => 
       assert.equal(plan.deleteItems[0].reason, '图片匹配多个视频，按规则不保留')
       assert.equal(plan.conflicts.length, 1)
       assert.equal(plan.conflicts[0].type, 'image-multi-video')
+    }
+  )
+})
+
+test('assessRisk: danger on >50 deletes, >1GB, or no videos', () => {
+  const item = (size) => ({ size })
+  assert.equal(assessRisk([item(1)], 3).risk, 'normal')
+  assert.equal(
+    assessRisk(
+      Array.from({ length: 51 }, () => item(1)),
+      3
+    ).risk,
+    'danger'
+  )
+  assert.equal(assessRisk([item(1024 * 1024 * 1024 + 1)], 3).risk, 'danger')
+  assert.equal(assessRisk([item(1)], 0).risk, 'danger')
+  assert.equal(assessRisk([], 0).risk, 'normal')
+  assert.equal(assessRisk([item(100)], 1).deleteBytes, 100)
+})
+
+test('predictMoves: root keep and hidden names block, collisions get (n)', () => {
+  const keep = [
+    { relativePath: 'V.mp4', dir: '.', name: 'V.mp4' },
+    { relativePath: 'sub1/V.mp4', dir: 'sub1', name: 'V.mp4' },
+    { relativePath: 'sub2/V.mp4', dir: 'sub2', name: 'V.mp4' },
+    { relativePath: 'sub1/W.mp4', dir: 'sub1', name: 'W.mp4' }
+  ]
+  const moves = predictMoves(keep, ['.DS_Store'])
+  assert.deepEqual(moves, [
+    { from: 'sub1/V.mp4', to: 'V (1).mp4', renamed: true },
+    { from: 'sub1/W.mp4', to: 'W.mp4', renamed: false },
+    { from: 'sub2/V.mp4', to: 'V (2).mp4', renamed: true }
+  ])
+})
+
+test('kept posters get standardized finalName in plan', async () => {
+  await withFixture(
+    {
+      'Movie A.mp4': 'v',
+      'Movie A.jpg': 'i'
+    },
+    async (root) => {
+      const plan = await createScanPlan(root)
+      const poster = plan.keep.find((item) => item.kind === 'image')
+      assert.equal(poster.finalName, 'Movie A-poster.jpg')
+      assert.equal(plan.risk, 'normal')
     }
   )
 })

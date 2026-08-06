@@ -15,6 +15,12 @@ asarUnpack:
 win:
   executableName: MediaScraper
 nsis:
+  # 辅助安装模式：用户可选择安装路径、阅读许可，而非一键静默安装
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: always
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}

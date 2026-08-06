@@ -50,6 +50,60 @@ export const normalizedName = (path) =>
 const stemOf = (name) => basename(name, extname(name)).toLowerCase()
 const hasPosterSuffix = (name) => /-poster$/i.test(stemOf(name))
 
+/** poster 标准化目标名：<视频基名>-poster.jpg（冻结稿 §3） */
+export const posterFinalName = (videoRelativePath) => {
+  const ext = extname(videoRelativePath)
+  return `${basename(videoRelativePath, ext)}-poster.jpg`
+}
+
+/** 危险阈值：删除条数或总体积超过即需确认词二次确认（冻结稿 §2.6） */
+export const DANGER_DELETE_COUNT = 50
+export const DANGER_DELETE_BYTES = 1024 * 1024 * 1024
+
+export function assessRisk(deleteItems, videoCount) {
+  const deleteBytes = deleteItems.reduce((sum, item) => sum + item.size, 0)
+  const danger =
+    deleteItems.length > DANGER_DELETE_COUNT ||
+    deleteBytes > DANGER_DELETE_BYTES ||
+    (videoCount === 0 && deleteItems.length > 0)
+  return { risk: danger ? 'danger' : 'normal', deleteBytes }
+}
+
+/**
+ * 上移重名预测（冻结稿 §2.7 预览可见）：
+ * 占用者 = 根目录保留项 + 根目录隐藏项；子目录项按路径排序后依次占位，
+ * 冲突时追加 " (n)"。执行层仍会二次兼底。
+ */
+export function predictMoves(keep, skippedHidden) {
+  const taken = new Set()
+  for (const item of keep) {
+    if (item.dir === '.') taken.add((item.finalName ?? item.name).toLowerCase())
+  }
+  for (const rel of skippedHidden) {
+    if (dirname(rel) === '.') taken.add(basename(rel).toLowerCase())
+  }
+  const moves = []
+  const sorted = keep
+    .filter((item) => item.dir !== '.')
+    .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+  for (const item of sorted) {
+    const desired = item.finalName ?? item.name
+    let target = desired
+    let renamed = false
+    if (taken.has(target.toLowerCase())) {
+      const ext = extname(desired)
+      const stem = basename(desired, ext)
+      let n = 1
+      while (taken.has(`${stem} (${n})${ext}`.toLowerCase())) n += 1
+      target = `${stem} (${n})${ext}`
+      renamed = true
+    }
+    taken.add(target.toLowerCase())
+    moves.push({ from: item.relativePath, to: target, renamed })
+  }
+  return moves
+}
+
 async function walk(root, current, records, skipped) {
   const entries = await readdir(current, { withFileTypes: true })
   for (const entry of entries) {
@@ -146,7 +200,11 @@ export async function createScanPlan(root) {
       }
       if (matched.length === 1) {
         keep.push(video)
-        keep.push({ ...matched[0], posterFor: video.relativePath })
+        keep.push({
+          ...matched[0],
+          posterFor: video.relativePath,
+          finalName: posterFinalName(video.relativePath)
+        })
         continue
       }
       // 一视频多图：-poster 优先 → 完全同名次之 → 待人工手选
@@ -155,7 +213,11 @@ export async function createScanPlan(root) {
         matched.find((image) => stemOf(image.name) === stemOf(video.name))
       keep.push(video)
       if (posterPick) {
-        keep.push({ ...posterPick, posterFor: video.relativePath })
+        keep.push({
+          ...posterPick,
+          posterFor: video.relativePath,
+          finalName: posterFinalName(video.relativePath)
+        })
         for (const image of matched) {
           if (image !== posterPick)
             deleteItems.push({ ...image, reason: '未被选为 poster 的候选图' })
@@ -174,16 +236,18 @@ export async function createScanPlan(root) {
     }
   }
 
+  const { risk, deleteBytes } = assessRisk(deleteItems, videoCount)
+
   return {
     root,
     keep,
     deleteItems,
     pendingPick,
-    moves: keep
-      .filter((item) => item.dir !== '.')
-      .map((item) => ({ from: item.relativePath, to: item.name })),
+    moves: predictMoves(keep, skippedHidden),
     conflicts,
     skippedHidden,
+    deleteBytes,
+    risk,
     summary: {
       videos: videoCount,
       images: imageCount,
