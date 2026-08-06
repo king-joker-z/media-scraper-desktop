@@ -7,7 +7,7 @@ import { createScanPlan, IMAGE_EXTENSIONS } from './core/scanner.mjs'
 import { activeProvider, createSettingsStore } from './core/settings.mjs'
 import { createTaskCenter } from './core/task-center.mjs'
 import { resolveFfmpegPath } from './core/frames.mjs'
-import { probeMedia, resolveFfprobePath } from './core/probe.mjs'
+import { probeMedia, probeMediaCached, resolveFfprobePath } from './core/probe.mjs'
 import { executeCleanPlan } from './modules/clean/execute.mjs'
 import { executeRename } from './modules/rename/execute.mjs'
 import { requestAiNames } from './modules/rename/ai.mjs'
@@ -392,7 +392,7 @@ function registerIpcHandlers(): void {
       concurrency: settings.concurrency,
       worker: async (video) => {
         try {
-          return { ...video, media: await probeMedia(video.path, resolveFfprobePath()) }
+          return { ...video, media: await probeMediaCached(video.path, resolveFfprobePath()) }
         } catch {
           return { ...video, media: null }
         }

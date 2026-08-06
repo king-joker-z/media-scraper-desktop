@@ -7,6 +7,7 @@ import RenamePage from './pages/RenamePage'
 import SettingsPage from './pages/SettingsPage'
 import TaskCenter from './components/TaskCenter'
 import TaskProgress from './components/TaskProgress'
+import ErrorBoundary from './components/ErrorBoundary'
 
 export type PageKey = 'clean' | 'merge' | 'rename' | 'poster' | 'nfo' | 'settings'
 
@@ -82,7 +83,9 @@ function App(): React.JSX.Element {
         </nav>
         <div className="sidebar-footer">v1.0.0 · 本地处理，隐私安全</div>
       </aside>
-      <main className="content">{renderPage()}</main>
+      <main className="content">
+        <ErrorBoundary>{renderPage()}</ErrorBoundary>
+      </main>
       <TaskProgress />
       <TaskCenter />
     </div>

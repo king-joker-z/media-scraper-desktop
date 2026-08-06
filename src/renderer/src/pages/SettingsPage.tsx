@@ -8,6 +8,9 @@ function SettingsPage(): React.JSX.Element {
   const [newProvider, setNewProvider] = useState({ name: '', baseUrl: '' })
   const [addingProvider, setAddingProvider] = useState(false)
   const [saved, setSaved] = useState(false)
+  // 文本输入本地草稿，失焦才写盘，避免每击键一次 settings.json 写入
+  const [drafts, setDrafts] = useState<Record<string, { baseUrl?: string; token?: string }>>({})
+  const [promptDraft, setPromptDraft] = useState<string | null>(null)
 
   useEffect(() => {
     window.api.getSettings().then((next) => {
@@ -169,17 +172,39 @@ function SettingsPage(): React.JSX.Element {
             <label className="field">
               <span>Base URL（OpenAI 兼容，自动拼接 /chat/completions）</span>
               <input
-                value={editing.baseUrl}
-                onChange={(event) => patchProvider(editing.id, { baseUrl: event.target.value })}
+                value={drafts[editing.id]?.baseUrl ?? editing.baseUrl}
+                onChange={(event) =>
+                  setDrafts((prev) => ({
+                    ...prev,
+                    [editing.id]: { ...prev[editing.id], baseUrl: event.target.value }
+                  }))
+                }
+                onBlur={() => {
+                  const value = drafts[editing.id]?.baseUrl
+                  if (value !== undefined && value !== editing.baseUrl) {
+                    patchProvider(editing.id, { baseUrl: value })
+                  }
+                }}
               />
             </label>
             <label className="field">
               <span>API Token{editing.token ? '（已保存，手动清空才会删除）' : '（未配置）'}</span>
               <input
                 type="password"
-                placeholder="粘贴 Token 后自动保存"
-                value={editing.token}
-                onChange={(event) => patchProvider(editing.id, { token: event.target.value })}
+                placeholder="粘贴 Token，失焦后自动保存"
+                value={drafts[editing.id]?.token ?? editing.token}
+                onChange={(event) =>
+                  setDrafts((prev) => ({
+                    ...prev,
+                    [editing.id]: { ...prev[editing.id], token: event.target.value }
+                  }))
+                }
+                onBlur={() => {
+                  const value = drafts[editing.id]?.token
+                  if (value !== undefined && value !== editing.token) {
+                    patchProvider(editing.id, { token: value })
+                  }
+                }}
               />
             </label>
             {editing.models.length > 0 && (
@@ -239,8 +264,13 @@ function SettingsPage(): React.JSX.Element {
         </p>
         <textarea
           rows={8}
-          value={settings.promptTemplate}
-          onChange={(event) => persist({ promptTemplate: event.target.value })}
+          value={promptDraft ?? settings.promptTemplate}
+          onChange={(event) => setPromptDraft(event.target.value)}
+          onBlur={() => {
+            if (promptDraft !== null && promptDraft !== settings.promptTemplate) {
+              persist({ promptTemplate: promptDraft })
+            }
+          }}
         />
       </section>
     </div>

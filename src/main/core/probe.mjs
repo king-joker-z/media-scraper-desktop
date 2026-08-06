@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { stat } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import ffprobeStatic from 'ffprobe-static'
 
@@ -81,4 +82,31 @@ export async function probeMedia(filePath, ffprobePath = resolveFfprobePath()) {
     filePath
   ])
   return parseProbeJson(JSON.parse(stdout))
+}
+
+/* ---------------- 探测缓存：按 path+mtime+size 命中，避免重复探测 ---------------- */
+
+const probeCache = new Map()
+
+/**
+ * 带缓存的探测：文件未变化（mtime/size 相同）直接返回缓存。
+ * probeFn 可注入便于测试。
+ */
+export async function probeMediaCached(
+  filePath,
+  ffprobePath = resolveFfprobePath(),
+  probeFn = probeMedia
+) {
+  const info = await stat(filePath)
+  const key = `${filePath}:${info.mtimeMs}:${info.size}`
+  const cached = probeCache.get(key)
+  if (cached) return cached
+  const result = await probeFn(filePath, ffprobePath)
+  if (probeCache.size > 2000) probeCache.clear() // 防无界增长
+  probeCache.set(key, result)
+  return result
+}
+
+export function clearProbeCache() {
+  probeCache.clear()
 }

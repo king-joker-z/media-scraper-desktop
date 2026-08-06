@@ -75,9 +75,9 @@ export async function executeRename(root, pairs, { taskCenter, taskId, concurren
   })
   collectFailures(report, phase1, ops)
   if (phase1.cancelled) return finish(report, startedAt, true)
-  if (report.failed.length > 0) return finish(report, startedAt, false)
 
-  // 阶段二：临时名 → 目标名（重名自动 (n)）
+  // 阶段二：临时名 → 目标名（重名自动 (n)）。
+  // 即使阶段一有部分失败，也必须把已改临时名的文件落到目标名，避免残留 msd_tmp_* 文件。
   const phase2Ops = ops.filter((_, index) => phase1.results[index]?.ok)
   const phase2 = await taskCenter.run({
     taskId,

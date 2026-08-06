@@ -1,6 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseFrameRate, parseProbeJson } from '../src/main/core/probe.mjs'
+import { mkdtemp, rm, writeFile, utimes } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  clearProbeCache,
+  parseFrameRate,
+  parseProbeJson,
+  probeMediaCached
+} from '../src/main/core/probe.mjs'
 
 test('parseFrameRate handles fractional, integer and missing rates', () => {
   assert.ok(Math.abs(parseFrameRate('30000/1001') - 29.97) < 0.01)
@@ -53,6 +61,32 @@ test('parseProbeJson swaps width/height for 90-degree rotated videos', () => {
   assert.equal(info.height, 1920)
   assert.equal(info.orientation, 'portrait')
   assert.equal(info.audioCodec, null)
+})
+
+test('probeMediaCached caches by path+mtime+size and refreshes on change', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-probe-'))
+  try {
+    const file = join(dir, 'v.mp4')
+    await writeFile(file, 'v1')
+    let calls = 0
+    const fakeProbe = async () => {
+      calls += 1
+      return { marker: calls }
+    }
+    clearProbeCache()
+    const first = await probeMediaCached(file, 'ffprobe', fakeProbe)
+    const second = await probeMediaCached(file, 'ffprobe', fakeProbe)
+    assert.equal(calls, 1) // 第二次命中缓存
+    assert.equal(second.marker, first.marker)
+    // 修改内容（大小变化）→ 缓存失效
+    await writeFile(file, 'v1-longer')
+    // mtime 可能同秒，强制设置一个不同的 mtime
+    await utimes(file, new Date(), new Date(Date.now() + 5000))
+    await probeMediaCached(file, 'ffprobe', fakeProbe)
+    assert.equal(calls, 2)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test('parseProbeJson tolerates missing streams and format fields', () => {

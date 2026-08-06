@@ -123,16 +123,20 @@ async function walk(root, current, records, skipped) {
           return
         }
         if (!entry.isFile()) return
-        const info = await stat(fullPath)
-        const relativePath = relative(root, fullPath)
-        records.push({
-          path: fullPath,
-          relativePath,
-          dir: dirname(relativePath),
-          name: entry.name,
-          kind: classifyPath(fullPath),
-          size: info.size
-        })
+        try {
+          const info = await stat(fullPath)
+          const relativePath = relative(root, fullPath)
+          records.push({
+            path: fullPath,
+            relativePath,
+            dir: dirname(relativePath),
+            name: entry.name,
+            kind: classifyPath(fullPath),
+            size: info.size
+          })
+        } catch {
+          // 无权限/已消失的文件跳过，不中断整体扫描
+        }
       })
     )
   }

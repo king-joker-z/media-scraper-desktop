@@ -105,22 +105,26 @@ export const isJunkFileName = (name) =>
 export async function removeEmptyDirs(root) {
   const removed = []
   async function visit(dir) {
-    const entries = await readdir(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.isDirectory()) await visit(join(dir, entry.name))
-    }
-    if (dir === root) return
-    const remaining = await readdir(dir, { withFileTypes: true })
-    if (remaining.length === 0) {
-      await rmdir(dir)
-      removed.push(dir)
-      return
-    }
-    const junkOnly = remaining.every((entry) => entry.isFile() && isJunkFileName(entry.name))
-    if (junkOnly) {
-      for (const entry of remaining) await rm(join(dir, entry.name), { force: true })
-      await rmdir(dir)
-      removed.push(dir)
+    try {
+      const entries = await readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.isDirectory()) await visit(join(dir, entry.name))
+      }
+      if (dir === root) return
+      const remaining = await readdir(dir, { withFileTypes: true })
+      if (remaining.length === 0) {
+        await rmdir(dir)
+        removed.push(dir)
+        return
+      }
+      const junkOnly = remaining.every((entry) => entry.isFile() && isJunkFileName(entry.name))
+      if (junkOnly) {
+        for (const entry of remaining) await rm(join(dir, entry.name), { force: true })
+        await rmdir(dir)
+        removed.push(dir)
+      }
+    } catch {
+      // 无权限/竞态消失的目录跳过，不中断清理
     }
   }
   await visit(root)
