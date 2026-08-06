@@ -106,7 +106,13 @@ export interface RegexTemplate {
   flags: string
 }
 
-export interface OpenRouterSettings {
+/** AI 平台配置（OpenAI 兼容端点）。token 按平台独立保存，切换平台不清除。 */
+export interface AiProviderConfig {
+  /** 预设：openrouter / deepseek / aicodemirror；自定义为 custom-<timestamp> */
+  id: string
+  name: string
+  /** OpenAI 兼容 baseUrl，如 https://api.deepseek.com */
+  baseUrl: string
   token: string
   models: string[]
   selectedModel: string
@@ -115,7 +121,8 @@ export interface OpenRouterSettings {
 export interface AppSettings {
   /** 全局并发线程数，1-20，默认 5（视频合并除外） */
   concurrency: number
-  openRouter: OpenRouterSettings
+  aiProviders: AiProviderConfig[]
+  activeProviderId: string
   /** AI 重命名 prompt 模板，支持 {{parentFolder}} {{fileName}} {{extension}} */
   promptTemplate: string
   regexTemplates: RegexTemplate[]

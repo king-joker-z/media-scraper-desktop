@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react'
-import type { AppSettings } from '../../../shared/types'
+import type { AiProviderConfig, AppSettings } from '../../../shared/types'
 
 function SettingsPage(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
+  const [editingId, setEditingId] = useState<string>('')
   const [newModel, setNewModel] = useState('')
+  const [newProvider, setNewProvider] = useState({ name: '', baseUrl: '' })
+  const [addingProvider, setAddingProvider] = useState(false)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    window.api.getSettings().then(setSettings)
+    window.api.getSettings().then((next) => {
+      setSettings(next)
+      setEditingId(next.activeProviderId)
+    })
   }, [])
 
   if (!settings) {
@@ -25,26 +31,66 @@ function SettingsPage(): React.JSX.Element {
     setTimeout(() => setSaved(false), 1500)
   }
 
+  const editing: AiProviderConfig =
+    settings.aiProviders.find((p) => p.id === editingId) ?? settings.aiProviders[0]
+
+  const patchProvider = (id: string, patch: Partial<AiProviderConfig>): void => {
+    persist({
+      aiProviders: settings.aiProviders.map((p) => (p.id === id ? { ...p, ...patch } : p))
+    })
+  }
+
+  const switchActive = (id: string): void => {
+    setEditingId(id)
+    if (id !== settings.activeProviderId) persist({ activeProviderId: id })
+  }
+
   const addModel = (): void => {
     const model = newModel.trim()
-    if (!model || settings.openRouter.models.includes(model)) return
-    persist({
-      openRouter: { ...settings.openRouter, models: [...settings.openRouter.models, model] }
-    })
+    if (!model || editing.models.includes(model)) return
+    patchProvider(editing.id, { models: [...editing.models, model] })
     setNewModel('')
   }
 
   const removeModel = (model: string): void => {
-    const models = settings.openRouter.models.filter((item) => item !== model)
-    persist({
-      openRouter: {
-        ...settings.openRouter,
-        models,
-        selectedModel: models.includes(settings.openRouter.selectedModel)
-          ? settings.openRouter.selectedModel
-          : (models[0] ?? '')
-      }
+    const models = editing.models.filter((item) => item !== model)
+    patchProvider(editing.id, {
+      models,
+      selectedModel: models.includes(editing.selectedModel)
+        ? editing.selectedModel
+        : (models[0] ?? '')
     })
+  }
+
+  const addCustomProvider = (): void => {
+    const name = newProvider.name.trim()
+    const baseUrl = newProvider.baseUrl.trim().replace(/\/+$/, '')
+    if (!name || !baseUrl) return
+    const provider: AiProviderConfig = {
+      id: `custom-${Date.now()}`,
+      name,
+      baseUrl,
+      token: '',
+      models: [],
+      selectedModel: ''
+    }
+    persist({
+      aiProviders: [...settings.aiProviders, provider],
+      activeProviderId: provider.id
+    })
+    setEditingId(provider.id)
+    setNewProvider({ name: '', baseUrl: '' })
+    setAddingProvider(false)
+  }
+
+  const removeProvider = (id: string): void => {
+    const providers = settings.aiProviders.filter((p) => p.id !== id)
+    persist({
+      aiProviders: providers,
+      activeProviderId:
+        settings.activeProviderId === id ? (providers[0]?.id ?? '') : settings.activeProviderId
+    })
+    setEditingId(providers[0]?.id ?? '')
   }
 
   return (
@@ -53,7 +99,7 @@ function SettingsPage(): React.JSX.Element {
         <div>
           <p className="eyebrow">SETTINGS</p>
           <h1>设置</h1>
-          <p className="muted">所有配置保存在本地，仅在你触发 AI 重命名时才会访问 OpenRouter。</p>
+          <p className="muted">所有配置保存在本地。各平台 Token 独立保存，切换平台不会清除。</p>
         </div>
         {saved && <span className="saved-badge">已保存 ✓</span>}
       </header>
@@ -74,66 +120,115 @@ function SettingsPage(): React.JSX.Element {
       </section>
 
       <section className="settings-card">
-        <h2>OpenRouter（AI 重命名）</h2>
-        <p className="muted">
-          在 openrouter.ai 申请 API Key。仅发送文件名与目录名，绝不上传视频内容。
-        </p>
-        <label className="field">
-          <span>API Token</span>
-          <input
-            type="password"
-            placeholder="sk-or-..."
-            value={settings.openRouter.token}
-            onChange={(event) =>
-              persist({
-                openRouter: { ...settings.openRouter, token: event.target.value }
-              })
-            }
-          />
-        </label>
-        <label className="field">
-          <span>默认模型</span>
-          <select
-            value={settings.openRouter.selectedModel}
-            onChange={(event) =>
-              persist({
-                openRouter: { ...settings.openRouter, selectedModel: event.target.value }
-              })
-            }
-          >
-            {settings.openRouter.models.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="model-list">
-          {settings.openRouter.models.map((model) => (
-            <span key={model} className="model-chip">
-              {model}
-              <button
-                className="chip-remove"
-                title="移除"
-                onClick={() => removeModel(model)}
-                disabled={settings.openRouter.models.length <= 1}
-              >
-                ×
-              </button>
-            </span>
+        <h2>AI 平台</h2>
+        <div className="mode-tabs">
+          {settings.aiProviders.map((provider) => (
+            <button
+              key={provider.id}
+              className={`mode-tab ${editingId === provider.id ? 'active' : ''}`}
+              onClick={() => switchActive(provider.id)}
+            >
+              {provider.name}
+              {provider.id === settings.activeProviderId && ' · 使用中'}
+              {provider.token && ' 🔑'}
+            </button>
           ))}
-        </div>
-        <div className="model-add">
-          <input
-            placeholder="添加模型，如 anthropic/claude-sonnet-4"
-            value={newModel}
-            onChange={(event) => setNewModel(event.target.value)}
-            onKeyDown={(event) => event.key === 'Enter' && addModel()}
-          />
-          <button className="secondary" onClick={addModel} disabled={!newModel.trim()}>
-            添加
+          <button className="mode-tab" onClick={() => setAddingProvider((v) => !v)}>
+            ＋ 自定义
           </button>
         </div>
+
+        {addingProvider && (
+          <div className="model-add">
+            <input
+              placeholder="平台名称，如 某某镜像"
+              value={newProvider.name}
+              onChange={(event) =>
+                setNewProvider((prev) => ({ ...prev, name: event.target.value }))
+              }
+            />
+            <input
+              placeholder="OpenAI 兼容 baseUrl，如 https://api.example.com/v1"
+              value={newProvider.baseUrl}
+              onChange={(event) =>
+                setNewProvider((prev) => ({ ...prev, baseUrl: event.target.value }))
+              }
+            />
+            <button
+              className="secondary"
+              onClick={addCustomProvider}
+              disabled={!newProvider.name.trim() || !newProvider.baseUrl.trim()}
+            >
+              添加
+            </button>
+          </div>
+        )}
+
+        {editing && (
+          <>
+            <label className="field">
+              <span>Base URL（OpenAI 兼容，自动拼接 /chat/completions）</span>
+              <input
+                value={editing.baseUrl}
+                onChange={(event) => patchProvider(editing.id, { baseUrl: event.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>API Token{editing.token ? '（已保存，手动清空才会删除）' : '（未配置）'}</span>
+              <input
+                type="password"
+                placeholder="粘贴 Token 后自动保存"
+                value={editing.token}
+                onChange={(event) => patchProvider(editing.id, { token: event.target.value })}
+              />
+            </label>
+            {editing.models.length > 0 && (
+              <label className="field">
+                <span>默认模型</span>
+                <select
+                  value={editing.selectedModel}
+                  onChange={(event) =>
+                    patchProvider(editing.id, { selectedModel: event.target.value })
+                  }
+                >
+                  {editing.models.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <div className="model-list">
+              {editing.models.map((model) => (
+                <span key={model} className="model-chip">
+                  {model}
+                  <button className="chip-remove" title="移除" onClick={() => removeModel(model)}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="model-add">
+              <input
+                placeholder="添加模型 ID，如 deepseek-v4-flash"
+                value={newModel}
+                onChange={(event) => setNewModel(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && addModel()}
+              />
+              <button className="secondary" onClick={addModel} disabled={!newModel.trim()}>
+                添加
+              </button>
+            </div>
+            {editing.id.startsWith('custom-') && (
+              <div>
+                <button className="danger-button" onClick={() => removeProvider(editing.id)}>
+                  删除此平台
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </section>
 
       <section className="settings-card">

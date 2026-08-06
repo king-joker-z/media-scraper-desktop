@@ -38,8 +38,10 @@ const mockFetchOk = (names) => async () => ({
   json: async () => ({ choices: [{ message: { content: JSON.stringify(names) } }] })
 })
 
-test('requestAiNames maps response names in order', async () => {
+test('requestAiNames maps response names in order and targets baseUrl', async () => {
+  let calledUrl = ''
   const names = await requestAiNames({
+    baseUrl: 'https://api.deepseek.com/',
     token: 'sk-test',
     model: 'm',
     template: '{{fileName}}',
@@ -47,14 +49,22 @@ test('requestAiNames maps response names in order', async () => {
       { parentFolder: 'p', fileName: 'a@111', extension: '.mp4' },
       { parentFolder: 'p', fileName: 'b@222', extension: '.mp4' }
     ],
-    fetchImpl: mockFetchOk(['干净 a', '干净 b'])
+    fetchImpl: async (url) => {
+      calledUrl = url
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '["干净 a","干净 b"]' } }] })
+      }
+    }
   })
   assert.deepEqual(names, ['干净 a', '干净 b'])
+  assert.equal(calledUrl, 'https://api.deepseek.com/chat/completions')
 })
 
 test('requestAiNames requires token and validates count', async () => {
   await assert.rejects(
     requestAiNames({
+      baseUrl: 'https://x',
       token: '',
       model: 'm',
       template: '',
@@ -64,6 +74,7 @@ test('requestAiNames requires token and validates count', async () => {
   )
   await assert.rejects(
     requestAiNames({
+      baseUrl: 'https://x',
       token: 'sk',
       model: 'm',
       template: '',
@@ -80,6 +91,7 @@ test('requestAiNames requires token and validates count', async () => {
 test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
   await assert.rejects(
     requestAiNames({
+      baseUrl: 'https://x',
       token: 'sk',
       model: 'm',
       template: '',
@@ -96,6 +108,7 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
     extension: '.mp4'
   }))
   const names = await requestAiNames({
+    baseUrl: 'https://x',
     token: 'sk',
     model: 'm',
     template: '',

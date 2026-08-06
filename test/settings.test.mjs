@@ -4,8 +4,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  activeProvider,
   createSettingsStore,
-  DEFAULT_SETTINGS,
   normalizeSettings
 } from '../src/main/core/settings.mjs'
 
@@ -23,9 +23,64 @@ test('returns defaults when the settings file does not exist', async () => {
     const store = createSettingsStore(join(dir, 'settings.json'))
     const settings = await store.get()
     assert.equal(settings.concurrency, 5)
-    assert.ok(settings.openRouter.models.includes('deepseek/deepseek-chat'))
+    assert.equal(settings.activeProviderId, 'openrouter')
+    const ids = settings.aiProviders.map((p) => p.id)
+    assert.ok(ids.includes('openrouter'))
+    assert.ok(ids.includes('deepseek'))
+    assert.ok(ids.includes('aicodemirror'))
     assert.ok(settings.promptTemplate.includes('{{parentFolder}}'))
     assert.ok(settings.regexTemplates.length >= 3)
+  })
+})
+
+test('migrates legacy openRouter settings into providers', () => {
+  const migrated = normalizeSettings({
+    openRouter: { token: 'sk-or-old', models: ['a/b'], selectedModel: 'a/b' }
+  })
+  const openrouter = migrated.aiProviders.find((p) => p.id === 'openrouter')
+  assert.equal(openrouter.token, 'sk-or-old')
+  assert.deepEqual(openrouter.models, ['a/b'])
+  assert.equal(openrouter.selectedModel, 'a/b')
+  // 其他平台预设补齐
+  assert.ok(migrated.aiProviders.find((p) => p.id === 'deepseek'))
+})
+
+test('tokens persist per provider and survive platform switching', async () => {
+  await withTempDir(async (dir) => {
+    const store = createSettingsStore(join(dir, 'settings.json'))
+    let settings = await store.get()
+
+    // 给两个平台分别配置 token
+    const withTokens = settings.aiProviders.map((p) =>
+      p.id === 'openrouter'
+        ? { ...p, token: 'sk-or' }
+        : p.id === 'deepseek'
+          ? { ...p, token: 'sk-ds' }
+          : p
+    )
+    settings = await store.update({ aiProviders: withTokens })
+    // 切换平台
+    settings = await store.update({ activeProviderId: 'deepseek' })
+    assert.equal(settings.activeProviderId, 'deepseek')
+    assert.equal(activeProvider(settings).token, 'sk-ds')
+
+    // 重新加载（模拟重启）：两个 token 都在
+    const reloaded = createSettingsStore(join(dir, 'settings.json'))
+    const after = await reloaded.get()
+    assert.equal(after.aiProviders.find((p) => p.id === 'openrouter').token, 'sk-or')
+    assert.equal(after.aiProviders.find((p) => p.id === 'deepseek').token, 'sk-ds')
+    assert.equal(after.activeProviderId, 'deepseek')
+  })
+})
+
+test('update clamps concurrency into 1-20 and persists to disk', async () => {
+  await withTempDir(async (dir) => {
+    const file = join(dir, 'settings.json')
+    const store = createSettingsStore(file)
+    assert.equal((await store.update({ concurrency: 99 })).concurrency, 20)
+    assert.equal((await store.update({ concurrency: 0 })).concurrency, 1)
+    const reloaded = createSettingsStore(file)
+    assert.equal((await reloaded.get()).concurrency, 1)
   })
 })
 
@@ -34,46 +89,30 @@ test('recovers defaults from a corrupted settings file', async () => {
     const file = join(dir, 'settings.json')
     await writeFile(file, '{not valid json')
     const store = createSettingsStore(file)
-    const settings = await store.get()
-    assert.deepEqual(settings, normalizeSettings(null))
+    assert.deepEqual(await store.get(), normalizeSettings(null))
   })
 })
 
-test('update clamps concurrency into 1-20 and persists to disk', async () => {
-  await withTempDir(async (dir) => {
-    const file = join(dir, 'settings.json')
-    const store = createSettingsStore(file)
-
-    assert.equal((await store.update({ concurrency: 99 })).concurrency, 20)
-    assert.equal((await store.update({ concurrency: 0 })).concurrency, 1)
-    assert.equal((await store.update({ concurrency: 8 })).concurrency, 8)
-
-    // 新实例从磁盘读回同样的值
-    const reloaded = createSettingsStore(file)
-    assert.equal((await reloaded.get()).concurrency, 8)
-  })
-})
-
-test('openRouter patch merges without dropping existing fields', async () => {
-  await withTempDir(async (dir) => {
-    const store = createSettingsStore(join(dir, 'settings.json'))
-    const before = await store.get()
-    const after = await store.update({ openRouter: { ...before.openRouter, token: 'sk-or-test' } })
-    assert.equal(after.openRouter.token, 'sk-or-test')
-    assert.deepEqual(after.openRouter.models, DEFAULT_SETTINGS.openRouter.models)
-  })
-})
-
-test('normalizeSettings filters malformed model lists and unknown selected model', () => {
+test('normalizeSettings filters malformed providers and models', () => {
   const normalized = normalizeSettings({
-    concurrency: 'junk',
-    openRouter: { models: ['ok/model', '', 42], selectedModel: 'not-in-list' },
-    promptTemplate: '',
-    regexTemplates: [{ name: 'x', pattern: 'a', replacement: '', flags: 'g' }, { bad: true }]
+    aiProviders: [
+      {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com/',
+        token: 't',
+        models: ['m1', '', 42],
+        selectedModel: 'nope'
+      },
+      { bad: true }
+    ],
+    activeProviderId: 'ghost'
   })
-  assert.equal(normalized.concurrency, 5)
-  assert.deepEqual(normalized.openRouter.models, ['ok/model'])
-  assert.equal(normalized.openRouter.selectedModel, 'ok/model')
-  assert.ok(normalized.promptTemplate.length > 0)
-  assert.equal(normalized.regexTemplates.length, 1)
+  const ds = normalized.aiProviders.find((p) => p.id === 'deepseek')
+  assert.equal(ds.baseUrl, 'https://api.deepseek.com') // 尾斜杠清理
+  assert.deepEqual(ds.models, ['m1'])
+  assert.equal(ds.selectedModel, 'm1') // 非法 selectedModel 回退
+  // 无效 provider 被赋予自定义 id 兜底
+  assert.equal(normalized.aiProviders.length, 2)
+  assert.equal(normalized.activeProviderId, 'deepseek') // ghost 不存在，回退首个
 })

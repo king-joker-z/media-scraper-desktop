@@ -4,7 +4,7 @@ import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { createScanPlan, IMAGE_EXTENSIONS } from './core/scanner.mjs'
-import { createSettingsStore } from './core/settings.mjs'
+import { activeProvider, createSettingsStore } from './core/settings.mjs'
 import { createTaskCenter } from './core/task-center.mjs'
 import { resolveFfmpegPath } from './core/frames.mjs'
 import { probeMedia, resolveFfprobePath } from './core/probe.mjs'
@@ -303,9 +303,11 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle('rename:ai', async (_event, files: AiFileInput[]) => {
     const settings = await settingsStore.get()
+    const provider = activeProvider(settings)
     return requestAiNames({
-      token: settings.openRouter.token,
-      model: settings.openRouter.selectedModel,
+      baseUrl: provider.baseUrl,
+      token: provider.token,
+      model: provider.selectedModel,
       template: settings.promptTemplate,
       files
     })

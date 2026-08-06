@@ -143,13 +143,20 @@ export function buildTranscodeArgs(inputPath, target, outputPath) {
 /** 转码后中间片段（MP4）合并为最终 MP4 */
 export function buildConcatSegmentsArgs(listPath, outputPath) {
   return [
-    '-v', 'error',
-    '-f', 'concat',
-    '-safe', '0',
-    '-i', listPath,
-    '-c', 'copy',
-    '-movflags', '+faststart',
-    '-y', outputPath
+    '-v',
+    'error',
+    '-f',
+    'concat',
+    '-safe',
+    '0',
+    '-i',
+    listPath,
+    '-c',
+    'copy',
+    '-movflags',
+    '+faststart',
+    '-y',
+    outputPath
   ]
 }
 

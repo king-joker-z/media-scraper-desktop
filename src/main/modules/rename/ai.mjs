@@ -3,8 +3,12 @@
  * 仅发送文件名与父目录名，绝不上传文件内容。
  */
 
-export const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 export const AI_BATCH_SIZE = 50
+
+/** OpenAI 兼容端点：baseUrl + /chat/completions */
+export function chatCompletionsUrl(baseUrl) {
+  return `${String(baseUrl).replace(/\/+$/, '')}/chat/completions`
+}
 
 const SYSTEM_MESSAGE = [
   '你是文件重命名助手。用户会按编号给出多个文件的信息与命名要求。',
@@ -46,18 +50,26 @@ export function buildAiMessages(template, files) {
 }
 
 /**
- * 请求 OpenRouter 生成新文件名。
- * @param {object} options { token, model, template, files: AiFileInput[], fetchImpl? }
+ * 请求 AI 平台（OpenAI 兼容端点）生成新文件名。
+ * @param {object} options { baseUrl, token, model, template, files: AiFileInput[], fetchImpl? }
  * @returns {Promise<string[]>} 与 files 等长的新词干数组
  */
-export async function requestAiNames({ token, model, template, files, fetchImpl = fetch }) {
-  if (!token) throw new Error('未配置 OpenRouter Token，请先到设置页填写')
+export async function requestAiNames({
+  baseUrl,
+  token,
+  model,
+  template,
+  files,
+  fetchImpl = fetch
+}) {
+  if (!token) throw new Error('当前平台未配置 API Token，请先到设置页填写')
+  if (!baseUrl) throw new Error('当前平台未配置 baseUrl')
   if (files.length === 0) return []
 
   const names = []
   for (let i = 0; i < files.length; i += AI_BATCH_SIZE) {
     const chunk = files.slice(i, i + AI_BATCH_SIZE)
-    const response = await fetchImpl(OPENROUTER_URL, {
+    const response = await fetchImpl(chatCompletionsUrl(baseUrl), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -72,7 +84,7 @@ export async function requestAiNames({ token, model, template, files, fetchImpl 
       })
     })
     if (!response.ok) {
-      throw new Error(`OpenRouter 请求失败 ${response.status}：${await response.text()}`)
+      throw new Error(`AI 平台请求失败 ${response.status}：${await response.text()}`)
     }
     const data = await response.json()
     const chunkNames = extractJsonArray(data?.choices?.[0]?.message?.content)

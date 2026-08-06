@@ -1,8 +1,8 @@
 declare module './ai.mjs' {
   import type { AiFileInput } from '../../../shared/types'
 
-  export const OPENROUTER_URL: string
   export const AI_BATCH_SIZE: number
+  export function chatCompletionsUrl(baseUrl: string): string
   export function buildPrompt(
     template: string,
     vars: { parentFolder: string; fileName: string; extension: string }
@@ -13,6 +13,7 @@ declare module './ai.mjs' {
     files: AiFileInput[]
   ): { role: string; content: string }[]
   export function requestAiNames(options: {
+    baseUrl: string
     token: string
     model: string
     template: string

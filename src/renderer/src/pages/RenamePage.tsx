@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type {
+  AppSettings,
   PosterVideoItem,
   ProbeContainerItem,
   RenamePairInput,
-  RenameReport,
-  RegexTemplate
+  RenameReport
 } from '../../../shared/types'
 import {
   applyRegexRules,
@@ -49,7 +49,7 @@ function RenamePage({
     digits: 2,
     separator: '.'
   })
-  const [templates, setTemplates] = useState<RegexTemplate[]>([])
+  const [settings, setSettings] = useState<AppSettings | null>(null)
   const [activeRules, setActiveRules] = useState<number[]>([0])
   const [customRule, setCustomRule] = useState({ pattern: '', replacement: '', flags: 'g' })
   const [useCustom, setUseCustom] = useState(false)
@@ -63,8 +63,15 @@ function RenamePage({
   const [error, setError] = useState('')
 
   useEffect(() => {
-    window.api.getSettings().then((settings) => setTemplates(settings.regexTemplates))
+    window.api.getSettings().then(setSettings)
   }, [])
+  const templates = useMemo(() => settings?.regexTemplates ?? [], [settings])
+  const activeAi = useMemo(
+    () =>
+      settings?.aiProviders.find((p) => p.id === settings.activeProviderId) ??
+      settings?.aiProviders[0],
+    [settings]
+  )
 
   const refresh = async (): Promise<void> => {
     if (!workspace) return
@@ -317,8 +324,12 @@ function RenamePage({
             <section className="settings-card">
               <h2>AI 命名</h2>
               <p className="muted">
-                使用设置页的 OpenRouter Token 与默认模型；仅发送文件名与父目录名，不上传视频。
-                prompt 模板在设置页可改。
+                当前平台：<b>{activeAi?.name ?? '未配置'}</b> · 模型：
+                <b>{activeAi?.selectedModel || '未选择'}</b>
+                {activeAi && !activeAi.token && (
+                  <span className="danger-text">（未配置 Token，请到设置页填写）</span>
+                )}
+                。仅发送文件名与父目录名，不上传视频；平台/模型/prompt 均可在设置页调整。
               </p>
               <div className="actions">
                 <button onClick={runAi} disabled={aiLoading || videos.length === 0}>
