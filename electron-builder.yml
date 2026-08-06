@@ -24,7 +24,6 @@ nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
 mac:
   # 无 Apple Developer ID 证书阶段：显式 ad-hoc 签名，避免误用本机无关证书
   identity: null
