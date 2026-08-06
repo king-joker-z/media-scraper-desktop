@@ -43,7 +43,7 @@ function runFfmpeg(ffmpegPath, args, { signal, onProgress, totalMs }) {
       if (code === 0) return resolve()
       reject(
         new Error(
-          `ffmpeg 异常退出（code=${code} signal=${termSignal}）：${stderr.slice(-400) || '无错误输出'}`
+          `ffmpeg 异常退出（code=${code} signal=${termSignal}）args=${args.join(' ')} ：${stderr.slice(-300) || '无错误输出'}`
         )
       )
     })
