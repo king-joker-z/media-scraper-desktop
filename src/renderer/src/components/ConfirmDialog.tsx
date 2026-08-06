@@ -16,6 +16,7 @@ function ConfirmDialog({
   danger,
   extra,
   confirmWord = CONFIRM_WORD,
+  toggle,
   onConfirm,
   onCancel
 }: {
