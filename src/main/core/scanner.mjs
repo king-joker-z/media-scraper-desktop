@@ -104,29 +104,37 @@ export function predictMoves(keep, skippedHidden) {
   return moves
 }
 
+// 目录遍历并发批大小：stat 是 I/O 操作，并发批处理可显著加速大目录扫描
+const WALK_BATCH = 32
+
 async function walk(root, current, records, skipped) {
   const entries = await readdir(current, { withFileTypes: true })
-  for (const entry of entries) {
-    const fullPath = join(current, entry.name)
-    if (isHiddenName(entry.name)) {
-      skipped.push(relative(root, fullPath))
-      continue
-    }
-    if (entry.isDirectory()) {
-      await walk(root, fullPath, records, skipped)
-      continue
-    }
-    if (!entry.isFile()) continue
-    const info = await stat(fullPath)
-    const relativePath = relative(root, fullPath)
-    records.push({
-      path: fullPath,
-      relativePath,
-      dir: dirname(relativePath),
-      name: entry.name,
-      kind: classifyPath(fullPath),
-      size: info.size
-    })
+  for (let i = 0; i < entries.length; i += WALK_BATCH) {
+    const batch = entries.slice(i, i + WALK_BATCH)
+    await Promise.all(
+      batch.map(async (entry) => {
+        const fullPath = join(current, entry.name)
+        if (isHiddenName(entry.name)) {
+          skipped.push(relative(root, fullPath))
+          return
+        }
+        if (entry.isDirectory()) {
+          await walk(root, fullPath, records, skipped)
+          return
+        }
+        if (!entry.isFile()) return
+        const info = await stat(fullPath)
+        const relativePath = relative(root, fullPath)
+        records.push({
+          path: fullPath,
+          relativePath,
+          dir: dirname(relativePath),
+          name: entry.name,
+          kind: classifyPath(fullPath),
+          size: info.size
+        })
+      })
+    )
   }
 }
 

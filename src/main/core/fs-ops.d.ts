@@ -6,4 +6,5 @@ declare module './fs-ops.mjs' {
   export function renameWithCollision(from: string, newName: string): Promise<string>
   export function writeTextFile(target: string, content: string): Promise<string>
   export function removeEmptyDirs(root: string): Promise<string[]>
+  export function isJunkFileName(name: string): boolean
 }

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import CleanPage from './pages/CleanPage'
 import PlaceholderPage from './pages/PlaceholderPage'
+import PosterPage from './pages/PosterPage'
 import SettingsPage from './pages/SettingsPage'
 import TaskCenter from './components/TaskCenter'
 
@@ -59,18 +60,9 @@ function App(): React.JSX.Element {
           />
         )
       case 'poster':
+        // key 随工作区变化：切换工作区时整体重置页面状态
         return (
-          <PlaceholderPage
-            icon="🖼️"
-            title="Poster 封面管理"
-            milestone="M2"
-            points={[
-              '无 poster 视频默认截取 5 张候选（10/30/50/70/90%）',
-              '详情页播放视频、拖动时间轴、任意时点截图',
-              '保存唯一封面为 <视频名>-poster.jpg',
-              '落选候选与旧图进入删除清单，确认后清理'
-            ]}
-          />
+          <PosterPage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
         )
       case 'nfo':
         return (

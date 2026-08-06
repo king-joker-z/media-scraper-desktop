@@ -12,6 +12,7 @@ files:
 asarUnpack:
   - resources/**
   - node_modules/ffprobe-static/**
+  - node_modules/ffmpeg-static/**
 win:
   executableName: MediaScraper
 nsis:

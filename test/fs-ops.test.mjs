@@ -63,12 +63,12 @@ test('renameWithCollision renames and avoids overwriting', async () => {
   })
 })
 
-test('removeEmptyDirs removes empty subtrees but protects dirs with hidden files', async () => {
+test('removeEmptyDirs removes empty subtrees but protects dirs with real hidden files', async () => {
   await withTempDir(async (root) => {
     await mkdir(join(root, 'empty1'), { recursive: true })
     await mkdir(join(root, 'nested', 'inner'), { recursive: true })
     await mkdir(join(root, 'with-hidden'), { recursive: true })
-    await writeFile(join(root, 'with-hidden', '.DS_Store'), 'x')
+    await writeFile(join(root, 'with-hidden', '.secret-data'), 'x')
     await mkdir(join(root, 'with-file'), { recursive: true })
     await writeFile(join(root, 'with-file', 'keep.txt'), 'x')
 
@@ -76,12 +76,40 @@ test('removeEmptyDirs removes empty subtrees but protects dirs with hidden files
     assert.ok(removed.includes(join(root, 'empty1')))
     assert.ok(removed.includes(join(root, 'nested', 'inner')))
     assert.ok(removed.includes(join(root, 'nested')))
-    // 含隐藏文件 / 普通文件的目录保留
+    // 含真实隐藏文件 / 普通文件的目录保留
     assert.equal(await pathExists(join(root, 'with-hidden')), true)
     assert.equal(await pathExists(join(root, 'with-file')), true)
     // root 自身永远不删
     assert.equal(await pathExists(root), true)
   })
+})
+
+test('removeEmptyDirs deletes dirs containing only OS junk files (.DS_Store etc.)', async () => {
+  await withTempDir(async (root) => {
+    await mkdir(join(root, 'junk-only'), { recursive: true })
+    await writeFile(join(root, 'junk-only', '.DS_Store'), 'x')
+    await mkdir(join(root, 'mixed'), { recursive: true })
+    await writeFile(join(root, 'mixed', '.DS_Store'), 'x')
+    await writeFile(join(root, 'mixed', 'real.txt'), 'x')
+
+    const removed = await removeEmptyDirs(root)
+    // 只剩垃圾文件的目录被清理
+    assert.ok(removed.includes(join(root, 'junk-only')))
+    assert.equal(await pathExists(join(root, 'junk-only')), false)
+    // 还有其他内容的目录保留，垃圾文件也不动
+    assert.equal(await pathExists(join(root, 'mixed')), true)
+    assert.equal(await pathExists(join(root, 'mixed', '.DS_Store')), true)
+  })
+})
+
+test('isJunkFileName identifies OS metadata files', async () => {
+  const { isJunkFileName } = await import('../src/main/core/fs-ops.mjs')
+  assert.equal(isJunkFileName('.DS_Store'), true)
+  assert.equal(isJunkFileName('._AppleDouble'), true)
+  assert.equal(isJunkFileName('Thumbs.db'), true)
+  assert.equal(isJunkFileName('desktop.ini'), true)
+  assert.equal(isJunkFileName('.gitignore'), false)
+  assert.equal(isJunkFileName('photo.jpg'), false)
 })
 
 test('permanentDelete removes files and directories recursively', async () => {

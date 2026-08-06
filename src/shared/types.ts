@@ -121,6 +121,29 @@ export interface AppSettings {
   regexTemplates: RegexTemplate[]
 }
 
+/* ------------------------- 模块四：封面管理 ------------------------- */
+
+export interface PosterVideoItem {
+  path: string
+  relativePath: string
+  name: string
+  size: number
+  /** 现存 poster 绝对路径（无则为 null） */
+  posterPath: string | null
+  posterRelativePath: string | null
+}
+
+export interface CaptureOutcome {
+  relativePath: string
+  frames: string[]
+  error?: string
+}
+
+export interface PosterSaveResult {
+  saved: string
+  deletedOld: string[]
+}
+
 /* ---------------------------- 任务中心 ---------------------------- */
 
 export type TaskEventType = 'start' | 'progress' | 'item-done' | 'item-error' | 'done' | 'cancelled'

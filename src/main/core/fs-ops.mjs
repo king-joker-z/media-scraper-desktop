@@ -61,8 +61,18 @@ export async function writeTextFile(target, content) {
 }
 
 /**
+ * 操作系统生成的垃圾文件（可安全删除，用户数据不受影响）：
+ * macOS 的 .DS_Store / ._AppleDouble、Windows 的 Thumbs.db / desktop.ini。
+ */
+const JUNK_FILE_NAMES = new Set(['.ds_store', 'thumbs.db', 'ehthumbs.db', 'desktop.ini'])
+export const isJunkFileName = (name) =>
+  JUNK_FILE_NAMES.has(name.toLowerCase()) || name.startsWith('._')
+
+/**
  * 自底向上删除 root 下的空子目录（不删 root 自身）。
- * 目录只要还含有任何条目（包括隐藏文件）就不会被删 —— 冻结稿 §2.5 的隐藏保护由此保证。
+ * 规则：
+ * - 目录只剩系统垃圾文件 → 先删垃圾再删目录（用户明确要求清理空文件夹）；
+ * - 目录含有任何其他内容（含真实隐藏文件）→ 保留（冻结稿 §2.5 隐藏保护）。
  * 返回被删除目录的绝对路径列表。
  */
 export async function removeEmptyDirs(root) {
@@ -73,8 +83,15 @@ export async function removeEmptyDirs(root) {
       if (entry.isDirectory()) await visit(join(dir, entry.name))
     }
     if (dir === root) return
-    const remaining = await readdir(dir)
+    const remaining = await readdir(dir, { withFileTypes: true })
     if (remaining.length === 0) {
+      await rmdir(dir)
+      removed.push(dir)
+      return
+    }
+    const junkOnly = remaining.every((entry) => entry.isFile() && isJunkFileName(entry.name))
+    if (junkOnly) {
+      for (const entry of remaining) await rm(join(dir, entry.name), { force: true })
       await rmdir(dir)
       removed.push(dir)
     }
