@@ -1,0 +1,512 @@
+import { useEffect, useMemo, useState } from 'react'
+import type {
+  PosterVideoItem,
+  ProbeContainerItem,
+  RenamePairInput,
+  RenameReport,
+  RegexTemplate
+} from '../../../shared/types'
+import {
+  applyRegexRules,
+  buildSequenceStems,
+  extOfName,
+  sortVideos,
+  stemOfName,
+  validateStems
+} from '../../../shared/rename-rules.mjs'
+import ConfirmDialog from '../components/ConfirmDialog'
+
+type Mode = 'seq' | 'regex' | 'ai' | 'ext'
+
+const MODE_TABS: { key: Mode; label: string }[] = [
+  { key: 'seq', label: '纯序号' },
+  { key: 'regex', label: '正则清洗 + 序号' },
+  { key: 'ai', label: 'AI 重命名' },
+  { key: 'ext', label: '仅改扩展名 .mp4' }
+]
+
+interface SeqOptions {
+  sortBy: 'title' | 'size'
+  order: 'asc' | 'desc'
+  digits: number
+  separator: string
+}
+
+function RenamePage({
+  workspace,
+  onChooseWorkspace
+}: {
+  workspace: string
+  onChooseWorkspace: () => Promise<void>
+}): React.JSX.Element {
+  const [videos, setVideos] = useState<PosterVideoItem[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [mode, setMode] = useState<Mode>('seq')
+  const [seq, setSeq] = useState<SeqOptions>({
+    sortBy: 'title',
+    order: 'asc',
+    digits: 2,
+    separator: '.'
+  })
+  const [templates, setTemplates] = useState<RegexTemplate[]>([])
+  const [activeRules, setActiveRules] = useState<number[]>([0])
+  const [customRule, setCustomRule] = useState({ pattern: '', replacement: '', flags: 'g' })
+  const [useCustom, setUseCustom] = useState(false)
+  const [aiNames, setAiNames] = useState<string[] | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [probes, setProbes] = useState<Record<string, ProbeContainerItem>>({})
+  const [edits, setEdits] = useState<Record<string, string>>({})
+  const [executing, setExecuting] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [report, setReport] = useState<RenameReport | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    window.api.getSettings().then((settings) => setTemplates(settings.regexTemplates))
+  }, [])
+
+  const refresh = async (): Promise<void> => {
+    if (!workspace) return
+    setLoading(true)
+    setError('')
+    setReport(null)
+    setAiNames(null)
+    setEdits({})
+    setProbes({})
+    try {
+      setVideos(await window.api.listPosterVideos(workspace))
+      setLoaded(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  /** 各模式生成目标词干 */
+  const computedPairs = useMemo((): RenamePairInput[] => {
+    const withPoster = (
+      video: PosterVideoItem,
+      newStem: string,
+      newExt?: string
+    ): RenamePairInput => ({
+      videoRel: video.relativePath,
+      posterRel: video.posterRelativePath,
+      newStem,
+      newExt
+    })
+    if (mode === 'ext') {
+      return videos
+        .filter((v) => extOfName(v.name).toLowerCase() !== '.mp4')
+        .map((v) => withPoster(v, stemOfName(v.name), '.mp4'))
+    }
+    if (mode === 'ai') {
+      if (!aiNames) return []
+      const sorted = sortVideos(videos, 'title', 'asc')
+      return sorted.map((v, index) => withPoster(v, aiNames[index] ?? stemOfName(v.name)))
+    }
+    if (mode === 'regex') {
+      const rules = [
+        ...activeRules.map((i) => templates[i]).filter(Boolean),
+        ...(useCustom && customRule.pattern ? [customRule] : [])
+      ]
+      const cleaned = videos.map((v) => ({
+        ...v,
+        name: `${applyRegexRules(stemOfName(v.name), rules)}${extOfName(v.name)}`
+      }))
+      return buildSequenceStems(cleaned, seq).map((p) => {
+        const video = videos.find((v) => v.relativePath === p.videoRel)
+        return withPoster(video!, p.newStem)
+      })
+    }
+    // seq 模式
+    return buildSequenceStems(videos, seq).map((p) => {
+      const video = videos.find((v) => v.relativePath === p.videoRel)
+      return withPoster(video!, p.newStem)
+    })
+  }, [videos, mode, seq, templates, activeRules, customRule, useCustom, aiNames])
+
+  /** 用户手动编辑覆盖 */
+  const pairs = useMemo(
+    () =>
+      computedPairs.map((pair) => ({
+        ...pair,
+        newStem: edits[pair.videoRel] ?? pair.newStem
+      })),
+    [computedPairs, edits]
+  )
+  const errors = useMemo(() => validateStems(pairs.filter((p) => !p.newExt)), [pairs])
+  const changedPairs = useMemo(
+    () =>
+      pairs.filter((pair) => {
+        const video = videos.find((v) => v.relativePath === pair.videoRel)
+        if (!video) return false
+        const finalName = `${pair.newStem}${pair.newExt ?? extOfName(video.name)}`
+        return finalName !== video.name
+      }),
+    [pairs, videos]
+  )
+  const riskyExtCount = pairs.filter(
+    (p) => p.newExt && probes[p.videoRel] && !probes[p.videoRel].isMp4
+  ).length
+
+  const runAi = async (): Promise<void> => {
+    setAiLoading(true)
+    setError('')
+    try {
+      const sorted = sortVideos(videos, 'title', 'asc')
+      const names = await window.api.requestAiNames(
+        sorted.map((v) => ({
+          parentFolder: workspace.split(/[\\/]/).pop() ?? '',
+          fileName: stemOfName(v.name),
+          extension: extOfName(v.name)
+        }))
+      )
+      setAiNames(names)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const runProbe = async (): Promise<void> => {
+    if (!workspace || pairs.length === 0) return
+    setLoading(true)
+    try {
+      const result = await window.api.probeContainers(
+        workspace,
+        pairs.map((p) => p.videoRel)
+      )
+      setProbes(Object.fromEntries(result.map((item) => [item.relativePath, item])))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const execute = async (): Promise<void> => {
+    if (!workspace) return
+    setConfirming(false)
+    setExecuting(true)
+    setError('')
+    try {
+      const result = await window.api.executeRename(workspace, changedPairs)
+      setReport(result)
+      if (!result.cancelled) await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setExecuting(false)
+    }
+  }
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">模块三 · 批量重命名</p>
+          <h1>批量重命名</h1>
+          <p className="muted">视频与 poster 成组改名，poster 自动同步为「新名-poster.jpg」。</p>
+        </div>
+        <div className="actions">
+          <button className="secondary" onClick={onChooseWorkspace} disabled={executing}>
+            选择工作区
+          </button>
+          <button
+            className="secondary"
+            onClick={refresh}
+            disabled={!workspace || loading || executing}
+          >
+            {loading ? '扫描中…' : '扫描视频'}
+          </button>
+          {pairs.length > 0 && (
+            <button
+              disabled={changedPairs.length === 0 || Object.keys(errors).length > 0 || executing}
+              onClick={() => setConfirming(true)}
+            >
+              {executing ? '执行中…' : `执行重命名（${changedPairs.length}）`}
+            </button>
+          )}
+          {executing && (
+            <button className="secondary" onClick={() => window.api.cancelRename()}>
+              取消
+            </button>
+          )}
+        </div>
+      </header>
+
+      <section className="path-card">
+        <span>当前工作区</span>
+        <strong>{workspace || '尚未选择目录'}</strong>
+      </section>
+
+      {error && <section className="error-banner">{error}</section>}
+
+      {loaded && videos.length > 0 && (
+        <>
+          <div className="mode-tabs">
+            {MODE_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                className={`mode-tab ${mode === tab.key ? 'active' : ''}`}
+                onClick={() => setMode(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {(mode === 'seq' || mode === 'regex') && (
+            <section className="settings-card">
+              <SeqControls seq={seq} onChange={setSeq} />
+              {mode === 'regex' && (
+                <>
+                  <h2>正则规则（按顺序应用）</h2>
+                  {templates.map((template, index) => (
+                    <label key={template.name} className="confirm-check">
+                      <input
+                        type="checkbox"
+                        checked={activeRules.includes(index)}
+                        onChange={(event) =>
+                          setActiveRules((prev) =>
+                            event.target.checked
+                              ? [...prev, index]
+                              : prev.filter((i) => i !== index)
+                          )
+                        }
+                      />
+                      {template.name}
+                      <code className="muted">
+                        /{template.pattern}/{template.flags} → {template.replacement || '∅'}
+                      </code>
+                    </label>
+                  ))}
+                  <label className="confirm-check">
+                    <input
+                      type="checkbox"
+                      checked={useCustom}
+                      onChange={(event) => setUseCustom(event.target.checked)}
+                    />
+                    自定义规则
+                  </label>
+                  {useCustom && (
+                    <div className="model-add">
+                      <input
+                        placeholder="正则，如 @[^\\s@]+$"
+                        value={customRule.pattern}
+                        onChange={(event) =>
+                          setCustomRule((prev) => ({ ...prev, pattern: event.target.value }))
+                        }
+                      />
+                      <input
+                        placeholder="替换为（可空）"
+                        value={customRule.replacement}
+                        onChange={(event) =>
+                          setCustomRule((prev) => ({ ...prev, replacement: event.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          )}
+
+          {mode === 'ai' && (
+            <section className="settings-card">
+              <h2>AI 命名</h2>
+              <p className="muted">
+                使用设置页的 OpenRouter Token 与默认模型；仅发送文件名与父目录名，不上传视频。
+                prompt 模板在设置页可改。
+              </p>
+              <div className="actions">
+                <button onClick={runAi} disabled={aiLoading || videos.length === 0}>
+                  {aiLoading ? 'AI 生成中…' : aiNames ? '重新生成' : '生成 AI 命名'}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {mode === 'ext' && (
+            <section className="settings-card">
+              <h2>仅改扩展名为 .mp4（不转码、不重封装）</h2>
+              <p className="muted">
+                只修改文件后缀。真实容器非 MP4 的文件可能被部分播放器拒绝，请先探测。
+              </p>
+              <div className="actions">
+                <button
+                  className="secondary"
+                  onClick={runProbe}
+                  disabled={loading || pairs.length === 0}
+                >
+                  {loading ? '探测中…' : '探测真实容器'}
+                </button>
+                {riskyExtCount > 0 && (
+                  <span className="danger-text">⚠️ {riskyExtCount} 个文件真实容器不是 MP4</span>
+                )}
+              </div>
+            </section>
+          )}
+
+          {pairs.length > 0 && (
+            <section className="rename-table">
+              <div className="rename-row rename-head">
+                <span>原文件名</span>
+                <span>新文件名（可编辑）</span>
+                <span>状态</span>
+              </div>
+              {pairs.map((pair) => {
+                const video = videos.find((v) => v.relativePath === pair.videoRel)
+                const probe = probes[pair.videoRel]
+                const rowError = errors[pair.videoRel]
+                return (
+                  <div key={pair.videoRel} className={`rename-row ${rowError ? 'invalid' : ''}`}>
+                    <span className="rename-old" title={pair.videoRel}>
+                      {video?.name}
+                      {pair.posterRel && <small>+ poster 同步</small>}
+                    </span>
+                    <span className="rename-new">
+                      <input
+                        value={pair.newStem}
+                        disabled={!!pair.newExt}
+                        onChange={(event) =>
+                          setEdits((prev) => ({ ...prev, [pair.videoRel]: event.target.value }))
+                        }
+                      />
+                      <small>{pair.newExt ?? extOfName(video?.name ?? '')}</small>
+                    </span>
+                    <span className="rename-status">
+                      {rowError ? (
+                        <b className="danger-text">{rowError}</b>
+                      ) : pair.newExt && probe ? (
+                        probe.isMp4 ? (
+                          <b className="ok-text">容器 {probe.container}</b>
+                        ) : (
+                          <b className="danger-text">非 MP4 容器</b>
+                        )
+                      ) : (
+                        <span className="muted">就绪</span>
+                      )}
+                    </span>
+                  </div>
+                )
+              })}
+            </section>
+          )}
+        </>
+      )}
+
+      {loaded && videos.length === 0 && (
+        <section className="empty">
+          <h2>没有发现视频</h2>
+        </section>
+      )}
+      {!loaded && (
+        <section className="empty">
+          <h2>扫描后开始</h2>
+          <p>选择工作区并点击「扫描视频」。</p>
+        </section>
+      )}
+
+      {report && (
+        <section className={`report-card ${report.cancelled ? 'cancelled' : ''}`}>
+          <h2>{report.cancelled ? '已取消（以下为已完成部分）' : '重命名报告'}</h2>
+          <div className="report-grid">
+            <div>
+              <span>成功改名</span>
+              <b>{report.renamedCount}</b>
+            </div>
+            <div>
+              <span>失败</span>
+              <b className={report.failed.length ? 'danger-text' : ''}>{report.failed.length}</b>
+            </div>
+            <div>
+              <span>耗时</span>
+              <b>{(report.durationMs / 1000).toFixed(1)}s</b>
+            </div>
+          </div>
+          {report.failed.length > 0 && (
+            <div className="report-failed">
+              {report.failed.slice(0, 20).map((item) => (
+                <p key={item.target}>
+                  {item.target}：{item.error}
+                </p>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {confirming && (
+        <ConfirmDialog
+          title="确认执行重命名"
+          deleteCount={0}
+          deleteBytes={0}
+          danger={mode === 'ext' && riskyExtCount > 0}
+          confirmWord="确认风险"
+          extra={`将改名 ${changedPairs.length} 个视频（poster 同步改名）。${
+            mode === 'ext' && riskyExtCount > 0
+              ? `其中 ${riskyExtCount} 个文件真实容器不是 MP4，仅改后缀可能导致部分播放器无法识别。`
+              : '不删除任何文件。'
+          }`}
+          onConfirm={execute}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function SeqControls({
+  seq,
+  onChange
+}: {
+  seq: SeqOptions
+  onChange: (next: SeqOptions) => void
+}): React.JSX.Element {
+  return (
+    <div className="seq-controls">
+      <label>
+        排序
+        <select
+          value={seq.sortBy}
+          onChange={(event) => onChange({ ...seq, sortBy: event.target.value as 'title' | 'size' })}
+        >
+          <option value="title">按标题</option>
+          <option value="size">按大小</option>
+        </select>
+      </label>
+      <label>
+        方向
+        <select
+          value={seq.order}
+          onChange={(event) => onChange({ ...seq, order: event.target.value as 'asc' | 'desc' })}
+        >
+          <option value="asc">正序</option>
+          <option value="desc">倒序</option>
+        </select>
+      </label>
+      <label>
+        位数
+        <input
+          type="number"
+          min={1}
+          max={6}
+          value={seq.digits}
+          onChange={(event) => onChange({ ...seq, digits: Number(event.target.value) })}
+        />
+      </label>
+      <label>
+        分隔符
+        <input
+          className="sep-input"
+          value={seq.separator}
+          onChange={(event) => onChange({ ...seq, separator: event.target.value })}
+        />
+      </label>
+    </div>
+  )
+}
+
+export default RenamePage

@@ -157,6 +157,64 @@ export interface PosterBatchSaveReport {
   outcomes: PosterBatchSaveOutcome[]
 }
 
+/* ------------------------- 模块三：批量重命名 ------------------------- */
+
+export interface RenamePairInput {
+  videoRel: string
+  posterRel: string | null
+  newStem: string
+  /** 仅改扩展名模式：强制目标扩展名（如 .mp4），不改变词干 */
+  newExt?: string
+}
+
+export interface RenameReport {
+  taskId: string
+  cancelled: boolean
+  renamedCount: number
+  items: { from: string; to: string }[]
+  failed: { target: string; error: string }[]
+  durationMs: number
+}
+
+export interface ProbeContainerItem {
+  relativePath: string
+  container: string
+  isMp4: boolean
+  error?: string
+}
+
+export interface AiFileInput {
+  parentFolder: string
+  fileName: string
+  extension: string
+}
+
+/* ------------------------- 模块五：NFO 归档 ------------------------- */
+
+export interface NfoPlanItem {
+  videoRel: string
+  stem: string
+  posterRel: string | null
+  /** 目标目录名（相对工作区根） */
+  targetDir: string
+  /** 目标目录已存在且非空 */
+  conflict: boolean
+}
+
+export interface NfoPlan {
+  root: string
+  items: NfoPlanItem[]
+  actorDefault: string
+}
+
+export interface NfoReport {
+  taskId: string
+  cancelled: boolean
+  archivedCount: number
+  failed: { target: string; error: string }[]
+  durationMs: number
+}
+
 /* ---------------------------- 任务中心 ---------------------------- */
 
 export type TaskEventType = 'start' | 'progress' | 'item-done' | 'item-error' | 'done' | 'cancelled'

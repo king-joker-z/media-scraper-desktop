@@ -7,8 +7,11 @@ import { createScanPlan, IMAGE_EXTENSIONS } from './core/scanner.mjs'
 import { createSettingsStore } from './core/settings.mjs'
 import { createTaskCenter } from './core/task-center.mjs'
 import { resolveFfmpegPath } from './core/frames.mjs'
-import { resolveFfprobePath } from './core/probe.mjs'
+import { probeMedia, resolveFfprobePath } from './core/probe.mjs'
 import { executeCleanPlan } from './modules/clean/execute.mjs'
+import { executeRename } from './modules/rename/execute.mjs'
+import { requestAiNames } from './modules/rename/ai.mjs'
+import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
 import {
   captureAt,
   captureCandidates,
@@ -17,9 +20,12 @@ import {
   savePoster
 } from './modules/poster/poster.mjs'
 import type {
+  AiFileInput,
   AppSettings,
+  NfoPlanItem,
   PosterPicks,
   PosterVideoItem,
+  RenamePairInput,
   ScanPlan,
   TaskEvent
 } from '../shared/types'
@@ -129,6 +135,8 @@ function createWindow(): void {
 
 let activeCleanTaskId: string | null = null
 let activePosterTaskId: string | null = null
+let activeRenameTaskId: string | null = null
+let activeNfoTaskId: string | null = null
 
 function registerIpcHandlers(): void {
   ipcMain.handle('dialog:select-workspace', async () => {
@@ -258,6 +266,87 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle('poster:cancel', async () => {
     if (activePosterTaskId) taskCenter.cancel(activePosterTaskId)
+  })
+
+  // ---------- 模块三：批量重命名 ----------
+  ipcMain.handle('rename:probe', async (_event, root: string, relativePaths: string[]) => {
+    const settings = await settingsStore.get()
+    const result = await taskCenter.run({
+      taskId: `probe-${Date.now()}`,
+      label: '探测真实容器',
+      items: relativePaths,
+      concurrency: settings.concurrency,
+      worker: async (relativePath) => {
+        const info = await probeMedia(join(root, relativePath), resolveFfprobePath())
+        return {
+          relativePath,
+          container: info.container,
+          isMp4: info.container.includes('mp4') || info.container.includes('mov')
+        }
+      }
+    })
+    return result.results.map((entry, index) =>
+      entry.ok
+        ? entry.value
+        : {
+            relativePath: relativePaths[index],
+            container: '',
+            isMp4: false,
+            error: entry.ok ? undefined : (entry.error ?? '探测失败')
+          }
+    )
+  })
+  ipcMain.handle('rename:ai', async (_event, files: AiFileInput[]) => {
+    const settings = await settingsStore.get()
+    return requestAiNames({
+      token: settings.openRouter.token,
+      model: settings.openRouter.selectedModel,
+      template: settings.promptTemplate,
+      files
+    })
+  })
+  ipcMain.handle('rename:execute', async (_event, root: string, pairs: RenamePairInput[]) => {
+    if (activeRenameTaskId) throw new Error('已有重命名任务在执行中')
+    const settings = await settingsStore.get()
+    activeRenameTaskId = `rename-${Date.now()}`
+    try {
+      return await executeRename(root, pairs, {
+        taskCenter,
+        taskId: activeRenameTaskId,
+        concurrency: settings.concurrency
+      })
+    } finally {
+      activeRenameTaskId = null
+    }
+  })
+  ipcMain.handle('rename:cancel', async () => {
+    if (activeRenameTaskId) taskCenter.cancel(activeRenameTaskId)
+  })
+
+  // ---------- 模块五：NFO 归档 ----------
+  ipcMain.handle('nfo:plan', async (_event, root: string) => {
+    allowMediaRoot(root)
+    return createNfoPlan(root)
+  })
+  ipcMain.handle(
+    'nfo:execute',
+    async (_event, root: string, items: NfoPlanItem[], actorName: string) => {
+      if (activeNfoTaskId) throw new Error('已有归档任务在执行中')
+      const settings = await settingsStore.get()
+      activeNfoTaskId = `nfo-${Date.now()}`
+      try {
+        return await executeNfoPlan(root, items, actorName, {
+          taskCenter,
+          taskId: activeNfoTaskId,
+          concurrency: settings.concurrency
+        })
+      } finally {
+        activeNfoTaskId = null
+      }
+    }
+  )
+  ipcMain.handle('nfo:cancel', async () => {
+    if (activeNfoTaskId) taskCenter.cancel(activeNfoTaskId)
   })
 }
 

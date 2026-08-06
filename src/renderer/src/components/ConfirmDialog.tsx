@@ -15,6 +15,7 @@ function ConfirmDialog({
   deleteBytes,
   danger,
   extra,
+  confirmWord = CONFIRM_WORD,
   onConfirm,
   onCancel
 }: {
@@ -23,27 +24,30 @@ function ConfirmDialog({
   deleteBytes: number
   danger: boolean
   extra?: string
+  /** 危险模式下要求输入的确认词，默认「永久删除」 */
+  confirmWord?: string
   onConfirm: () => void
   onCancel: () => void
 }): React.JSX.Element {
   const [checked, setChecked] = useState(false)
   const [word, setWord] = useState('')
-  const canConfirm = danger ? word === CONFIRM_WORD : checked
+  const canConfirm = danger ? word === confirmWord : checked
 
   return (
     <div className="dialog-overlay">
       <div className={`dialog ${danger ? 'danger' : ''}`}>
         <h2>{title}</h2>
         <div className="dialog-body">
-          <p>
-            即将<b className="danger-text">永久删除 {deleteCount} 个文件</b>（共{' '}
-            {formatBytes(deleteBytes)}），删除后不可恢复。
-          </p>
+          {deleteCount > 0 && (
+            <p>
+              即将<b className="danger-text">永久删除 {deleteCount} 个文件</b>
+              {deleteBytes > 0 && <>（共 {formatBytes(deleteBytes)}）</>}，删除后不可恢复。
+            </p>
+          )}
           {extra && <p className="muted">{extra}</p>}
           {danger && (
             <p className="danger-text">
-              ⚠️ 本次操作被判定为高风险（删除数量大 / 体积大 / 工作区内无视频），请输入「
-              {CONFIRM_WORD}」以确认：
+              ⚠️ 本次操作被判定为高风险，请输入「{confirmWord}」以确认：
             </p>
           )}
         </div>
@@ -51,7 +55,7 @@ function ConfirmDialog({
           <input
             autoFocus
             className="confirm-input"
-            placeholder={`请输入：${CONFIRM_WORD}`}
+            placeholder={`请输入：${confirmWord}`}
             value={word}
             onChange={(event) => setWord(event.target.value)}
           />

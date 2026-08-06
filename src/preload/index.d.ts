@@ -1,12 +1,19 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
+  AiFileInput,
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  NfoPlan,
+  NfoPlanItem,
+  NfoReport,
   PosterBatchSaveReport,
   PosterPicks,
   PosterSaveResult,
   PosterVideoItem,
+  ProbeContainerItem,
+  RenamePairInput,
+  RenameReport,
   ScanPlan,
   TaskEvent
 } from '../shared/types'
@@ -35,6 +42,17 @@ declare global {
         selections: Record<string, string>
       ) => Promise<PosterBatchSaveReport>
       cancelPosterCapture: () => Promise<void>
+      probeContainers: (root: string, relativePaths: string[]) => Promise<ProbeContainerItem[]>
+      requestAiNames: (files: AiFileInput[]) => Promise<string[]>
+      executeRename: (root: string, pairs: RenamePairInput[]) => Promise<RenameReport>
+      cancelRename: () => Promise<void>
+      createNfoPlan: (root: string) => Promise<NfoPlan>
+      executeNfoArchive: (
+        root: string,
+        items: NfoPlanItem[],
+        actorName: string
+      ) => Promise<NfoReport>
+      cancelNfo: () => Promise<void>
       getSettings: () => Promise<AppSettings>
       updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>
       onTaskEvent: (callback: (event: TaskEvent) => void) => () => void

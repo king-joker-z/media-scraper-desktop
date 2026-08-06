@@ -1,13 +1,20 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  AiFileInput,
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  NfoPlan,
+  NfoPlanItem,
+  NfoReport,
   PosterBatchSaveReport,
   PosterPicks,
   PosterSaveResult,
   PosterVideoItem,
+  ProbeContainerItem,
+  RenamePairInput,
+  RenameReport,
   ScanPlan,
   TaskEvent
 } from '../shared/types'
@@ -37,6 +44,17 @@ const api = {
     selections: Record<string, string>
   ): Promise<PosterBatchSaveReport> => ipcRenderer.invoke('poster:save-batch', videos, selections),
   cancelPosterCapture: (): Promise<void> => ipcRenderer.invoke('poster:cancel'),
+  probeContainers: (root: string, relativePaths: string[]): Promise<ProbeContainerItem[]> =>
+    ipcRenderer.invoke('rename:probe', root, relativePaths),
+  requestAiNames: (files: AiFileInput[]): Promise<string[]> =>
+    ipcRenderer.invoke('rename:ai', files),
+  executeRename: (root: string, pairs: RenamePairInput[]): Promise<RenameReport> =>
+    ipcRenderer.invoke('rename:execute', root, pairs),
+  cancelRename: (): Promise<void> => ipcRenderer.invoke('rename:cancel'),
+  createNfoPlan: (root: string): Promise<NfoPlan> => ipcRenderer.invoke('nfo:plan', root),
+  executeNfoArchive: (root: string, items: NfoPlanItem[], actorName: string): Promise<NfoReport> =>
+    ipcRenderer.invoke('nfo:execute', root, items, actorName),
+  cancelNfo: (): Promise<void> => ipcRenderer.invoke('nfo:cancel'),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:update', patch),

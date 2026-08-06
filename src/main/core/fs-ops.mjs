@@ -43,6 +43,12 @@ export async function moveWithCollision(from, toDir) {
   return target
 }
 
+/** 直接改名/移动（不做重名避让），供两阶段改名的临时名阶段使用。 */
+export async function directRename(from, to) {
+  await rename(from, to)
+  return to
+}
+
 /** 同目录改名；与自身相同则跳过，与其他文件重名自动加 (n)。返回最终路径。 */
 export async function renameWithCollision(from, newName) {
   const dir = dirname(from)
@@ -51,6 +57,15 @@ export async function renameWithCollision(from, newName) {
   const target = await ensureUniquePath(desired)
   await rename(from, target)
   return target
+}
+
+/** 读取目录条目名；目录不存在返回空数组。 */
+export async function listDirNames(dir) {
+  try {
+    return await readdir(dir)
+  } catch {
+    return []
+  }
 }
 
 /** 写文本文件（自动建目录）。 */

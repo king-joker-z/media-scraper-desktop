@@ -7,4 +7,6 @@ declare module './fs-ops.mjs' {
   export function writeTextFile(target: string, content: string): Promise<string>
   export function removeEmptyDirs(root: string): Promise<string[]>
   export function isJunkFileName(name: string): boolean
+  export function listDirNames(dir: string): Promise<string[]>
+  export function directRename(from: string, to: string): Promise<string>
 }

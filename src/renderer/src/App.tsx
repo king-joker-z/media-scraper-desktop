@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react'
 import CleanPage from './pages/CleanPage'
+import NfoPage from './pages/NfoPage'
 import PlaceholderPage from './pages/PlaceholderPage'
 import PosterPage from './pages/PosterPage'
+import RenamePage from './pages/RenamePage'
 import SettingsPage from './pages/SettingsPage'
 import TaskCenter from './components/TaskCenter'
 
@@ -47,17 +49,7 @@ function App(): React.JSX.Element {
         )
       case 'rename':
         return (
-          <PlaceholderPage
-            icon="✏️"
-            title="批量重命名"
-            milestone="M3"
-            points={[
-              '纯序号：标题/大小排序、升降序、位数与分隔符可设',
-              '正则清洗 + 序号：内置常用模板，支持自定义保存',
-              'AI 重命名：OpenRouter 模型，prompt 模板变量可配',
-              '视频与 poster 成组改名，预览可编辑、冲突标红'
-            ]}
-          />
+          <RenamePage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
         )
       case 'poster':
         // key 随工作区变化：切换工作区时整体重置页面状态
@@ -65,19 +57,7 @@ function App(): React.JSX.Element {
           <PosterPage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
         )
       case 'nfo':
-        return (
-          <PlaceholderPage
-            icon="📦"
-            title="NFO 与独立归档"
-            milestone="M3"
-            points={[
-              '每个视频建立同名文件夹，视频 + poster + NFO 归入',
-              'NFO 兼容 Kodi / Jellyfin / Emby，纯本地不联网',
-              'actor 默认取工作区文件夹名，可指定覆盖',
-              '生成后自动校验 XML 与文件关系'
-            ]}
-          />
-        )
+        return <NfoPage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
       case 'settings':
         return <SettingsPage />
     }

@@ -794,6 +794,100 @@ h2 {
   font-size: 10px;
 }
 
+/* ---------- 重命名 / NFO ---------- */
+.mode-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--fill-quaternary);
+  width: fit-content;
+}
+.mode-tab {
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--label-secondary);
+  font-size: 13px;
+  font-weight: 550;
+}
+.mode-tab.active {
+  background: var(--bg-card);
+  color: var(--label-primary);
+  box-shadow: var(--shadow-card);
+}
+.seq-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+.seq-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--label-secondary);
+}
+.seq-controls input[type='number'] {
+  width: 56px;
+}
+.sep-input {
+  width: 56px;
+}
+.rename-table {
+  background: var(--bg-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.rename-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1.4fr 0.9fr;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--separator);
+  font-size: 12px;
+}
+.rename-row.rename-head {
+  color: var(--label-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.rename-row.invalid {
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+}
+.rename-old {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.rename-old small {
+  display: block;
+  color: var(--label-tertiary);
+}
+.rename-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rename-new input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.rename-new small {
+  color: var(--label-tertiary);
+  flex-shrink: 0;
+}
+.ok-text {
+  color: var(--success);
+}
+
 @media (max-width: 900px) {
   .grid {
     grid-template-columns: 1fr;
