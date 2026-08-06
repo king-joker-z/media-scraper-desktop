@@ -32,6 +32,8 @@ function MergePage({
   const [merging, setMerging] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // 源删除时是否连同 poster 一起删除（默认保留封面图，归档场景不被破坏）
+  const [includePosters, setIncludePosters] = useState(false)
   const [result, setResult] = useState<MergeResult | null>(null)
   const [deleteNote, setDeleteNote] = useState('')
   const [error, setError] = useState('')
@@ -113,10 +115,14 @@ function MergePage({
     try {
       const report = await window.api.deleteMergeSources(
         workspace,
-        items.map((item) => ({ videoRel: item.relativePath, posterRel: item.posterRelativePath }))
+        items.map((item) => ({
+          videoRel: item.relativePath,
+          posterRel: includePosters ? item.posterRelativePath : null
+        }))
       )
       setDeleteNote(
-        `源片段已永久删除 ${report.deletedCount} 个文件` +
+        `已永久删除 ${report.deletedCount} 个源文件` +
+          (includePosters ? '（含关联 poster）' : '（poster 已保留）') +
           (report.failed.length ? `，失败 ${report.failed.length} 个` : '')
       )
       await scan()
@@ -261,7 +267,7 @@ function MergePage({
           {result.verified && (
             <div className="actions">
               <button className="danger-button" onClick={() => setConfirmingDelete(true)}>
-                删除源片段（{items.length} 个视频及关联 poster）
+                删除源视频（{items.length} 个）
               </button>
               <button className="secondary" onClick={scan}>
                 保留并刷新列表
@@ -284,11 +290,18 @@ function MergePage({
       )}
       {confirmingDelete && (
         <ConfirmDialog
-          title="删除源片段"
-          deleteCount={items.length + items.filter((i) => i.posterRelativePath).length}
+          title="删除源视频"
+          deleteCount={
+            items.length + (includePosters ? items.filter((i) => i.posterRelativePath).length : 0)
+          }
           deleteBytes={items.reduce((sum, i) => sum + i.size, 0)}
           danger={items.length > 50}
-          extra="合并输出已通过校验。此操作将永久删除参与本次合并的源视频与关联 poster，不可恢复。"
+          extra="合并输出已通过校验。默认只删除源视频并保留封面图（归档目录不受影响）；残留的 poster 可后续用「目录清理」处理。"
+          toggle={{
+            label: '同时删除关联 poster 封面图',
+            checked: includePosters,
+            onChange: setIncludePosters
+          }}
           onConfirm={deleteSources}
           onCancel={() => setConfirmingDelete(false)}
         />

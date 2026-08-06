@@ -26,6 +26,8 @@ function ConfirmDialog({
   extra?: string
   /** 危险模式下要求输入的确认词，默认「永久删除」 */
   confirmWord?: string
+  /** 可选附加开关（如“同时删除关联 poster”） */
+  toggle?: { label: string; checked: boolean; onChange: (checked: boolean) => void }
   onConfirm: () => void
   onCancel: () => void
 }): React.JSX.Element {
@@ -51,6 +53,16 @@ function ConfirmDialog({
             </p>
           )}
         </div>
+        {toggle && (
+          <label className="confirm-check">
+            <input
+              type="checkbox"
+              checked={toggle.checked}
+              onChange={(event) => toggle.onChange(event.target.checked)}
+            />
+            {toggle.label}
+          </label>
+        )}
         {danger ? (
           <input
             autoFocus
