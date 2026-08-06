@@ -38,10 +38,14 @@ function runFfmpeg(ffmpegPath, args, { signal, onProgress, totalMs }) {
     child.on('error', (error) => {
       reject(signal?.aborted ? new Error('已取消') : error)
     })
-    child.on('close', (code) => {
+    child.on('close', (code, termSignal) => {
       if (signal?.aborted) return reject(new Error('已取消'))
       if (code === 0) return resolve()
-      reject(new Error(`ffmpeg 退出码 ${code}：${stderr.slice(-400)}`))
+      reject(
+        new Error(
+          `ffmpeg 异常退出（code=${code} signal=${termSignal}）：${stderr.slice(-400) || '无错误输出'}`
+        )
+      )
     })
   })
 }
