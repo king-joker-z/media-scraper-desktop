@@ -108,7 +108,7 @@ export function buildConcatCopyArgs(listPath, outputPath) {
   ]
 }
 
-/** 单段转码为统一参数的中间 TS（拼接友好） */
+/** 单段转码为统一参数的中间 MP4（与最终容器一致，避免 ADTS/位流过滤器问题） */
 export function buildTranscodeArgs(inputPath, target, outputPath) {
   return [
     '-v',
@@ -140,25 +140,16 @@ export function buildTranscodeArgs(inputPath, target, outputPath) {
   ]
 }
 
-/** 转码后 TS 片段合并为 MP4 */
-export function buildConcatTsArgs(listPath, outputPath) {
+/** 转码后中间片段（MP4）合并为最终 MP4 */
+export function buildConcatSegmentsArgs(listPath, outputPath) {
   return [
-    '-v',
-    'error',
-    '-f',
-    'concat',
-    '-safe',
-    '0',
-    '-i',
-    listPath,
-    '-c',
-    'copy',
-    '-bsf:a',
-    'aac_adtstoasc',
-    '-movflags',
-    '+faststart',
-    '-y',
-    outputPath
+    '-v', 'error',
+    '-f', 'concat',
+    '-safe', '0',
+    '-i', listPath,
+    '-c', 'copy',
+    '-movflags', '+faststart',
+    '-y', outputPath
   ]
 }
 

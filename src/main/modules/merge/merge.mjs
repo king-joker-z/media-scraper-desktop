@@ -6,7 +6,7 @@ import { probeMedia } from '../../core/probe.mjs'
 import {
   buildConcatCopyArgs,
   buildConcatList,
-  buildConcatTsArgs,
+  buildConcatSegmentsArgs,
   buildTranscodeArgs,
   checkCompatibility,
   verifyMergeOutput
@@ -97,7 +97,7 @@ export async function mergeVideos({
       for (let i = 0; i < items.length; i += 1) {
         if (signal?.aborted) throw new Error('已取消')
         const item = items[i]
-        const segment = join(workDir, `seg-${String(i).padStart(3, '0')}.ts`)
+        const segment = join(workDir, `seg-${String(i).padStart(3, '0')}.mp4`)
         const base = Math.round((i / items.length) * 90)
         const span = Math.round(90 / items.length)
         await runFfmpeg(ffmpegPath, buildTranscodeArgs(item.path, target, segment), {
@@ -111,7 +111,7 @@ export async function mergeVideos({
       onProgress?.(92, '拼接中')
       const listPath = join(workDir, 'concat.txt')
       await writeTextFile(listPath, buildConcatList(segments))
-      await runFfmpeg(ffmpegPath, buildConcatTsArgs(listPath, outputPath), {
+      await runFfmpeg(ffmpegPath, buildConcatSegmentsArgs(listPath, outputPath), {
         signal,
         totalMs,
         onProgress: (pct) => onProgress?.(92 + Math.round(pct * 0.07), '拼接中')
