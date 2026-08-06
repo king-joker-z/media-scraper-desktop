@@ -7,6 +7,7 @@ import {
 } from '../../../shared/merge-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MergeSortableList from '../components/MergeSortableList'
+import VideoModal from '../components/VideoModal'
 import { formatBytes } from '../utils/format'
 
 const MODE_TABS: { key: MergeMode; label: string }[] = [
@@ -37,6 +38,7 @@ function MergePage({
   const [result, setResult] = useState<MergeResult | null>(null)
   const [deleteNote, setDeleteNote] = useState('')
   const [error, setError] = useState('')
+  const [playing, setPlaying] = useState<MergeVideoItem | null>(null)
 
   const scan = async (): Promise<void> => {
     if (!workspace) return
@@ -235,6 +237,7 @@ function MergePage({
             excluded={excluded}
             onToggleExclude={toggleExclude}
             onReorder={(next) => setOrder(next.map((item) => item.relativePath))}
+            onPlay={setPlaying}
           />
         </>
       )}
@@ -275,6 +278,10 @@ function MergePage({
             </div>
           )}
         </section>
+      )}
+
+      {playing && (
+        <VideoModal path={playing.path} title={playing.name} onClose={() => setPlaying(null)} />
       )}
 
       {confirming && (

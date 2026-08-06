@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react'
 import CleanPage from './pages/CleanPage'
+import DedupePage from './pages/DedupePage'
+import LibraryPage from './pages/LibraryPage'
 import MergePage from './pages/MergePage'
 import NfoPage from './pages/NfoPage'
 import PosterPage from './pages/PosterPage'
@@ -9,7 +11,8 @@ import TaskCenter from './components/TaskCenter'
 import TaskProgress from './components/TaskProgress'
 import ErrorBoundary from './components/ErrorBoundary'
 
-export type PageKey = 'clean' | 'merge' | 'rename' | 'poster' | 'nfo' | 'settings'
+export type PageKey =
+  'clean' | 'merge' | 'rename' | 'poster' | 'nfo' | 'dedupe' | 'library' | 'settings'
 
 const NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
   { key: 'clean', icon: '🧹', label: '目录清理' },
@@ -17,6 +20,8 @@ const NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
   { key: 'rename', icon: '✏️', label: '批量重命名' },
   { key: 'poster', icon: '🖼️', label: '封面管理' },
   { key: 'nfo', icon: '📦', label: 'NFO 归档' },
+  { key: 'dedupe', icon: '🧬', label: '视频去重' },
+  { key: 'library', icon: '📺', label: '媒体库' },
   { key: 'settings', icon: '⚙️', label: '设置' }
 ]
 
@@ -50,6 +55,14 @@ function App(): React.JSX.Element {
         )
       case 'nfo':
         return <NfoPage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
+      case 'dedupe':
+        return (
+          <DedupePage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
+        )
+      case 'library':
+        return (
+          <LibraryPage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
+        )
       case 'settings':
         return <SettingsPage />
     }

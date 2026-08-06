@@ -71,6 +71,21 @@ declare global {
         failed: { target: string; error: string }[]
       }>
       cancelMerge: () => Promise<void>
+      scanDuplicates: (root: string) => Promise<
+        {
+          hash: string
+          sizeBytes: number
+          items: { relativePath: string; name: string; dir: string; size: number }[]
+        }[]
+      >
+      deleteDuplicates: (
+        root: string,
+        relativePaths: string[]
+      ) => Promise<{
+        cancelled: boolean
+        deletedCount: number
+        failed: { target: string; error: string }[]
+      }>
       getSettings: () => Promise<AppSettings>
       updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>
       onTaskEvent: (callback: (event: TaskEvent) => void) => () => void

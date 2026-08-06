@@ -104,7 +104,10 @@ export async function mergeVideos({
           signal,
           totalMs: item.media?.durationMs ?? 0,
           onProgress: (pct) =>
-            onProgress?.(base + Math.round((pct / 100) * span), `转码统一 ${i + 1}/${items.length}`)
+            onProgress?.(
+              base + Math.round((pct / 100) * span),
+              `转码统一 ${i + 1}/${items.length} · ${item.name} ${pct}%`
+            )
         })
         segments.push(segment)
       }

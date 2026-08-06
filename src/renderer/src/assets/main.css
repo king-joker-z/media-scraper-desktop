@@ -1085,6 +1085,51 @@ h2 {
   background: var(--fill-tertiary);
   color: var(--label-secondary);
 }
+.merge-play {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--fill-tertiary);
+  color: var(--label-primary);
+  font-size: 11px;
+}
+/* 浏览器原生“虚拟滚动”：屏外内容跳过渲染，大列表不掉帧 */
+.merge-row,
+.video-card {
+  content-visibility: auto;
+}
+.merge-row {
+  contain-intrinsic-size: auto 56px;
+}
+.video-card {
+  contain-intrinsic-size: auto 210px;
+}
+
+/* ---------- 去重 / 媒体库 ---------- */
+.dup-row {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--separator);
+}
+.dup-row:last-child {
+  border-bottom: 0;
+}
+.dup-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.library-toolbar {
+  margin-bottom: 14px;
+}
+.library-toolbar input {
+  width: 100%;
+  max-width: 360px;
+}
 
 @media (max-width: 900px) {
   .grid {

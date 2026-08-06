@@ -26,12 +26,14 @@ function MergeSortableList({
   items,
   excluded,
   onToggleExclude,
-  onReorder
+  onReorder,
+  onPlay
 }: {
   items: MergeVideoItem[]
   excluded: Set<string>
   onToggleExclude: (relativePath: string) => void
   onReorder: (next: MergeVideoItem[]) => void
+  onPlay: (item: MergeVideoItem) => void
 }): React.JSX.Element {
   const handleDragEnd = (event: DragEndEvent): void => {
     const { active, over } = event
@@ -68,6 +70,7 @@ function MergeSortableList({
               order={orderMap.get(item.relativePath) ?? null}
               excluded={excluded.has(item.relativePath)}
               onToggleExclude={onToggleExclude}
+              onPlay={onPlay}
             />
           ))}
         </div>
@@ -80,12 +83,14 @@ function SortableRow({
   item,
   order,
   excluded,
-  onToggleExclude
+  onToggleExclude,
+  onPlay
 }: {
   item: MergeVideoItem
   order: number | null
   excluded: boolean
   onToggleExclude: (relativePath: string) => void
+  onPlay: (item: MergeVideoItem) => void
 }): React.JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.relativePath
@@ -111,6 +116,9 @@ function SortableRow({
       <span className="merge-name" title={item.relativePath}>
         {item.name}
       </span>
+      <button className="merge-play" title="试看" onClick={() => onPlay(item)}>
+        ▶
+      </button>
       <span className="merge-info muted">
         {media
           ? `${formatDuration(media.durationMs)} · ${formatBytes(media.sizeBytes)} · ${media.width}×${media.height} · ${

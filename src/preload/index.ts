@@ -71,6 +71,15 @@ const api = {
     failed: { target: string; error: string }[]
   }> => ipcRenderer.invoke('merge:delete-sources', root, items),
   cancelMerge: (): Promise<void> => ipcRenderer.invoke('merge:cancel'),
+  scanDuplicates: (root: string): Promise<unknown> => ipcRenderer.invoke('dedupe:scan', root),
+  deleteDuplicates: (
+    root: string,
+    relativePaths: string[]
+  ): Promise<{
+    cancelled: boolean
+    deletedCount: number
+    failed: { target: string; error: string }[]
+  }> => ipcRenderer.invoke('dedupe:delete', root, relativePaths),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:update', patch),

@@ -13,6 +13,8 @@ import { executeRename } from './modules/rename/execute.mjs'
 import { requestAiNames } from './modules/rename/ai.mjs'
 import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
 import { deleteMergeSources, mergeVideos } from './modules/merge/merge.mjs'
+import { findDuplicates } from './modules/dedupe/dedupe.mjs'
+import { permanentDelete } from './core/fs-ops.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
 import { diskFreeBytes } from './core/fs-ops.mjs'
 import {
@@ -452,6 +454,34 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle('merge:cancel', async () => {
     activeMergeAbort?.abort()
+  })
+
+  // ---------- 视频去重 ----------
+  ipcMain.handle('dedupe:scan', async (_event, root: string) => {
+    const settings = await settingsStore.get()
+    return findDuplicates(root, {
+      taskCenter,
+      taskId: `dedupe-${Date.now()}`,
+      concurrency: settings.concurrency
+    })
+  })
+  ipcMain.handle('dedupe:delete', async (_event, root: string, relativePaths: string[]) => {
+    const settings = await settingsStore.get()
+    const result = await taskCenter.run({
+      taskId: `dedupe-delete-${Date.now()}`,
+      label: '删除重复视频',
+      items: relativePaths,
+      concurrency: settings.concurrency,
+      worker: async (relativePath) => {
+        await permanentDelete(join(root, relativePath))
+      }
+    })
+    const failed = result.results
+      .map((entry, index) =>
+        entry.ok ? null : { target: relativePaths[index], error: entry.error ?? '未知错误' }
+      )
+      .filter(Boolean)
+    return { cancelled: result.cancelled, deletedCount: result.completed, failed }
   })
 }
 

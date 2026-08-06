@@ -196,6 +196,25 @@ function RenamePage({
     }
   }
 
+  /** 单条重新生成（仅 AI 模式）：只重发这一条，不影响其他结果 */
+  const regenerateOne = async (video: PosterVideoItem): Promise<void> => {
+    setError('')
+    try {
+      const names = await window.api.requestAiNames([
+        {
+          parentFolder: workspace.split(/[\\/]/).pop() ?? '',
+          fileName: stripSeqPrefix(stemOfName(video.name)),
+          extension: extOfName(video.name)
+        }
+      ])
+      if (names[0]) {
+        setAiNamesMap((prev) => ({ ...prev, [video.relativePath]: names[0] }))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   const runProbe = async (): Promise<void> => {
     if (!workspace || pairs.length === 0) return
     setLoading(true)
@@ -421,6 +440,15 @@ function RenamePage({
                         )
                       ) : (
                         <span className="muted">就绪</span>
+                      )}
+                      {mode === 'ai' && aiNamesMap && video && (
+                        <button
+                          className="chip-remove"
+                          title="只重新生成这一条"
+                          onClick={() => regenerateOne(video)}
+                        >
+                          ↻
+                        </button>
                       )}
                     </span>
                   </div>

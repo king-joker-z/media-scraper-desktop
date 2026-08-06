@@ -54,9 +54,21 @@ export function buildAiMessages(template, files) {
   ]
 }
 
+/* ---------------- 会话级结果缓存：相同输入不重复请求 ---------------- */
+
+const aiCache = new Map()
+
+const cacheKeyOf = (model, template, file) =>
+  `${model}|${template}|${file.parentFolder}|${file.fileName}|${file.extension}`
+
+export function clearAiCache() {
+  aiCache.clear()
+}
+
 /**
  * 请求 AI 平台（OpenAI 兼容端点）生成新文件名。
- * @param {object} options { baseUrl, token, model, template, files: AiFileInput[], fetchImpl? }
+ * 命中会话缓存的文件不重复请求；仅对未命中的分批调用。
+ * @param {object} options { baseUrl, token, model, template, files: AiFileInput[], fetchImpl?, onBatch?, useCache? }
  * @returns {Promise<string[]>} 与 files 等长的新词干数组
  */
 export async function requestAiNames({
@@ -66,15 +78,26 @@ export async function requestAiNames({
   template,
   files,
   fetchImpl = fetch,
-  onBatch
+  onBatch,
+  useCache = true
 }) {
   if (!token) throw new Error('当前平台未配置 API Token，请先到设置页填写')
   if (!baseUrl) throw new Error('当前平台未配置 baseUrl')
   if (files.length === 0) return []
 
-  const names = []
-  for (let i = 0; i < files.length; i += AI_BATCH_SIZE) {
-    const chunk = files.slice(i, i + AI_BATCH_SIZE)
+  // 缓存命中拆分
+  const names = new Array(files.length)
+  const missing = []
+  files.forEach((file, index) => {
+    const cached = useCache ? aiCache.get(cacheKeyOf(model, template, file)) : undefined
+    if (cached !== undefined) names[index] = cached
+    else missing.push({ file, index })
+  })
+  // 有缓存命中时先上报一次（全部未命中时从 0 开始由 start 事件表达）
+  if (missing.length < files.length) onBatch?.(files.length - missing.length)
+
+  for (let i = 0; i < missing.length; i += AI_BATCH_SIZE) {
+    const chunk = missing.slice(i, i + AI_BATCH_SIZE)
     const response = await fetchImpl(chatCompletionsUrl(baseUrl), {
       method: 'POST',
       headers: {
@@ -85,7 +108,10 @@ export async function requestAiNames({
       },
       body: JSON.stringify({
         model,
-        messages: buildAiMessages(template, chunk),
+        messages: buildAiMessages(
+          template,
+          chunk.map((entry) => entry.file)
+        ),
         temperature: 0.2
       })
     })
@@ -97,8 +123,12 @@ export async function requestAiNames({
     if (chunkNames.length !== chunk.length) {
       throw new Error(`AI 返回数量（${chunkNames.length}）与请求数量（${chunk.length}）不一致`)
     }
-    names.push(...chunkNames.map((name) => String(name).trim()))
-    onBatch?.(names.length)
+    chunk.forEach((entry, chunkIndex) => {
+      const name = String(chunkNames[chunkIndex]).trim()
+      names[entry.index] = name
+      aiCache.set(cacheKeyOf(model, template, entry.file), name)
+    })
+    onBatch?.(names.filter((n) => n !== undefined).length)
   }
   return names
 }

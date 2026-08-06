@@ -21,5 +21,8 @@ declare module './ai.mjs' {
     fetchImpl?: typeof fetch
     /** 每批完成回调：已完成数量 */
     onBatch?: (done: number) => void
+    /** 默认 true：命中会话缓存的文件不重复请求 */
+    useCache?: boolean
   }): Promise<string[]>
+  export function clearAiCache(): void
 }

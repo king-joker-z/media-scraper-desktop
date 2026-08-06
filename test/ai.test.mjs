@@ -4,6 +4,7 @@ import {
   buildAiMessages,
   buildPrompt,
   chatCompletionsUrl,
+  clearAiCache,
   extractJsonArray,
   requestAiNames
 } from '../src/main/modules/rename/ai.mjs'
@@ -20,6 +21,36 @@ test('chatCompletionsUrl appends endpoint without double-appending', () => {
   // 用户粘贴完整端点时原样使用
   const full = 'https://api.aicodemirror.ai/api/codex/backend-api/codex/v1/chat/completions'
   assert.equal(chatCompletionsUrl(full), full)
+})
+
+test('requestAiNames caches results within the session', async () => {
+  clearAiCache()
+  let calls = 0
+  const fetchImpl = async () => {
+    calls += 1
+    return {
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: '["cached-name"]' } }] })
+    }
+  }
+  const file = { parentFolder: 'p', fileName: 'a', extension: '.mp4' }
+  const options = { baseUrl: 'https://x', token: 'sk', model: 'm', template: 't', fetchImpl }
+  const first = await requestAiNames({ ...options, files: [file] })
+  const second = await requestAiNames({ ...options, files: [file] })
+  assert.equal(calls, 1) // 第二次完全命中缓存，不发请求
+  assert.deepEqual(first, ['cached-name'])
+  assert.deepEqual(second, ['cached-name'])
+  // 混合场景：一缓存一未命中，只请求未命中的
+  const third = await requestAiNames({
+    ...options,
+    files: [file, { parentFolder: 'p', fileName: 'b', extension: '.mp4' }],
+    fetchImpl: async () => {
+      calls += 1
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '["b-name"]' } }] }) }
+    }
+  })
+  assert.equal(calls, 2)
+  assert.deepEqual(third, ['cached-name', 'b-name']) // 顺序与输入一致
 })
 
 test('buildPrompt substitutes all template variables', () => {
