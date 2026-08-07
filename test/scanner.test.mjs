@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   assessRisk,
   classifyPath,
+  computeFingerprint,
   createScanPlan,
   isHiddenName,
   normalizedName,
@@ -236,6 +237,34 @@ test('kept posters get standardized finalName in plan', async () => {
       const poster = plan.keep.find((item) => item.kind === 'image')
       assert.equal(poster.finalName, 'Movie A-poster.jpg')
       assert.equal(plan.risk, 'normal')
+    }
+  )
+})
+
+test('computeFingerprint changes on content change, stable otherwise', async () => {
+  await withFixture(
+    {
+      'A.mp4': 'v',
+      '.hidden-file': 'x'
+    },
+    async (root) => {
+      const fp1 = await computeFingerprint(root)
+      assert.equal(await computeFingerprint(root), fp1) // 稳定
+
+      // 内容变化 → 指纹变化
+      const { writeFile: wf, utimes } = await import('node:fs/promises')
+      await wf(join(root, 'B.mp4'), 'new')
+      const fp2 = await computeFingerprint(root)
+      assert.notEqual(fp2, fp1)
+
+      // 仅修改 mtime 也变化
+      await utimes(join(root, 'B.mp4'), new Date(), new Date(Date.now() + 10000))
+      assert.notEqual(await computeFingerprint(root), fp2)
+
+      // 隐藏文件变化不影响指纹（与扫描口径一致）
+      const fp3 = await computeFingerprint(root)
+      await wf(join(root, '.hidden-file'), 'changed-content-longer')
+      assert.equal(await computeFingerprint(root), fp3)
     }
   )
 })

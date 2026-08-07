@@ -17,6 +17,7 @@ import {
   withSequencePrefix
 } from '../../../shared/rename-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 type Mode = 'seq' | 'regex' | 'ai' | 'ext'
 
@@ -32,12 +33,15 @@ interface SeqOptions {
   order: 'asc' | 'desc'
   digits: number
   separator: string
+  start: number
 }
 
 function RenamePage({
+  active,
   workspace,
   onChooseWorkspace
 }: {
+  active: boolean
   workspace: string
   onChooseWorkspace: () => Promise<void>
 }): React.JSX.Element {
@@ -49,7 +53,8 @@ function RenamePage({
     sortBy: 'title',
     order: 'asc',
     digits: 2,
-    separator: '.'
+    separator: '.',
+    start: 1
   })
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [activeRules, setActiveRules] = useState<number[]>([0])
@@ -92,6 +97,9 @@ function RenamePage({
       setLoading(false)
     }
   }
+
+  // 页面可见时对比工作区指纹：有变化自动重扫
+  useWorkspaceSync(workspace, active, refresh)
 
   /** 各模式生成目标词干 */
   const computedPairs = useMemo((): RenamePairInput[] => {
@@ -548,6 +556,21 @@ function SeqControls({
           <option value="asc">正序</option>
           <option value="desc">倒序</option>
         </select>
+      </label>
+      <label>
+        起始
+        <input
+          type="number"
+          min={1}
+          max={9999}
+          value={seq.start}
+          onChange={(event) =>
+            onChange({
+              ...seq,
+              start: Math.max(1, Math.min(9999, Math.floor(Number(event.target.value)) || 1))
+            })
+          }
+        />
       </label>
       <label>
         位数

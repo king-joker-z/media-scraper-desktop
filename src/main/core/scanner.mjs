@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readdir, stat } from 'node:fs/promises'
 import { basename, dirname, extname, join, relative } from 'node:path'
 
@@ -132,7 +133,8 @@ async function walk(root, current, records, skipped) {
             dir: dirname(relativePath),
             name: entry.name,
             kind: classifyPath(fullPath),
-            size: info.size
+            size: info.size,
+            mtimeMs: info.mtimeMs
           })
         } catch {
           // 无权限/已消失的文件跳过，不中断整体扫描
@@ -151,6 +153,22 @@ async function walk(root, current, records, skipped) {
  * - 其他文件一律删除候选；
  * - 保留项在子目录中的生成上移预览（跨平台：以 dirname 判断而非字符串 '/'）。
  */
+/**
+ * 工作区内容指纹：递归文件（相对路径+大小+mtime）排序后的 MD5。
+ * 任何文件增删改名/内容变化都会改变指纹；隐藏项不参与（与扫描口径一致）。
+ * 用于页面切换时的“无变化不重扫”判定。
+ */
+export async function computeFingerprint(root) {
+  const records = []
+  const skipped = []
+  await walk(root, root, records, skipped)
+  const hash = createHash('md5')
+  for (const record of records.sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
+    hash.update(`${record.relativePath}:${record.size}:${record.mtimeMs}\n`)
+  }
+  return hash.digest('hex')
+}
+
 export async function createScanPlan(root) {
   const records = []
   const skippedHidden = []

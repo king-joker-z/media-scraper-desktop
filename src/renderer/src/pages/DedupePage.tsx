@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { formatBytes } from '../utils/format'
+import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 interface DupItem {
   relativePath: string
@@ -15,9 +16,11 @@ interface DupGroup {
 }
 
 function DedupePage({
+  active,
   workspace,
   onChooseWorkspace
 }: {
+  active: boolean
   workspace: string
   onChooseWorkspace: () => Promise<void>
 }): React.JSX.Element {
@@ -49,6 +52,9 @@ function DedupePage({
       setLoading(false)
     }
   }
+
+  // 页面可见时对比工作区指纹：有变化自动重扫
+  useWorkspaceSync(workspace, active, scan)
 
   const checkedBytes = useMemo(
     () =>

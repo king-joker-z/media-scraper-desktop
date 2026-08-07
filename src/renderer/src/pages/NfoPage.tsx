@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react'
 import type { NfoPlan, NfoReport } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 function NfoPage({
+  active,
   workspace,
   onChooseWorkspace
 }: {
+  active: boolean
   workspace: string
   onChooseWorkspace: () => Promise<void>
 }): React.JSX.Element {
@@ -33,6 +36,9 @@ function NfoPage({
       setLoading(false)
     }
   }
+
+  // 页面可见时对比工作区指纹：有变化自动重扫
+  useWorkspaceSync(workspace, active, scan)
 
   const targets = useMemo(() => {
     if (!plan) return []

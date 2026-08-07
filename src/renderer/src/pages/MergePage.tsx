@@ -9,6 +9,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import MergeSortableList from '../components/MergeSortableList'
 import VideoModal from '../components/VideoModal'
 import { formatBytes } from '../utils/format'
+import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 const MODE_TABS: { key: MergeMode; label: string }[] = [
   { key: 'all', label: '全合并' },
@@ -17,9 +18,11 @@ const MODE_TABS: { key: MergeMode; label: string }[] = [
 ]
 
 function MergePage({
+  active,
   workspace,
   onChooseWorkspace
 }: {
+  active: boolean
   workspace: string
   onChooseWorkspace: () => Promise<void>
 }): React.JSX.Element {
@@ -59,6 +62,9 @@ function MergePage({
       setLoading(false)
     }
   }
+
+  // 页面可见时对比工作区指纹：有变化自动重扫
+  useWorkspaceSync(workspace, active, scan)
 
   /** 当前模式的全部片段（含被置灰排除的，按用户顺序展示） */
   const rows = useMemo((): MergeVideoItem[] => {

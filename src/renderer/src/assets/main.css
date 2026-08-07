@@ -218,7 +218,15 @@ h2 {
 }
 .content {
   flex: 1;
+  overflow: hidden;
+}
+/* 页面常驻挂载：切换仅隐藏不卸载（状态保留） */
+.page-host {
+  height: 100%;
   overflow-y: auto;
+}
+.page-host.page-hidden {
+  display: none;
 }
 .page {
   max-width: 1080px;

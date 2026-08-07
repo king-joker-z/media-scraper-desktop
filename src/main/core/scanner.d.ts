@@ -15,4 +15,5 @@ declare module './scanner.mjs' {
   ): { risk: PlanRisk; deleteBytes: number }
   export function predictMoves(keep: KeepItem[], skippedHidden: string[]): MoveItem[]
   export function createScanPlan(root: string): Promise<ScanPlan>
+  export function computeFingerprint(root: string): Promise<string>
 }

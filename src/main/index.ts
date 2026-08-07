@@ -3,7 +3,7 @@ import { extname, join, sep } from 'path'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { createScanPlan, IMAGE_EXTENSIONS } from './core/scanner.mjs'
+import { computeFingerprint, createScanPlan, IMAGE_EXTENSIONS } from './core/scanner.mjs'
 import { activeProvider, createSettingsStore } from './core/settings.mjs'
 import { createTaskCenter } from './core/task-center.mjs'
 import { resolveFfmpegPath } from './core/frames.mjs'
@@ -164,6 +164,7 @@ function registerIpcHandlers(): void {
     allowMediaRoot(root)
     return createScanPlan(root)
   })
+  ipcMain.handle('workspace:fingerprint', async (_event, root: string) => computeFingerprint(root))
   ipcMain.handle('settings:get', async () => settingsStore.get())
   ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) =>
     settingsStore.update(patch)

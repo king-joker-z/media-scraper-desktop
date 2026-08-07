@@ -27,6 +27,7 @@ declare global {
     api: {
       selectWorkspace: () => Promise<string | null>
       scanPlan: (root: string) => Promise<ScanPlan>
+      getWorkspaceFingerprint: (root: string) => Promise<string>
       executeClean: (plan: ScanPlan, picks: PosterPicks) => Promise<CleanReport>
       cancelClean: () => Promise<void>
       listPosterVideos: (root: string) => Promise<PosterVideoItem[]>

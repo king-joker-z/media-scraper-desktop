@@ -49,11 +49,11 @@ export function stripSeqPrefix(stem) {
  */
 export function buildSequenceStems(
   videos,
-  { sortBy = 'title', order = 'asc', digits = 2, separator = '.' } = {}
+  { sortBy = 'title', order = 'asc', digits = 2, separator = '.', start = 1 } = {}
 ) {
   return sortVideos(videos, sortBy, order).map((video, index) => ({
     videoRel: video.relativePath,
-    newStem: `${padSeq(index + 1, digits)}${separator}${stripSeqPrefix(stemOfName(video.name))}`
+    newStem: `${padSeq(index + start, digits)}${separator}${stripSeqPrefix(stemOfName(video.name))}`
   }))
 }
 
@@ -62,10 +62,10 @@ export function buildSequenceStems(
  * @param {Array<{videoRel: string, stem: string}>} items 已按期望顺序排列
  * @returns {Array<{videoRel: string, newStem: string}>}
  */
-export function withSequencePrefix(items, { digits = 2, separator = '.' } = {}) {
+export function withSequencePrefix(items, { digits = 2, separator = '.', start = 1 } = {}) {
   return items.map((item, index) => ({
     videoRel: item.videoRel,
-    newStem: `${padSeq(index + 1, digits)}${separator}${item.stem}`
+    newStem: `${padSeq(index + start, digits)}${separator}${item.stem}`
   }))
 }
 

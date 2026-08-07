@@ -55,6 +55,29 @@ test('buildSequenceStems generates padded serial with separator', () => {
   ])
 })
 
+test('buildSequenceStems respects custom start offset (batch continuation)', () => {
+  const videos = [
+    { name: 'b.mp4', size: 2, relativePath: 'b.mp4' },
+    { name: 'a.mp4', size: 1, relativePath: 'a.mp4' }
+  ]
+  const pairs = buildSequenceStems(videos, { sortBy: 'title', order: 'asc', digits: 3, start: 51 })
+  assert.deepEqual(pairs, [
+    { videoRel: 'a.mp4', newStem: '051.a' },
+    { videoRel: 'b.mp4', newStem: '052.b' }
+  ])
+  const prefixed = withSequencePrefix(
+    [
+      { videoRel: 'x.mp4', stem: '甲' },
+      { videoRel: 'y.mp4', stem: '乙' }
+    ],
+    { digits: 2, separator: '.', start: 51 }
+  )
+  assert.deepEqual(
+    prefixed.map((p) => p.newStem),
+    ['51.甲', '52.乙']
+  )
+})
+
 test('stripSeqPrefix removes stacked serials but protects years', () => {
   assert.equal(stripSeqPrefix('01.abc'), 'abc')
   assert.equal(stripSeqPrefix('01.02.abc'), 'abc') // 多层叠加连续剥离

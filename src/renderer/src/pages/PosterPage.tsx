@@ -4,14 +4,17 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import PosterDetail from '../components/PosterDetail'
 import { formatBytes } from '../utils/format'
 import { mediaUrl } from '../utils/media'
+import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 type Selections = Record<string, string>
 type CandidatesMap = Record<string, string[]>
 
 function PosterPage({
+  active,
   workspace,
   onChooseWorkspace
 }: {
+  active: boolean
   workspace: string
   onChooseWorkspace: () => Promise<void>
 }): React.JSX.Element {
@@ -42,6 +45,9 @@ function PosterPage({
       setLoading(false)
     }
   }
+
+  // 页面可见时对比工作区指纹：有变化自动重扫
+  useWorkspaceSync(workspace, active, refresh)
 
   /** 卡片实际展示的封面：显式选择 > 现存 poster > 首个候选帧 */
   const effectiveCover = (video: PosterVideoItem): string | null =>

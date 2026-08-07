@@ -25,6 +25,8 @@ import type {
 const api = {
   selectWorkspace: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-workspace'),
   scanPlan: (root: string): Promise<ScanPlan> => ipcRenderer.invoke('workspace:scan-plan', root),
+  getWorkspaceFingerprint: (root: string): Promise<string> =>
+    ipcRenderer.invoke('workspace:fingerprint', root),
   executeClean: (plan: ScanPlan, picks: PosterPicks): Promise<CleanReport> =>
     ipcRenderer.invoke('clean:execute', plan, picks),
   cancelClean: (): Promise<void> => ipcRenderer.invoke('clean:cancel'),

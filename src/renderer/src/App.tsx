@@ -36,37 +36,81 @@ function App(): React.JSX.Element {
     if (selected) setWorkspace(selected)
   }, [])
 
-  const renderPage = (): React.JSX.Element => {
-    switch (page) {
-      case 'clean':
-        return <CleanPage workspace={workspace} onChooseWorkspace={chooseWorkspace} />
-      case 'merge':
-        return (
-          <MergePage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
-        )
-      case 'rename':
-        return (
-          <RenamePage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
-        )
-      case 'poster':
-        // key 随工作区变化：切换工作区时整体重置页面状态
-        return (
-          <PosterPage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
-        )
-      case 'nfo':
-        return <NfoPage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
-      case 'dedupe':
-        return (
-          <DedupePage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
-        )
-      case 'library':
-        return (
-          <LibraryPage key={workspace} workspace={workspace} onChooseWorkspace={chooseWorkspace} />
-        )
-      case 'settings':
-        return <SettingsPage />
-    }
-  }
+  // 所有模块页面常驻挂载：切换只隐藏不卸载，扫描结果/报告等状态完整保留；
+  // 页面重新可见时由 useWorkspaceSync 对比工作区指纹决定是否自动重扫。
+  const modulePages: { key: PageKey; element: React.JSX.Element }[] = [
+    {
+      key: 'clean',
+      element: (
+        <CleanPage
+          active={page === 'clean'}
+          workspace={workspace}
+          onChooseWorkspace={chooseWorkspace}
+        />
+      )
+    },
+    {
+      key: 'merge',
+      element: (
+        <MergePage
+          active={page === 'merge'}
+          workspace={workspace}
+          onChooseWorkspace={chooseWorkspace}
+        />
+      )
+    },
+    {
+      key: 'rename',
+      element: (
+        <RenamePage
+          active={page === 'rename'}
+          workspace={workspace}
+          onChooseWorkspace={chooseWorkspace}
+        />
+      )
+    },
+    {
+      key: 'poster',
+      element: (
+        <PosterPage
+          active={page === 'poster'}
+          workspace={workspace}
+          onChooseWorkspace={chooseWorkspace}
+        />
+      )
+    },
+    {
+      key: 'nfo',
+      element: (
+        <NfoPage
+          active={page === 'nfo'}
+          workspace={workspace}
+          onChooseWorkspace={chooseWorkspace}
+        />
+      )
+    },
+    {
+      key: 'dedupe',
+      element: (
+        <DedupePage
+          active={page === 'dedupe'}
+          workspace={workspace}
+          onChooseWorkspace={chooseWorkspace}
+        />
+      )
+    },
+    {
+      key: 'library',
+      element: (
+        <LibraryPage
+          active={page === 'library'}
+          workspace={workspace}
+          onChooseWorkspace={chooseWorkspace}
+        />
+      )
+    },
+    { key: 'settings', element: <SettingsPage /> }
+  ]
 
   return (
     <div className="app-shell">
@@ -97,7 +141,11 @@ function App(): React.JSX.Element {
         <div className="sidebar-footer">v1.0.0 · 本地处理，隐私安全</div>
       </aside>
       <main className="content">
-        <ErrorBoundary>{renderPage()}</ErrorBoundary>
+        {modulePages.map((item) => (
+          <div key={item.key} className={`page-host ${page === item.key ? '' : 'page-hidden'}`}>
+            <ErrorBoundary>{item.element}</ErrorBoundary>
+          </div>
+        ))}
       </main>
       <TaskProgress />
       <TaskCenter />

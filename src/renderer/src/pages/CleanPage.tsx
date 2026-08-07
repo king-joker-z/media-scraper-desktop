@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { CleanReport, PosterPicks, ScanPlan } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { formatBytes } from '../utils/format'
+import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 const SUMMARY_LABELS: Record<string, string> = {
   videos: '视频',
@@ -15,9 +16,11 @@ const SUMMARY_LABELS: Record<string, string> = {
 }
 
 function CleanPage({
+  active,
   workspace,
   onChooseWorkspace
 }: {
+  active: boolean
   workspace: string
   onChooseWorkspace: () => Promise<void>
 }): React.JSX.Element {
@@ -47,6 +50,9 @@ function CleanPage({
       setLoading(false)
     }
   }
+
+  // 页面可见时对比工作区指纹：有变化自动重扫，无变化保留现状
+  useWorkspaceSync(workspace, active, scan)
 
   const choose = async (): Promise<void> => {
     setPlan(null)
