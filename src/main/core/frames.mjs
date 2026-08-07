@@ -49,6 +49,8 @@ export function buildCaptureArgs(videoPath, seconds, targetPath) {
 /**
  * 场景切换检测：低分辨率快速解码全片，select 滤镜筛出内容突变帧，
  * 经 showinfo 输出时间戳。返回秒数组（按出现顺序）。
+ * -skip_frame nokey 只解码关键帧（场景切换通常落在关键帧上），长视频提速显著；
+ * -an -sn -dn 跳过音频/字幕/数据流，避免无谓解码。
  */
 export async function detectSceneCuts(
   videoPath,
@@ -59,6 +61,11 @@ export async function detectSceneCuts(
     [
       '-v',
       'info',
+      '-skip_frame',
+      'nokey',
+      '-an',
+      '-sn',
+      '-dn',
       '-i',
       videoPath,
       '-vf',

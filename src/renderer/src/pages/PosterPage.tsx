@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import type { PosterVideoItem } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ErrorBanner from '../components/ErrorBanner'
 import PosterDetail from '../components/PosterDetail'
+import VirtualGrid from '../components/VirtualGrid'
 import { formatBytes } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
@@ -197,7 +199,7 @@ function PosterPage({
         <strong>{workspace || '尚未选择目录'}</strong>
       </section>
 
-      {error && <section className="error-banner">{error}</section>}
+      {error && <ErrorBanner message={error} />}
       {notice && <section className="notice-banner">{notice}</section>}
 
       {!workspace && (
@@ -220,8 +222,9 @@ function PosterPage({
       )}
 
       {videos.length > 0 && (
-        <section className="video-grid">
-          {videos.map((video) => {
+        <VirtualGrid
+          items={videos}
+          renderItem={(video, style) => {
             const cover = effectiveCover(video)
             const isPending =
               !!selections[video.relativePath] &&
@@ -230,6 +233,7 @@ function PosterPage({
               <button
                 key={video.relativePath}
                 className="video-card"
+                style={style}
                 onClick={() => setDetail(video)}
               >
                 <span className="video-thumb">
@@ -252,8 +256,8 @@ function PosterPage({
                 </span>
               </button>
             )
-          })}
-        </section>
+          }}
+        />
       )}
 
       {detail && (

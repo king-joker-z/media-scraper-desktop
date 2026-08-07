@@ -14,6 +14,10 @@ declare module './scanner.mjs' {
     videoCount: number
   ): { risk: PlanRisk; deleteBytes: number }
   export function predictMoves(keep: KeepItem[], skippedHidden: string[]): MoveItem[]
-  export function createScanPlan(root: string): Promise<ScanPlan>
-  export function computeFingerprint(root: string): Promise<string>
+  export interface ScanOptions {
+    onProgress?: (scanned: number) => void
+  }
+  export function createScanPlan(root: string, options?: ScanOptions): Promise<ScanPlan>
+  export function computeFingerprint(root: string, options?: ScanOptions): Promise<string>
+  export function invalidateScanCache(): void
 }

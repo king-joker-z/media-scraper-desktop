@@ -108,7 +108,10 @@ export function predictMoves(keep, skippedHidden) {
 // 目录遍历并发批大小：stat 是 I/O 操作，并发批处理可显著加速大目录扫描
 const WALK_BATCH = 32
 
-async function walk(root, current, records, skipped) {
+// 每发现多少个文件上报一次进度（供大目录扫描的进度反馈）
+const PROGRESS_EVERY = 200
+
+async function walk(root, current, records, skipped, state) {
   const entries = await readdir(current, { withFileTypes: true })
   for (let i = 0; i < entries.length; i += WALK_BATCH) {
     const batch = entries.slice(i, i + WALK_BATCH)
@@ -120,7 +123,7 @@ async function walk(root, current, records, skipped) {
           return
         }
         if (entry.isDirectory()) {
-          await walk(root, fullPath, records, skipped)
+          await walk(root, fullPath, records, skipped, state)
           return
         }
         if (!entry.isFile()) return
@@ -136,12 +139,61 @@ async function walk(root, current, records, skipped) {
             size: info.size,
             mtimeMs: info.mtimeMs
           })
+          state.scanned += 1
+          if (state.scanned % PROGRESS_EVERY === 0) state.onProgress?.(state.scanned)
         } catch {
           // 无权限/已消失的文件跳过，不中断整体扫描
         }
       })
     )
   }
+}
+
+/** 单次全量遍历：产出文件记录与隐藏项；onProgress(已发现文件数) 可选 */
+async function walkWorkspace(root, onProgress) {
+  const records = []
+  const skipped = []
+  await walk(root, root, records, skipped, { scanned: 0, onProgress })
+  return { records, skippedHidden: skipped }
+}
+
+/* ---------------- 扫描缓存：指纹与计划共享同一次遍历 ---------------- */
+
+// computeFingerprint 暂存的遍历结果有效期：页面激活时「算指纹 → 触发扫描」间隔为毫秒级，
+// 超过 TTL 的暂存视为过期（文件可能已变化），重新遍历。
+const STASH_TTL_MS = 5000
+
+let lastWalk = null // { root, at, fingerprint, records, skippedHidden }
+
+// root -> { fingerprint, plan }：指纹未变的重复扫描直接复用计划，各模块共享同一份结果
+const planCache = new Map()
+const PLAN_CACHE_MAX = 8
+
+const fingerprintOf = (records) => {
+  const hash = createHash('md5')
+  for (const record of records.sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
+    hash.update(`${record.relativePath}:${record.size}:${record.mtimeMs}\n`)
+  }
+  return hash.digest('hex')
+}
+
+/**
+ * 工作区内容指纹：递归文件（相对路径+大小+mtime）排序后的 MD5。
+ * 任何文件增删改名/内容变化都会改变指纹；隐藏项不参与（与扫描口径一致）。
+ * 用于页面切换时的“无变化不重扫”判定。
+ * 遍历结果会短暂暂存：紧随其后的 createScanPlan 直接复用，不再二次遍历。
+ */
+export async function computeFingerprint(root, { onProgress } = {}) {
+  const { records, skippedHidden } = await walkWorkspace(root, onProgress)
+  const fingerprint = fingerprintOf(records)
+  lastWalk = { root, at: Date.now(), fingerprint, records, skippedHidden }
+  return fingerprint
+}
+
+/** 强制刷新与测试用：清空扫描缓存 */
+export function invalidateScanCache() {
+  lastWalk = null
+  planCache.clear()
 }
 
 /**
@@ -153,26 +205,23 @@ async function walk(root, current, records, skipped) {
  * - 其他文件一律删除候选；
  * - 保留项在子目录中的生成上移预览（跨平台：以 dirname 判断而非字符串 '/'）。
  */
-/**
- * 工作区内容指纹：递归文件（相对路径+大小+mtime）排序后的 MD5。
- * 任何文件增删改名/内容变化都会改变指纹；隐藏项不参与（与扫描口径一致）。
- * 用于页面切换时的“无变化不重扫”判定。
- */
-export async function computeFingerprint(root) {
-  const records = []
-  const skipped = []
-  await walk(root, root, records, skipped)
-  const hash = createHash('md5')
-  for (const record of records.sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
-    hash.update(`${record.relativePath}:${record.size}:${record.mtimeMs}\n`)
+export async function createScanPlan(root, { onProgress } = {}) {
+  let records
+  let skippedHidden
+  let fingerprint
+  if (lastWalk && lastWalk.root === root && Date.now() - lastWalk.at < STASH_TTL_MS) {
+    // 复用指纹计算时的遍历结果，省掉一次全量递归
+    ;({ records, skippedHidden, fingerprint } = lastWalk)
+  } else {
+    const walked = await walkWorkspace(root, onProgress)
+    records = walked.records
+    skippedHidden = walked.skippedHidden
+    fingerprint = fingerprintOf(records)
   }
-  return hash.digest('hex')
-}
+  lastWalk = null
 
-export async function createScanPlan(root) {
-  const records = []
-  const skippedHidden = []
-  await walk(root, root, records, skippedHidden)
+  const cached = planCache.get(root)
+  if (cached && cached.fingerprint === fingerprint) return cached.plan
 
   const byDir = new Map()
   for (const record of records) {
@@ -268,7 +317,7 @@ export async function createScanPlan(root) {
 
   const { risk, deleteBytes } = assessRisk(deleteItems, videoCount)
 
-  return {
+  const plan = {
     root,
     keep,
     deleteItems,
@@ -289,4 +338,8 @@ export async function createScanPlan(root) {
       conflicts: conflicts.length
     }
   }
+  // 各消费方（clean/poster/merge/nfo/dedupe/health）只读计划，可安全共享同一对象
+  if (planCache.size >= PLAN_CACHE_MAX) planCache.clear()
+  planCache.set(root, { fingerprint, plan })
+  return plan
 }

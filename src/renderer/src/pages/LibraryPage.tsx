@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { MergeVideoItem, Orientation } from '../../../shared/types'
+import ErrorBanner from '../components/ErrorBanner'
 import VideoModal from '../components/VideoModal'
+import VirtualGrid from '../components/VirtualGrid'
 import { formatBytes } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
@@ -86,7 +88,7 @@ function LibraryPage({
         <strong>{workspace || '尚未选择目录'}</strong>
       </section>
 
-      {error && <section className="error-banner">{error}</section>}
+      {error && <ErrorBanner message={error} />}
 
       {loaded && videos.length > 0 && (
         <div className="library-toolbar">
@@ -121,11 +123,13 @@ function LibraryPage({
       )}
 
       {filtered.length > 0 && (
-        <section className="video-grid">
-          {filtered.map((video) => (
+        <VirtualGrid
+          items={filtered}
+          renderItem={(video, style) => (
             <button
               key={video.relativePath}
               className="video-card"
+              style={style}
               onClick={() => setPlaying(video)}
             >
               <span className="video-thumb">
@@ -143,8 +147,8 @@ function LibraryPage({
                 </span>
               </span>
             </button>
-          ))}
-        </section>
+          )}
+        />
       )}
 
       {loaded && videos.length === 0 && (
