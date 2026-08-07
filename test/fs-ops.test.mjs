@@ -4,7 +4,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  dirSizeBytes,
   ensureUniquePath,
+  ensureDir,
+  moveFile,
   moveWithCollision,
   pathExists,
   permanentDelete,
@@ -132,5 +135,62 @@ test('writeTextFile creates parent directories and writes utf8 content', async (
     const target = join(root, 'a', 'b', 'note.nfo')
     await writeTextFile(target, '中文内容')
     assert.equal(await readFile(target, 'utf8'), '中文内容')
+  })
+})
+
+test('moveFile moves file content correctly via rename path', async () => {
+  await withTempDir(async (root) => {
+    const src = join(root, 'src.bin')
+    const dst = join(root, 'dst.bin')
+    const payload = Buffer.alloc(4096, 55)
+    await writeFile(src, payload)
+    await moveFile(src, dst)
+    assert.equal(await pathExists(src), false, 'source should be gone after move')
+    assert.equal(await pathExists(dst), true, 'destination should exist')
+    assert.deepEqual(await readFile(dst), payload)
+  })
+})
+
+test('moveFile preserves content across separate temp directories', async () => {
+  // 两个独立 tmpdir（模拟跨目录移动场景），验证 moveFile 内容完整性
+  const dirA = await mkdtemp(join(tmpdir(), 'msd-move-a-'))
+  const dirB = await mkdtemp(join(tmpdir(), 'msd-move-b-'))
+  try {
+    const src = join(dirA, 'payload.bin')
+    const dst = join(dirB, 'payload.bin')
+    const payload = Buffer.alloc(8192, 99)
+    await writeFile(src, payload)
+    await moveFile(src, dst)
+    assert.equal(await pathExists(src), false)
+    assert.equal(await pathExists(dst), true)
+    assert.deepEqual(await readFile(dst), payload)
+  } finally {
+    await rm(dirA, { recursive: true, force: true })
+    await rm(dirB, { recursive: true, force: true })
+  }
+})
+
+test('dirSizeBytes sums all file sizes recursively', async () => {
+  await withTempDir(async (root) => {
+    await writeFile(join(root, 'a.txt'), '12345')
+    await mkdir(join(root, 'sub'))
+    await writeFile(join(root, 'sub', 'b.bin'), Buffer.alloc(1000, 0))
+    const size = await dirSizeBytes(root)
+    assert.equal(size, 1005)
+  })
+})
+
+test('dirSizeBytes returns 0 for nonexistent directory', async () => {
+  await withTempDir(async (root) => {
+    assert.equal(await dirSizeBytes(join(root, 'nonexistent')), 0)
+  })
+})
+
+test('ensureDir creates nested directories', async () => {
+  await withTempDir(async (root) => {
+    const target = join(root, 'a', 'b', 'c')
+    const result = await ensureDir(target)
+    assert.equal(result, target)
+    assert.equal(await pathExists(target), true)
   })
 })

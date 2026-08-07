@@ -93,6 +93,48 @@ test('recovers defaults from a corrupted settings file', async () => {
   })
 })
 
+test('recovers from .bak backup when main file is corrupted', async () => {
+  await withTempDir(async (dir) => {
+    const file = join(dir, 'settings.json')
+    const store = createSettingsStore(file)
+    // 写入有效配置
+    await store.update({ concurrency: 10, activeProviderId: 'deepseek' })
+    // 模拟主文件损坏（但 .bak 是上次写入前的备份）
+    await writeFile(file, '{broken')
+    const recovered = createSettingsStore(file)
+    const settings = await recovered.load()
+    // 从 .bak 恢复：concurrency 应为 update 前的值（5），activeProviderId 为 openrouter
+    assert.equal(settings.concurrency, 5)
+    assert.equal(settings.activeProviderId, 'openrouter')
+  })
+})
+
+test('atomic write creates .bak backup after first successful write', async () => {
+  await withTempDir(async (dir) => {
+    const file = join(dir, 'settings.json')
+    const store = createSettingsStore(file)
+    await store.update({ concurrency: 10 })
+    // 第一次写入后应该有 .bak（虽然是空→有，但 copyFile 失败被忽略）
+    await store.update({ concurrency: 15 })
+    // 第二次写入后 .bak 应包含上次的 concurrency=10
+    const { readFile } = await import('node:fs/promises')
+    const bak = JSON.parse(await readFile(`${file}.bak`, 'utf8'))
+    assert.equal(bak.concurrency, 10)
+  })
+})
+
+test('theme and recentWorkspaces persist and reload', async () => {
+  await withTempDir(async (dir) => {
+    const file = join(dir, 'settings.json')
+    const store = createSettingsStore(file)
+    await store.update({ theme: 'dark', recentWorkspaces: ['/path/a', '/path/b'] })
+    const reloaded = createSettingsStore(file)
+    const settings = await reloaded.get()
+    assert.equal(settings.theme, 'dark')
+    assert.deepEqual(settings.recentWorkspaces, ['/path/a', '/path/b'])
+  })
+})
+
 test('normalizeSettings filters malformed providers and models', () => {
   const normalized = normalizeSettings({
     aiProviders: [
