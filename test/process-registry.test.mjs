@@ -1,6 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execManaged, spawnManaged, activeProcessCount, killAllActiveProcesses } from '../src/main/core/process-registry.mjs'
+import {
+  execManaged,
+  spawnManaged,
+  activeProcessCount,
+  killAllActiveProcesses
+} from '../src/main/core/process-registry.mjs'
 import { resolveFfmpegPath } from '../src/main/core/frames.mjs'
 
 const node = process.execPath
@@ -35,23 +40,28 @@ test('execManaged abort 后进程被终止且 reject AbortError', async () => {
 
 test('spawnManaged 完成后注册表清空', async () => {
   const before = activeProcessCount()
-  const { code } = await spawnManaged(node, ['-e', "process.exit(0)"])
+  const { code } = await spawnManaged(node, ['-e', 'process.exit(0)'])
   assert.equal(code, 0)
   assert.equal(activeProcessCount(), before)
 })
 
 test('killAllActiveProcesses 强杀顽固进程', async () => {
   const controller = new AbortController()
-  const promise = spawnManaged(node, [
-    '-e',
-    "process.on('SIGTERM',()=>{});process.on('SIGINT',()=>{});setTimeout(()=>{},60000)"
-  ], { signal: controller.signal })
+  const promise = spawnManaged(
+    node,
+    ['-e', "process.on('SIGTERM',()=>{});process.on('SIGINT',()=>{});setTimeout(()=>{},60000)"],
+    { signal: controller.signal }
+  )
   // 等进程启动
   await new Promise((resolve) => setTimeout(resolve, 150))
   assert.ok(activeProcessCount() > 0)
   killAllActiveProcesses()
   // 被强杀后 promise reject 或 resolve（取决于监听顺序），关键看进程被清除
-  try { await promise } catch { /* SIGKILL 后 reject */ }
+  try {
+    await promise
+  } catch {
+    /* SIGKILL 后 reject */
+  }
   assert.equal(activeProcessCount(), 0)
 })
 

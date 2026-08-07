@@ -1,6 +1,5 @@
 import {
   access,
-  copyFile,
   mkdir,
   readdir,
   rename,
@@ -10,6 +9,8 @@ import {
   statfs,
   writeFile
 } from 'node:fs/promises'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { pipeline } from 'node:stream/promises'
 import { basename, dirname, extname, join } from 'node:path'
 
 /**
@@ -68,9 +69,9 @@ export async function moveFile(from, to, { onProgress, signal } = {}) {
       createReadStream(from),
       async function* (source) {
         for await (const chunk of source) {
-          if (options?.signal?.aborted) throw new Error('已取消')
+          if (signal?.aborted) throw new Error('已取消')
           copied += chunk.length
-          options?.onProgress?.(copied, total)
+          onProgress?.(copied, total)
           yield chunk
         }
       },

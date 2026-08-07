@@ -728,57 +728,59 @@ function registerIpcHandlers(): void {
   })
 
   // ---------- 自动化流水线 ----------
-  ipcMain.handle(
-    'pipeline:execute',
-    async (_event, root: string, steps: PipelineStep[]) => {
-      if (activePipelineAbort) throw new Error('已有流水线在执行中')
-      const settings = await settingsStore.get()
-      const abort = new AbortController()
-      activePipelineAbort = abort
-      const taskId = `pipeline-${Date.now()}`
-      const emit = (type: TaskEvent['type'], current: string): void =>
-        broadcastTaskEvent({
-          type,
-          taskId,
-          label: '流水线',
-          total: steps.filter((s) => s.enabled).length,
-          completed: 0,
-          failed: 0,
-          current,
-          at: Date.now()
-        })
-      let completed = 0
-      try {
-        emit('start', '准备执行流水线')
-        const report = await runPipeline(root, steps, {
-          taskCenter,
-          concurrency: settings.concurrency,
-          signal: abort.signal,
-          onStepStart: (step) => {
-            emit('progress', `执行步骤：${step.module}`)
-          },
-          onStepDone: (result) => {
-            completed += 1
-            broadcastTaskEvent({
-              type: 'progress',
-              taskId,
-              label: '流水线',
-              total: steps.filter((s) => s.enabled).length,
-              completed,
-              failed: result.success ? 0 : 1,
-              current: result.summary,
-              at: Date.now()
-            })
-          }
-        })
-        emit(report.cancelled ? 'cancelled' : 'done', report.cancelled ? '已取消' : '流水线完成')
-        logOp('pipeline', { root, steps, report, summary: report.results.map((r) => r.summary).join('；') })
-        return report
-      } finally {
-        activePipelineAbort = null
-      }
+  ipcMain.handle('pipeline:execute', async (_event, root: string, steps: PipelineStep[]) => {
+    if (activePipelineAbort) throw new Error('已有流水线在执行中')
+    const settings = await settingsStore.get()
+    const abort = new AbortController()
+    activePipelineAbort = abort
+    const taskId = `pipeline-${Date.now()}`
+    const emit = (type: TaskEvent['type'], current: string): void =>
+      broadcastTaskEvent({
+        type,
+        taskId,
+        label: '流水线',
+        total: steps.filter((s) => s.enabled).length,
+        completed: 0,
+        failed: 0,
+        current,
+        at: Date.now()
+      })
+    let completed = 0
+    try {
+      emit('start', '准备执行流水线')
+      const report = await runPipeline(root, steps, {
+        taskCenter,
+        concurrency: settings.concurrency,
+        signal: abort.signal,
+        onStepStart: (step) => {
+          emit('progress', `执行步骤：${step.module}`)
+        },
+        onStepDone: (result) => {
+          completed += 1
+          broadcastTaskEvent({
+            type: 'progress',
+            taskId,
+            label: '流水线',
+            total: steps.filter((s) => s.enabled).length,
+            completed,
+            failed: result.success ? 0 : 1,
+            current: result.summary,
+            at: Date.now()
+          })
+        }
+      })
+      emit(report.cancelled ? 'cancelled' : 'done', report.cancelled ? '已取消' : '流水线完成')
+      logOp('pipeline', {
+        root,
+        steps,
+        report,
+        summary: report.results.map((r) => r.summary).join('；')
+      })
+      return report
+    } finally {
+      activePipelineAbort = null
     }
-  )
+  })
   ipcMain.handle('pipeline:cancel', async () => {
     activePipelineAbort?.abort()
   })

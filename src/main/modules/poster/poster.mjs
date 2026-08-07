@@ -50,7 +50,11 @@ export function framesDirFor(framesRoot, videoPath) {
  * 优先用场景切换检测找内容突变帧（更可能是有信息的画面）；
  * 检测不足 3 个或失败时回退到固定百分比（10/30/50/70/90%）。
  */
-export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffprobePath, signal } = {}) {
+export async function captureCandidates(
+  videoPath,
+  framesRoot,
+  { ffmpegPath, ffprobePath, signal } = {}
+) {
   const outDir = framesDirFor(framesRoot, videoPath)
   let durationMs = 0
   try {

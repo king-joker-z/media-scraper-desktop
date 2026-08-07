@@ -28,7 +28,7 @@ import { permanentDelete } from '../../core/fs-ops.mjs'
  * @param {object} opts { taskCenter, concurrency, signal }
  * @returns {Promise<{ summary: string }>}
  */
-async function runStep(root, module, { taskCenter, concurrency, signal }) {
+async function runStep(root, module, { taskCenter, concurrency }) {
   const taskId = `pipeline-${module}-${Date.now()}`
 
   switch (module) {
@@ -151,7 +151,7 @@ export async function runPipeline(
     onStepStart?.(step)
     const stepStart = Date.now()
     try {
-      const { summary } = await runStep(root, step.module, { taskCenter, concurrency, signal })
+      const { summary } = await runStep(root, step.module, { taskCenter, concurrency })
       const result = {
         module: step.module,
         success: true,

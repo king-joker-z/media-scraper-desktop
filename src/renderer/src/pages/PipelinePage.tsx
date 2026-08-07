@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -15,6 +15,12 @@ import type {
   PipelineStep
 } from '../../../shared/types'
 import ErrorBanner from '../components/ErrorBanner'
+
+/** 生成步骤 ID（使用 React ref 存储计数器，避免渲染期不纯函数） */
+const createStepId = (counter: React.MutableRefObject<number>): string => {
+  counter.current += 1
+  return `s-${counter.current}`
+}
 
 /** 可用模块列表（流水线可编排的模块） */
 const MODULE_OPTIONS: { id: PipelineModuleId; icon: string; label: string; desc: string }[] = [
@@ -123,9 +129,10 @@ function PipelinePage({
   }
 
   // 添加模块到步骤末尾
+  const stepCounterRef = useRef(0)
   const addModule = (moduleId: PipelineModuleId): void => {
     const newStep: PipelineStep = {
-      id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: createStepId(stepCounterRef),
       module: moduleId,
       enabled: true
     }
@@ -152,7 +159,7 @@ function PipelinePage({
   const createPreset = async (): Promise<void> => {
     if (!settings || !presetName.trim()) return
     const newPreset: PipelinePreset = {
-      id: `preset-${Date.now()}`,
+      id: `preset-${settings.pipelinePresets.length + 1}`,
       name: presetName.trim(),
       steps: []
     }
@@ -212,15 +219,19 @@ function PipelinePage({
           <p className="eyebrow">自动化</p>
           <h1>流水线编排</h1>
           <p className="muted">
-            可视化拖拽编排模块执行顺序，保存多个预设，一键自动执行。适合批量整理：
-            清理 → 归档 → 去重 → 体检。
+            可视化拖拽编排模块执行顺序，保存多个预设，一键自动执行。适合批量整理： 清理 → 归档 →
+            去重 → 体检。
           </p>
         </div>
         <div className="actions">
           <button className="secondary" onClick={onChooseWorkspace} disabled={running}>
             选择工作区
           </button>
-          <button className="primary" onClick={execute} disabled={!workspace || running || steps.filter((s) => s.enabled).length === 0}>
+          <button
+            className="primary"
+            onClick={execute}
+            disabled={!workspace || running || steps.filter((s) => s.enabled).length === 0}
+          >
             {running ? '执行中…' : '▶ 执行流水线'}
           </button>
           {running && (
@@ -269,7 +280,11 @@ function PipelinePage({
                 </button>
                 {selectedPreset && (
                   <>
-                    <button className="secondary" onClick={renamePreset} disabled={!presetName.trim()}>
+                    <button
+                      className="secondary"
+                      onClick={renamePreset}
+                      disabled={!presetName.trim()}
+                    >
                       重命名
                     </button>
                     <button
@@ -347,7 +362,9 @@ function PipelinePage({
                     <span className={report.cancelled ? 'warn' : 'ok'}>
                       {report.cancelled ? '已取消' : '已完成'}
                     </span>
-                    <span className="muted">耗时 {(report.totalDurationMs / 1000).toFixed(1)}s</span>
+                    <span className="muted">
+                      耗时 {(report.totalDurationMs / 1000).toFixed(1)}s
+                    </span>
                   </div>
                   <div className="report-steps">
                     {report.results.map((result, i) => (
@@ -356,7 +373,9 @@ function PipelinePage({
                         className={`report-step ${result.success ? 'success' : 'failed'}`}
                       >
                         <span className="report-icon">{result.success ? '✓' : '✗'}</span>
-                        <span className="report-module">{moduleIcon(result.module)} {moduleLabel(result.module)}</span>
+                        <span className="report-module">
+                          {moduleIcon(result.module)} {moduleLabel(result.module)}
+                        </span>
                         <span className="report-summary-text">{result.summary}</span>
                         <span className="muted">{(result.durationMs / 1000).toFixed(1)}s</span>
                         {result.error && <span className="report-error">{result.error}</span>}
@@ -400,7 +419,9 @@ function SortableStep({
       <span className="step-index">{index + 1}</span>
       <span className="step-icon">{moduleIcon(step.module)}</span>
       <span className="step-label">{moduleLabel(step.module)}</span>
-      <span className="step-desc muted">{MODULE_OPTIONS.find((m) => m.id === step.module)?.desc}</span>
+      <span className="step-desc muted">
+        {MODULE_OPTIONS.find((m) => m.id === step.module)?.desc}
+      </span>
       <button
         className={`step-toggle ${step.enabled ? '' : 'off'}`}
         onClick={onToggle}

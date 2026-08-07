@@ -20,7 +20,10 @@ import { posterFinalName } from '../../core/scanner.mjs'
  * @param {string} options.taskId 任务 id（取消用）
  * @param {number} [options.concurrency] 并发数
  */
-export async function executeCleanPlan(plan, { picks = {}, taskCenter, taskId, concurrency = 5, onMoveProgress } = {}) {
+export async function executeCleanPlan(
+  plan,
+  { picks = {}, taskCenter, taskId, concurrency = 5, onMoveProgress } = {}
+) {
   const startedAt = Date.now()
   const report = {
     taskId,

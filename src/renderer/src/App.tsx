@@ -16,7 +16,16 @@ import { prunePlayPositions } from './utils/media'
 import { applyTheme } from './utils/theme'
 
 export type PageKey =
-  'clean' | 'merge' | 'rename' | 'poster' | 'nfo' | 'pipeline' | 'dedupe' | 'health' | 'library' | 'settings'
+  | 'clean'
+  | 'merge'
+  | 'rename'
+  | 'poster'
+  | 'nfo'
+  | 'pipeline'
+  | 'dedupe'
+  | 'health'
+  | 'library'
+  | 'settings'
 
 const NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
   { key: 'clean', icon: '🧹', label: '目录清理' },
