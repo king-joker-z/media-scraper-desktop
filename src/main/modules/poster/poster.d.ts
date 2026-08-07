@@ -2,7 +2,10 @@ declare module './poster.mjs' {
   import type { PosterVideoItem, ScanPlan } from '../../../shared/types'
 
   export function mapPosterVideos(plan: ScanPlan): PosterVideoItem[]
-  export function listPosterVideos(root: string): Promise<PosterVideoItem[]>
+  export function listPosterVideos(
+    root: string,
+    options?: { onProgress?: (scanned: number) => void }
+  ): Promise<PosterVideoItem[]>
   export function framesDirFor(framesRoot: string, videoPath: string): string
   export function captureCandidates(
     videoPath: string,

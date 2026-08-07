@@ -17,6 +17,7 @@ import {
   withSequencePrefix
 } from '../../../shared/rename-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ErrorBanner from '../components/ErrorBanner'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 type Mode = 'seq' | 'regex' | 'ai' | 'ext'
@@ -293,7 +294,7 @@ function RenamePage({
         <strong>{workspace || '尚未选择目录'}</strong>
       </section>
 
-      {error && <section className="error-banner">{error}</section>}
+      {error && <ErrorBanner message={error} />}
 
       {loaded && videos.length > 0 && (
         <>

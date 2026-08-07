@@ -48,6 +48,9 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
+# 自动更新源：GitHub Releases（v* tag 构建产物已由 CI 上传）
+# 注意：私有仓库下检查更新会 404，设置页会展示「检查失败」；仓库转公开后即可用
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: king-joker-z
+  repo: media-scraper-desktop

@@ -1,10 +1,12 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
   AiFileInput,
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  DedupeScanResult,
+  HealthReport,
   MergeResult,
   MergeSourceItem,
   MergeVideoItem,
@@ -19,11 +21,19 @@ import type {
   RenamePairInput,
   RenameReport,
   ScanPlan,
-  TaskEvent
+  StorageCategory,
+  StorageCleanResult,
+  StorageStats,
+  TaskEvent,
+  UpdateStatus
 } from '../shared/types'
 
 const api = {
   selectWorkspace: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-workspace'),
+  /** 校验并注册工作区（启动恢复 / 拖拽导入 / 最近列表切换） */
+  useWorkspace: (path: string): Promise<string> => ipcRenderer.invoke('workspace:use', path),
+  /** 取拖拽文件的绝对路径（Electron 39 移除了 File.path，必须走 webUtils） */
+  pathForFile: (file: File): string => webUtils.getPathForFile(file),
   scanPlan: (root: string): Promise<ScanPlan> => ipcRenderer.invoke('workspace:scan-plan', root),
   getWorkspaceFingerprint: (root: string): Promise<string> =>
     ipcRenderer.invoke('workspace:fingerprint', root),
@@ -73,7 +83,8 @@ const api = {
     failed: { target: string; error: string }[]
   }> => ipcRenderer.invoke('merge:delete-sources', root, items),
   cancelMerge: (): Promise<void> => ipcRenderer.invoke('merge:cancel'),
-  scanDuplicates: (root: string): Promise<unknown> => ipcRenderer.invoke('dedupe:scan', root),
+  scanDuplicates: (root: string): Promise<DedupeScanResult> =>
+    ipcRenderer.invoke('dedupe:scan', root),
   deleteDuplicates: (
     root: string,
     relativePaths: string[]
@@ -82,6 +93,21 @@ const api = {
     deletedCount: number
     failed: { target: string; error: string }[]
   }> => ipcRenderer.invoke('dedupe:delete', root, relativePaths),
+  scanHealth: (root: string): Promise<HealthReport> => ipcRenderer.invoke('health:scan', root),
+  cancelHealth: (): Promise<void> => ipcRenderer.invoke('health:cancel'),
+  getStorageStats: (): Promise<StorageStats> => ipcRenderer.invoke('storage:stats'),
+  cleanStorage: (category: StorageCategory): Promise<StorageCleanResult> =>
+    ipcRenderer.invoke('storage:clean', category),
+  checkUpdates: (): Promise<UpdateStatus> => ipcRenderer.invoke('update:check'),
+  downloadUpdate: (): Promise<void> => ipcRenderer.invoke('update:download'),
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('update:install'),
+  getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('update:get-status'),
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  onUpdateStatus: (callback: (status: UpdateStatus) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, payload: UpdateStatus): void => callback(payload)
+    ipcRenderer.on('update:status', listener)
+    return () => ipcRenderer.removeListener('update:status', listener)
+  },
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:update', patch),

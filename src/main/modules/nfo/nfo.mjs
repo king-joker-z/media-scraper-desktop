@@ -37,8 +37,8 @@ export function renderNfoXml({ title, posterName, actorName }) {
  * 生成归档计划：每个视频一个同名目录（视频 + poster + NFO）。
  * 目标目录已存在且非空 → conflict 标记，由用户决定是否跳过。
  */
-export async function createNfoPlan(root) {
-  const videos = await listPosterVideos(root)
+export async function createNfoPlan(root, { onProgress } = {}) {
+  const videos = await listPosterVideos(root, { onProgress })
   const items = []
   for (const video of videos) {
     const stem = basename(video.name, extname(video.name))

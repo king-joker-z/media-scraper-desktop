@@ -4,6 +4,8 @@ import type {
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  DedupeScanResult,
+  HealthReport,
   MergeResult,
   MergeSourceItem,
   MergeVideoItem,
@@ -18,7 +20,11 @@ import type {
   RenamePairInput,
   RenameReport,
   ScanPlan,
-  TaskEvent
+  StorageCategory,
+  StorageCleanResult,
+  StorageStats,
+  TaskEvent,
+  UpdateStatus
 } from '../shared/types'
 
 declare global {
@@ -26,6 +32,8 @@ declare global {
     electron: ElectronAPI
     api: {
       selectWorkspace: () => Promise<string | null>
+      useWorkspace: (path: string) => Promise<string>
+      pathForFile: (file: File) => string
       scanPlan: (root: string) => Promise<ScanPlan>
       getWorkspaceFingerprint: (root: string) => Promise<string>
       executeClean: (plan: ScanPlan, picks: PosterPicks) => Promise<CleanReport>
@@ -72,13 +80,7 @@ declare global {
         failed: { target: string; error: string }[]
       }>
       cancelMerge: () => Promise<void>
-      scanDuplicates: (root: string) => Promise<
-        {
-          hash: string
-          sizeBytes: number
-          items: { relativePath: string; name: string; dir: string; size: number }[]
-        }[]
-      >
+      scanDuplicates: (root: string) => Promise<DedupeScanResult>
       deleteDuplicates: (
         root: string,
         relativePaths: string[]
@@ -87,6 +89,16 @@ declare global {
         deletedCount: number
         failed: { target: string; error: string }[]
       }>
+      scanHealth: (root: string) => Promise<HealthReport>
+      cancelHealth: () => Promise<void>
+      getStorageStats: () => Promise<StorageStats>
+      cleanStorage: (category: StorageCategory) => Promise<StorageCleanResult>
+      checkUpdates: () => Promise<UpdateStatus>
+      downloadUpdate: () => Promise<void>
+      installUpdate: () => Promise<void>
+      getUpdateStatus: () => Promise<UpdateStatus>
+      getAppVersion: () => Promise<string>
+      onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void
       getSettings: () => Promise<AppSettings>
       updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>
       listOpLogs: () => Promise<

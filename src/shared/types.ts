@@ -118,14 +118,21 @@ export interface AiProviderConfig {
   selectedModel: string
 }
 
+/** 界面主题：跟随系统 / 浅色 / 深色 */
+export type ThemeMode = 'system' | 'light' | 'dark'
+
 export interface AppSettings {
   /** 全局并发线程数，1-20，默认 5（视频合并除外） */
   concurrency: number
+  /** 界面主题，默认跟随系统 */
+  theme: ThemeMode
   aiProviders: AiProviderConfig[]
   activeProviderId: string
   /** AI 重命名 prompt 模板，支持 {{parentFolder}} {{fileName}} {{extension}} */
   promptTemplate: string
   regexTemplates: RegexTemplate[]
+  /** 最近使用的工作区（最新在前，最多 8 个） */
+  recentWorkspaces: string[]
 }
 
 /* ------------------------- 模块四：封面管理 ------------------------- */
@@ -304,4 +311,96 @@ export interface MergeResult {
 export interface MergeSourceItem {
   videoRel: string
   posterRel: string | null
+}
+
+/* ------------------------- 视频去重（F5） ------------------------- */
+
+export interface DupItem {
+  relativePath: string
+  name: string
+  dir: string
+  size: number
+  media: MediaInfo | null
+}
+
+/** 完全重复组：同大小 + 同内容指纹 */
+export interface DupGroup {
+  hash: string
+  sizeBytes: number
+  /** 建议保留项（质量最高） */
+  keepRel: string
+  items: DupItem[]
+}
+
+export interface SimilarDupItem extends DupItem {
+  /** 同指纹完全重复副本数（含自身） */
+  exactCopies: number
+}
+
+/** 相似重复组：同分辨率 + 时长相近，但内容指纹不同（同片不同压制） */
+export interface SimilarDupGroup {
+  key: string
+  keepRel: string
+  items: SimilarDupItem[]
+}
+
+export interface DedupeScanResult {
+  exact: DupGroup[]
+  similar: SimilarDupGroup[]
+}
+
+/* ------------------------- 完整性体检（F3） ------------------------- */
+
+export interface HealthCorruptItem {
+  relativePath: string
+  error: string
+}
+
+export interface HealthReport {
+  taskId: string | null
+  cancelled: boolean
+  /** 工作区视频总数 */
+  total: number
+  /** 已完成解码校验的数量（取消时 < total） */
+  checked: number
+  corrupted: HealthCorruptItem[]
+  /** 缺 poster 的视频 relativePath */
+  missingPoster: string[]
+  /** 缺同名 .nfo 的视频 relativePath */
+  missingNfo: string[]
+  totalBytes: number
+  /** 体积最大的前 10 个视频 */
+  largest: { relativePath: string; size: number }[]
+  durationMs: number
+}
+
+/* ------------------------- 存储管理（S4） ------------------------- */
+
+export type StorageCategory = 'frames' | 'merge-temp' | 'op-logs'
+
+export interface StorageStats {
+  /** 截帧临时目录占用字节 */
+  framesBytes: number
+  /** 合并断点续传工作目录占用字节 */
+  mergeTempBytes: number
+  /** 操作日志目录占用字节 */
+  opLogBytes: number
+  /** 操作日志份数 */
+  opLogCount: number
+}
+
+export interface StorageCleanResult {
+  category: StorageCategory
+  freedBytes: number
+}
+
+/* ------------------------- 自动更新（F7） ------------------------- */
+
+export interface UpdateStatus {
+  state: 'idle' | 'checking' | 'available' | 'none' | 'downloading' | 'downloaded' | 'error'
+  /** 可用版本号（state = available/downloaded 时存在） */
+  version?: string
+  /** 下载进度 0-100（state = downloading） */
+  percent?: number
+  message?: string
 }

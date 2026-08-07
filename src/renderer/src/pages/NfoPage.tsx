@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { NfoPlan, NfoReport } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ErrorBanner from '../components/ErrorBanner'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 function NfoPage({
@@ -101,7 +102,7 @@ function NfoPage({
         <strong>{workspace || '尚未选择目录'}</strong>
       </section>
 
-      {error && <section className="error-banner">{error}</section>}
+      {error && <ErrorBanner message={error} />}
 
       {report && (
         <section className={`report-card ${report.cancelled ? 'cancelled' : ''}`}>

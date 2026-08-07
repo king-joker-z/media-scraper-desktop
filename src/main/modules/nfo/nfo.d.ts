@@ -8,7 +8,10 @@ declare module './nfo.mjs' {
     posterName: string | null
     actorName: string
   }): string
-  export function createNfoPlan(root: string): Promise<NfoPlan>
+  export function createNfoPlan(
+    root: string,
+    options?: { onProgress?: (scanned: number) => void }
+  ): Promise<NfoPlan>
   export function executeNfoPlan(
     root: string,
     items: NfoPlanItem[],

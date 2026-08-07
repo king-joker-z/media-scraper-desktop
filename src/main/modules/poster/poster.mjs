@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { createScanPlan, posterFinalName } from '../../core/scanner.mjs'
 import { captureFrame, buildFrameTimestamps, detectSceneCuts } from '../../core/frames.mjs'
-import { probeMedia } from '../../core/probe.mjs'
+import { probeMediaCached } from '../../core/probe.mjs'
 import { convertToJpg } from '../../core/image.mjs'
 import { permanentDelete } from '../../core/fs-ops.mjs'
 
@@ -33,9 +33,9 @@ export function mapPosterVideos(plan) {
 
 const relativeOf = (root, absolute) => absolute.slice(root.length + 1)
 
-/** 视频列表：复用只读扫描计划，附带现存 poster 信息。 */
-export async function listPosterVideos(root) {
-  const plan = await createScanPlan(root)
+/** 视频列表：复用只读扫描计划（带指纹缓存），附带现存 poster 信息。 */
+export async function listPosterVideos(root, { onProgress } = {}) {
+  const plan = await createScanPlan(root, { onProgress })
   return mapPosterVideos(plan)
 }
 
@@ -54,7 +54,8 @@ export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffp
   const outDir = framesDirFor(framesRoot, videoPath)
   let durationMs = 0
   try {
-    const info = await probeMedia(videoPath, ffprobePath)
+    // 命中探测缓存（合并/媒体库模块已探测过的文件无需再次 ffprobe）
+    const info = await probeMediaCached(videoPath, ffprobePath)
     durationMs = info.durationMs
   } catch {
     durationMs = 0
@@ -73,11 +74,24 @@ export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffp
   } else {
     timestamps = [0]
   }
-  const frames = []
-  for (let i = 0; i < timestamps.length; i += 1) {
-    const target = join(outDir, `candidate-${String(i + 1).padStart(2, '0')}.jpg`)
-    frames.push(await captureFrame(videoPath, timestamps[i], target, ffmpegPath))
+  // 同一视频的多个候选帧并行截取（外层 TaskCenter 按视频并发，帧级限制 3 路，
+  // 避免 ffmpeg 进程数 = 并发 × 帧数 打满 CPU）
+  const jobs = timestamps.map((seconds, i) => ({
+    seconds,
+    target: join(outDir, `candidate-${String(i + 1).padStart(2, '0')}.jpg`)
+  }))
+  const frames = new Array(jobs.length)
+  let cursor = 0
+  const lane = async () => {
+    while (cursor < jobs.length) {
+      const index = cursor
+      cursor += 1
+      const job = jobs[index]
+      await captureFrame(videoPath, job.seconds, job.target, ffmpegPath)
+      frames[index] = job.target
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, lane))
   return frames
 }
 

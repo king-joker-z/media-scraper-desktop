@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { mediaUrl } from '../utils/media'
+import { mediaUrl, touchPlayPosition } from '../utils/media'
 
 /** 通用视频试看弹窗（合并页预览 / 媒体库点播共用）；传 rememberKey 时记忆播放进度 */
 function VideoModal({
@@ -22,7 +22,11 @@ function VideoModal({
     const { currentTime, duration } = videoRef.current
     // 看完（距结尾 5 秒内）则清除记录
     if (duration && duration - currentTime < 5) localStorage.removeItem(storageKey)
-    else localStorage.setItem(storageKey, String(currentTime))
+    else {
+      localStorage.setItem(storageKey, String(currentTime))
+      // 写入索引供过期清理（30 天未播的记录会被自动移除）
+      touchPlayPosition(storageKey)
+    }
   }
 
   return (

@@ -6,6 +6,7 @@ import {
   mergeOutputName
 } from '../../../shared/merge-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ErrorBanner from '../components/ErrorBanner'
 import MergeSortableList from '../components/MergeSortableList'
 import VideoModal from '../components/VideoModal'
 import { formatBytes } from '../utils/format'
@@ -181,7 +182,7 @@ function MergePage({
         <strong>{workspace || '尚未选择目录'}</strong>
       </section>
 
-      {error && <section className="error-banner">{error}</section>}
+      {error && <ErrorBanner message={error} />}
       {deleteNote && <section className="notice-banner">{deleteNote}</section>}
 
       {loaded && videos.length > 0 && (

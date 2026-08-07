@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { CleanReport, PosterPicks, ScanPlan } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ErrorBanner from '../components/ErrorBanner'
 import { formatBytes } from '../utils/format'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
@@ -124,7 +125,7 @@ function CleanPage({
         <strong>{workspace || '尚未选择目录'}</strong>
       </section>
 
-      {error && <section className="error-banner">{error}</section>}
+      {error && <ErrorBanner message={error} />}
 
       {report && <ReportView report={report} onRescan={scan} />}
 

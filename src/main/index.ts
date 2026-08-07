@@ -1,10 +1,12 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron'
 import { extname, join, sep } from 'path'
+import { tmpdir } from 'os'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import { computeFingerprint, createScanPlan, IMAGE_EXTENSIONS } from './core/scanner.mjs'
-import { activeProvider, createSettingsStore } from './core/settings.mjs'
+import { activeProvider, createSettingsStore, pushRecentWorkspace } from './core/settings.mjs'
 import { createTaskCenter } from './core/task-center.mjs'
 import { resolveFfmpegPath } from './core/frames.mjs'
 import { probeMedia, probeMediaCached, resolveFfprobePath } from './core/probe.mjs'
@@ -14,10 +16,11 @@ import { requestAiNames } from './modules/rename/ai.mjs'
 import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
 import { deleteMergeSources, mergeVideos } from './modules/merge/merge.mjs'
 import { findDuplicates } from './modules/dedupe/dedupe.mjs'
-import { permanentDelete } from './core/fs-ops.mjs'
+import { healthScan } from './modules/health/health.mjs'
+import { listDirNames, permanentDelete, pathExists } from './core/fs-ops.mjs'
 import { listOpLogs, writeOpLog } from './core/op-log.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
-import { diskFreeBytes } from './core/fs-ops.mjs'
+import { dirSizeBytes, diskFreeBytes } from './core/fs-ops.mjs'
 import {
   captureAt,
   captureCandidates,
@@ -35,12 +38,17 @@ import type {
   PosterVideoItem,
   RenamePairInput,
   ScanPlan,
-  TaskEvent
+  StorageCategory,
+  StorageStats,
+  TaskEvent,
+  UpdateStatus
 } from '../shared/types'
 
 const settingsStore = createSettingsStore(join(app.getPath('userData'), 'settings.json'))
 const framesRoot = join(app.getPath('temp'), 'media-scraper-frames')
 const opLogDir = join(app.getPath('userData'), 'op-logs')
+/** 合并断点续传工作目录的统一前缀（merge.mjs mergeWorkDir 约定） */
+const MERGE_TEMP_PREFIX = 'msd-merge-'
 
 /** 记录一条操作日志（不阻塞主流程） */
 const logOp = (module: string, payload: object): void => {
@@ -49,14 +57,16 @@ const logOp = (module: string, payload: object): void => {
 
 /**
  * media:// 自定义协议：向渲染进程提供本地图片/视频。
- * 只允许访问已选工作区与截帧临时目录，防止任意文件读取。
+ * 只允许访问「当前工作区」与截帧临时目录（切换工作区时替换旧白名单，不累积），
+ * 防止任意文件读取。
  */
-const allowedRoots = new Set<string>([framesRoot])
-const allowMediaRoot = (root: string): void => {
-  allowedRoots.add(root)
+let workspaceRoot: string | null = null
+const setWorkspaceRoot = (root: string): void => {
+  workspaceRoot = root
 }
 const isMediaAllowed = (filePath: string): boolean => {
-  for (const root of allowedRoots) {
+  const roots = workspaceRoot ? [framesRoot, workspaceRoot] : [framesRoot]
+  for (const root of roots) {
     if (filePath === root || filePath.startsWith(root.endsWith(sep) ? root : root + sep))
       return true
   }
@@ -109,7 +119,84 @@ const broadcastTaskEvent = createThrottledEmitter(sendTaskEvent)
 // 全局任务中心：统一并发调度，事件实时推送给渲染进程（任务中心抽屉）
 export const taskCenter = createTaskCenter({ emit: broadcastTaskEvent })
 
-function createWindow(): void {
+/**
+ * 慢扫描进度上报：400ms 内完成的扫描不打扰（小目录无感）；
+ * 大目录扫描期间经全局进度条展示「已发现 N 个文件」。
+ */
+async function trackScan<T>(
+  label: string,
+  fn: (onProgress: (scanned: number) => void) => Promise<T>
+): Promise<T> {
+  const taskId = `scan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  const emit = (type: TaskEvent['type'], current?: string): void =>
+    broadcastTaskEvent({
+      type,
+      taskId,
+      label,
+      total: 0,
+      completed: 0,
+      failed: 0,
+      current,
+      at: Date.now()
+    })
+  let started = false
+  const timer = setTimeout(() => {
+    started = true
+    emit('start', '扫描目录中…')
+  }, 400)
+  const onProgress = (scanned: number): void => {
+    if (started) emit('progress', `已发现 ${scanned} 个文件`)
+  }
+  try {
+    return await fn(onProgress)
+  } finally {
+    clearTimeout(timer)
+    if (started) emit('done')
+  }
+}
+
+/** 注册工作区：media:// 白名单（替换语义）+ 最近工作区持久化 */
+const registerWorkspace = async (root: string): Promise<void> => {
+  setWorkspaceRoot(root)
+  const settings = await settingsStore.get()
+  await settingsStore.update({
+    recentWorkspaces: pushRecentWorkspace(settings.recentWorkspaces, root)
+  })
+}
+
+/* ------------------------- 自动更新（F7） ------------------------- */
+
+let updateStatus: UpdateStatus = { state: 'idle' }
+const sendUpdateStatus = (patch: UpdateStatus): void => {
+  updateStatus = { ...updateStatus, ...patch }
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('update:status', updateStatus)
+  }
+}
+
+let installingUpdate = false
+
+function setupAutoUpdate(): void {
+  // 仅打包后启用（开发环境没有 publish 目标）
+  if (!app.isPackaged) return
+  autoUpdater.autoDownload = false
+  autoUpdater.on('checking-for-update', () => sendUpdateStatus({ state: 'checking' }))
+  autoUpdater.on('update-available', (info) =>
+    sendUpdateStatus({ state: 'available', version: info.version })
+  )
+  autoUpdater.on('update-not-available', () => sendUpdateStatus({ state: 'none' }))
+  autoUpdater.on('download-progress', (progress) =>
+    sendUpdateStatus({ state: 'downloading', percent: Math.round(progress.percent) })
+  )
+  autoUpdater.on('update-downloaded', (info) =>
+    sendUpdateStatus({ state: 'downloaded', version: info.version })
+  )
+  autoUpdater.on('error', (error) => sendUpdateStatus({ state: 'error', message: error.message }))
+  // 启动静默检查一次（失败只落状态，不打扰用户）
+  autoUpdater.checkForUpdates().catch(() => {})
+}
+
+function createWindow(theme: string): void {
   const mainWindow = new BrowserWindow({
     width: 1240,
     height: 820,
@@ -117,7 +204,7 @@ function createWindow(): void {
     minHeight: 700,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#f5f6f8',
+    backgroundColor: theme === 'dark' ? '#1c1c1e' : '#f5f6f8',
     title: 'Media Scraper',
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 } }
@@ -151,20 +238,29 @@ let activeCleanTaskId: string | null = null
 let activePosterTaskId: string | null = null
 let activeRenameTaskId: string | null = null
 let activeNfoTaskId: string | null = null
+let activeHealthTaskId: string | null = null
 let activeMergeAbort: AbortController | null = null
 
 function registerIpcHandlers(): void {
   ipcMain.handle('dialog:select-workspace', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     const selected = result.canceled ? null : result.filePaths[0]
-    if (selected) allowMediaRoot(selected)
+    if (selected) await registerWorkspace(selected)
     return selected
   })
-  ipcMain.handle('workspace:scan-plan', async (_event, root: string) => {
-    allowMediaRoot(root)
-    return createScanPlan(root)
+  // 渲染端恢复/拖拽工作区：校验目录存在后注册（media:// 白名单 + 最近列表）
+  ipcMain.handle('workspace:use', async (_event, root: string) => {
+    if (!(await pathExists(root))) throw new Error('目录不存在或不可读')
+    await registerWorkspace(root)
+    return root
   })
-  ipcMain.handle('workspace:fingerprint', async (_event, root: string) => computeFingerprint(root))
+  ipcMain.handle('workspace:scan-plan', async (_event, root: string) => {
+    setWorkspaceRoot(root)
+    return trackScan('扫描工作区', (onProgress) => createScanPlan(root, { onProgress }))
+  })
+  ipcMain.handle('workspace:fingerprint', async (_event, root: string) =>
+    trackScan('检查工作区变化', (onProgress) => computeFingerprint(root, { onProgress }))
+  )
   ipcMain.handle('settings:get', async () => settingsStore.get())
   ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) =>
     settingsStore.update(patch)
@@ -196,8 +292,8 @@ function registerIpcHandlers(): void {
 
   // ---------- 模块四：封面管理 ----------
   ipcMain.handle('poster:list', async (_event, root: string) => {
-    allowMediaRoot(root)
-    return listPosterVideos(root)
+    setWorkspaceRoot(root)
+    return trackScan('扫描视频列表', (onProgress) => listPosterVideos(root, { onProgress }))
   })
   ipcMain.handle('poster:capture', async (_event, root: string, relativePaths: string[]) => {
     if (activePosterTaskId) throw new Error('已有截帧任务在执行中')
@@ -373,8 +469,8 @@ function registerIpcHandlers(): void {
 
   // ---------- 模块五：NFO 归档 ----------
   ipcMain.handle('nfo:plan', async (_event, root: string) => {
-    allowMediaRoot(root)
-    return createNfoPlan(root)
+    setWorkspaceRoot(root)
+    return trackScan('生成归档计划', (onProgress) => createNfoPlan(root, { onProgress }))
   })
   ipcMain.handle(
     'nfo:execute',
@@ -401,9 +497,13 @@ function registerIpcHandlers(): void {
 
   // ---------- 模块二：视频合并 ----------
   ipcMain.handle('merge:scan', async (_event, root: string) => {
-    allowMediaRoot(root)
+    setWorkspaceRoot(root)
     // 排除本产品生成的合并产物，避免再次参与合并
-    const videos = (await listPosterVideos(root)).filter((v) => !isMergeOutputName(v.name))
+    const videos = (
+      await trackScan<PosterVideoItem[]>('扫描视频列表', (onProgress) =>
+        listPosterVideos(root, { onProgress })
+      )
+    ).filter((v) => !isMergeOutputName(v.name))
     const settings = await settingsStore.get()
     const probed = await taskCenter.run({
       taskId: `merge-probe-${Date.now()}`,
@@ -487,7 +587,8 @@ function registerIpcHandlers(): void {
     return findDuplicates(root, {
       taskCenter,
       taskId: `dedupe-${Date.now()}`,
-      concurrency: settings.concurrency
+      concurrency: settings.concurrency,
+      ffprobePath: resolveFfprobePath()
     })
   })
   ipcMain.handle('dedupe:delete', async (_event, root: string, relativePaths: string[]) => {
@@ -516,6 +617,94 @@ function registerIpcHandlers(): void {
     return report
   })
 
+  // ---------- 完整性体检（F3） ----------
+  ipcMain.handle('health:scan', async (_event, root: string) => {
+    if (activeHealthTaskId) throw new Error('已有体检任务在执行中')
+    const settings = await settingsStore.get()
+    activeHealthTaskId = `health-${Date.now()}`
+    try {
+      return await healthScan(root, {
+        taskCenter,
+        taskId: activeHealthTaskId,
+        concurrency: settings.concurrency,
+        ffmpegPath: resolveFfmpegPath()
+      })
+    } finally {
+      activeHealthTaskId = null
+    }
+  })
+  ipcMain.handle('health:cancel', async () => {
+    if (activeHealthTaskId) taskCenter.cancel(activeHealthTaskId)
+  })
+
+  // ---------- 存储管理（S4） ----------
+  ipcMain.handle('storage:stats', async (): Promise<StorageStats> => {
+    let mergeTempBytes = 0
+    const tmpEntries = await listDirNames(tmpdir())
+    for (const name of tmpEntries.filter((n) => n.startsWith(MERGE_TEMP_PREFIX))) {
+      mergeTempBytes += await dirSizeBytes(join(tmpdir(), name))
+    }
+    const opLogFiles = await listDirNames(opLogDir)
+    return {
+      framesBytes: await dirSizeBytes(framesRoot),
+      mergeTempBytes,
+      opLogBytes: await dirSizeBytes(opLogDir),
+      opLogCount: opLogFiles.filter((f) => f.endsWith('.json')).length
+    }
+  })
+  ipcMain.handle('storage:clean', async (_event, category: StorageCategory) => {
+    let freedBytes = 0
+    if (category === 'frames') {
+      freedBytes = await dirSizeBytes(framesRoot)
+      await permanentDelete(framesRoot)
+    } else if (category === 'merge-temp') {
+      const entries = await listDirNames(tmpdir())
+      for (const name of entries.filter((n) => n.startsWith(MERGE_TEMP_PREFIX))) {
+        const target = join(tmpdir(), name)
+        freedBytes += await dirSizeBytes(target)
+        await permanentDelete(target)
+      }
+    } else {
+      freedBytes = await dirSizeBytes(opLogDir)
+      const files = await listDirNames(opLogDir)
+      for (const file of files.filter((f) => f.endsWith('.json'))) {
+        await permanentDelete(join(opLogDir, file))
+      }
+    }
+    return { category, freedBytes }
+  })
+
+  // ---------- 自动更新（F7） ----------
+  ipcMain.handle('update:check', async () => {
+    if (!app.isPackaged) return { state: 'error', message: '开发环境不支持检查更新' }
+    sendUpdateStatus({ state: 'checking' })
+    try {
+      await autoUpdater.checkForUpdates()
+    } catch (error) {
+      sendUpdateStatus({
+        state: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+    return updateStatus
+  })
+  ipcMain.handle('update:download', async () => {
+    if (!app.isPackaged) return
+    sendUpdateStatus({ state: 'downloading', percent: 0 })
+    await autoUpdater.downloadUpdate().catch((error) => {
+      sendUpdateStatus({
+        state: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
+  })
+  ipcMain.handle('update:install', async () => {
+    installingUpdate = true
+    autoUpdater.quitAndInstall()
+  })
+  ipcMain.handle('update:get-status', async () => updateStatus)
+  ipcMain.handle('app:version', async () => app.getVersion())
+
   // ---------- 操作日志 ----------
   ipcMain.handle('op-logs:list', async () => listOpLogs(opLogDir))
   ipcMain.handle('op-logs:reveal', async (_event, file: string) => {
@@ -523,7 +712,7 @@ function registerIpcHandlers(): void {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.mediascraper.desktop')
 
   protocol.handle('media', async (request) => {
@@ -558,11 +747,26 @@ app.whenReady().then(() => {
   })
 
   registerIpcHandlers()
-  createWindow()
+  setupAutoUpdate()
+  const settings = await settingsStore.get().catch(() => null)
+  createWindow(settings?.theme === 'dark' ? 'dark' : 'light')
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0)
+      createWindow(settings?.theme === 'dark' ? 'dark' : 'light')
   })
+})
+
+// 退出前收尾：取消全部在途任务（在途 ffmpeg 经 AbortSignal 被杀），留出收尾窗口再退出
+let quitting = false
+app.on('before-quit', (event) => {
+  if (quitting || installingUpdate) return
+  if (!taskCenter.hasActive() && !activeMergeAbort) return
+  event.preventDefault()
+  taskCenter.cancelAll()
+  activeMergeAbort?.abort()
+  quitting = true
+  setTimeout(() => app.quit(), 1200)
 })
 
 app.on('window-all-closed', () => {
