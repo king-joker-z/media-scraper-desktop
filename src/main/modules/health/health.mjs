@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
 import { basename, extname } from 'node:path'
 import { createScanPlan } from '../../core/scanner.mjs'
 import { resolveFfmpegPath } from '../../core/frames.mjs'
+import { spawnManaged } from '../../core/process-registry.mjs'
 
 /**
  * 视频完整性体检（冻结稿外新增模块）：
@@ -11,23 +11,25 @@ import { resolveFfmpegPath } from '../../core/frames.mjs'
  */
 
 /** 单文件全量解码校验；stderr 截断保留尾部（最相关的错误在末尾） */
-export function checkVideoIntegrity(filePath, ffmpegPath, signal) {
-  return new Promise((resolve) => {
-    const child = spawn(ffmpegPath, ['-v', 'error', '-xerror', '-i', filePath, '-f', 'null', '-'], {
-      signal
-    })
-    let stderr = ''
-    child.stderr.on('data', (chunk) => {
-      stderr = (stderr + chunk.toString()).slice(-4000)
-    })
-    child.on('error', (error) => resolve({ ok: false, error: error.message }))
-    child.on('close', (code) => {
-      if (signal?.aborted) return resolve({ ok: false, error: '已取消', cancelled: true })
-      const detail = stderr.trim()
-      if (code === 0 && !detail) return resolve({ ok: true })
-      resolve({ ok: false, error: detail.slice(0, 500) || `ffmpeg 退出码 ${code}` })
-    })
-  })
+export async function checkVideoIntegrity(filePath, ffmpegPath, signal) {
+  let stderrTail = ''
+  const { code, cancelled } = await spawnManaged(
+    ffmpegPath,
+    ['-v', 'error', '-xerror', '-i', filePath, '-f', 'null', '-'],
+    {
+      signal,
+      onStderr: (text) => {
+        stderrTail = (stderrTail + text).slice(-4000)
+      }
+    }
+  ).catch((error) => ({ code: null, cancelled: false, spawnError: error.message }))
+  if (cancelled || signal?.aborted) return { ok: false, error: '已取消', cancelled: true }
+  const detail = stderrTail.trim()
+  if (code === 0 && !detail) return { ok: true }
+  return {
+    ok: false,
+    error: detail.slice(0, 500) || (code === null ? `无法启动 ffmpeg` : `ffmpeg 退出码 ${code}`)
+  }
 }
 
 const TOP_LARGEST = 10

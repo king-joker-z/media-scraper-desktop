@@ -13,6 +13,8 @@ import type {
   NfoPlan,
   NfoPlanItem,
   NfoReport,
+  PipelineReport,
+  PipelineStep,
   PosterBatchSaveReport,
   PosterPicks,
   PosterSaveResult,
@@ -95,6 +97,9 @@ const api = {
   }> => ipcRenderer.invoke('dedupe:delete', root, relativePaths),
   scanHealth: (root: string): Promise<HealthReport> => ipcRenderer.invoke('health:scan', root),
   cancelHealth: (): Promise<void> => ipcRenderer.invoke('health:cancel'),
+  executePipeline: (root: string, steps: PipelineStep[]): Promise<PipelineReport> =>
+    ipcRenderer.invoke('pipeline:execute', root, steps),
+  cancelPipeline: (): Promise<void> => ipcRenderer.invoke('pipeline:cancel'),
   getStorageStats: (): Promise<StorageStats> => ipcRenderer.invoke('storage:stats'),
   cleanStorage: (category: StorageCategory): Promise<StorageCleanResult> =>
     ipcRenderer.invoke('storage:clean', category),

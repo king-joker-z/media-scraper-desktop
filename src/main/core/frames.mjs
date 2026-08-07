@@ -1,11 +1,8 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import ffmpegStatic from 'ffmpeg-static'
 import { pathExists } from './fs-ops.mjs'
-
-const execFileAsync = promisify(execFile)
+import { execManaged } from './process-registry.mjs'
 
 /** ffmpeg 二进制路径：打包后位于 app.asar.unpacked（asarUnpack 配置） */
 export function resolveFfmpegPath() {
@@ -54,9 +51,10 @@ export function buildCaptureArgs(videoPath, seconds, targetPath) {
  */
 export async function detectSceneCuts(
   videoPath,
-  { ffmpegPath = resolveFfmpegPath(), threshold = 0.4, limit = 8 } = {}
+  { ffmpegPath = resolveFfmpegPath(), threshold = 0.4, limit = 8, signal } = {}
 ) {
-  const { stderr } = await execFileAsync(
+  // execManaged：进程注册管理，退出即释放句柄；大 stderr 有 maxBuffer 保护；signal 可取消
+  const { stderr } = await execManaged(
     ffmpegPath,
     [
       '-v',
@@ -74,21 +72,22 @@ export async function detectSceneCuts(
       'null',
       '-'
     ],
-    { maxBuffer: 64 * 1024 * 1024 }
+    { maxBuffer: 64 * 1024 * 1024, signal }
   )
   const times = [...stderr.matchAll(/pts_time:([\d.]+)/g)].map((match) => Number(match[1]))
   return times.slice(0, limit)
 }
 
-/** 截取单帧为 JPG；失败（无输出文件）抛错。 */
+/** 截取单帧为 JPG；失败（无输出文件）抛错。支持 AbortSignal 取消。 */
 export async function captureFrame(
   videoPath,
   seconds,
   targetPath,
-  ffmpegPath = resolveFfmpegPath()
+  ffmpegPath = resolveFfmpegPath(),
+  { signal } = {}
 ) {
   await mkdir(dirname(targetPath), { recursive: true })
-  await execFileAsync(ffmpegPath, buildCaptureArgs(videoPath, seconds, targetPath))
+  await execManaged(ffmpegPath, buildCaptureArgs(videoPath, seconds, targetPath), { signal })
   if (!(await pathExists(targetPath))) {
     throw new Error(`截帧未生成图片（${seconds}s）：${videoPath}`)
   }

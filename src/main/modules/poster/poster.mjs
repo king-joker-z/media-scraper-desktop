@@ -50,7 +50,7 @@ export function framesDirFor(framesRoot, videoPath) {
  * 优先用场景切换检测找内容突变帧（更可能是有信息的画面）；
  * 检测不足 3 个或失败时回退到固定百分比（10/30/50/70/90%）。
  */
-export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffprobePath } = {}) {
+export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffprobePath, signal } = {}) {
   const outDir = framesDirFor(framesRoot, videoPath)
   let durationMs = 0
   try {
@@ -64,7 +64,7 @@ export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffp
   let timestamps = []
   if (durationMs > 1000) {
     try {
-      timestamps = (await detectSceneCuts(videoPath, { ffmpegPath, limit: 5 })).filter(
+      timestamps = (await detectSceneCuts(videoPath, { ffmpegPath, limit: 5, signal })).filter(
         (t) => t * 1000 < durationMs - 200
       )
     } catch {
@@ -87,7 +87,7 @@ export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffp
       const index = cursor
       cursor += 1
       const job = jobs[index]
-      await captureFrame(videoPath, job.seconds, job.target, ffmpegPath)
+      await captureFrame(videoPath, job.seconds, job.target, ffmpegPath, { signal })
       frames[index] = job.target
     }
   }
@@ -96,10 +96,10 @@ export async function captureCandidates(videoPath, framesRoot, { ffmpegPath, ffp
 }
 
 /** 在指定时间点精确截帧（用户在详情页拖动时间轴后手动选帧）。 */
-export async function captureAt(videoPath, seconds, framesRoot, { ffmpegPath } = {}) {
+export async function captureAt(videoPath, seconds, framesRoot, { ffmpegPath, signal } = {}) {
   const outDir = framesDirFor(framesRoot, videoPath)
   const target = join(outDir, `manual-${Date.now()}.jpg`)
-  return captureFrame(videoPath, Math.max(0, seconds), target, ffmpegPath)
+  return captureFrame(videoPath, Math.max(0, seconds), target, ffmpegPath, { signal })
 }
 
 /**

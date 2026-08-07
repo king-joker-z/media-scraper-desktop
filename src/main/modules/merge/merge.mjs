@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,6 +9,7 @@ import {
   writeTextFile
 } from '../../core/fs-ops.mjs'
 import { probeMedia } from '../../core/probe.mjs'
+import { spawnManaged } from '../../core/process-registry.mjs'
 import {
   buildConcatCopyArgs,
   buildConcatList,
@@ -21,14 +21,16 @@ import {
 
 /**
  * 运行 ffmpeg 子进程，解析 -progress 输出上报百分比，支持 AbortSignal 取消。
+ * spawnManaged 托管：进程注册管理（退出即释放句柄），取消时 SIGTERM→SIGKILL 兜底；
+ * stderr 只留尾部 2000 字符，防长视频转码的错误输出无限累积占内存。
  */
 function runFfmpeg(ffmpegPath, args, { signal, onProgress, totalMs }) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegPath, ['-progress', 'pipe:1', '-nostats', ...args], { signal })
-    let stderr = ''
-    let buffer = ''
-    child.stdout.on('data', (chunk) => {
-      buffer += chunk.toString()
+  let stderrTail = ''
+  let buffer = ''
+  return spawnManaged(ffmpegPath, ['-progress', 'pipe:1', '-nostats', ...args], {
+    signal,
+    onStdout: (text) => {
+      buffer += text
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
       for (const line of lines) {
@@ -38,22 +40,16 @@ function runFfmpeg(ffmpegPath, args, { signal, onProgress, totalMs }) {
           onProgress(Math.min(99, Math.round((doneMs / totalMs) * 100)))
         }
       }
-    })
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString()
-    })
-    child.on('error', (error) => {
-      reject(signal?.aborted ? new Error('已取消') : error)
-    })
-    child.on('close', (code, termSignal) => {
-      if (signal?.aborted) return reject(new Error('已取消'))
-      if (code === 0) return resolve()
-      reject(
-        new Error(
-          `ffmpeg 异常退出（code=${code} signal=${termSignal}）args=${args.join(' ')} ：${stderr.slice(-300) || '无错误输出'}`
-        )
-      )
-    })
+    },
+    onStderr: (text) => {
+      stderrTail = (stderrTail + text).slice(-2000)
+    }
+  }).then(({ code, signal: termSignal, cancelled }) => {
+    if (cancelled) throw new Error('已取消')
+    if (code === 0) return
+    throw new Error(
+      `ffmpeg 异常退出（code=${code} signal=${termSignal}）args=${args.join(' ')} ：${stderrTail.slice(-300) || '无错误输出'}`
+    )
   })
 }
 

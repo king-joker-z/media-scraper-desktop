@@ -48,16 +48,36 @@ export async function ensureUniquePath(target) {
 
 /**
  * 移动文件：优先 rename（同设备秒级）；跨设备（EXDEV，如工作区在移动硬盘、
- * 归档目标在 NAS）自动回退为 复制 + 大小校验 + 删源，校验失败不丢源文件。
+ * 归档目标在 NAS）自动回退为流式复制 + 大小校验 + 删源，校验失败不丢源文件。
+ * @param {string} from 源路径
+ * @param {string} to 目标路径
+ * @param {object} [options]
+ * @param {(copiedBytes: number, totalBytes: number) => void} [options.onProgress] 拷贝进度回调
+ * @param {AbortSignal} [options.signal] 取消信号（取消后删除不完整的目标副本）
  */
-export async function moveFile(from, to) {
+export async function moveFile(from, to, { onProgress, signal } = {}) {
   try {
     await rename(from, to)
   } catch (error) {
     if (error?.code !== 'EXDEV') throw error
-    await copyFile(from, to)
-    const [src, dst] = await Promise.all([stat(from), stat(to)])
-    if (src.size !== dst.size) {
+    // 跨设备：流式复制 + 实时进度 + 大小校验 + 删源
+    const srcStat = await stat(from)
+    const total = srcStat.size
+    let copied = 0
+    await pipeline(
+      createReadStream(from),
+      async function* (source) {
+        for await (const chunk of source) {
+          if (options?.signal?.aborted) throw new Error('已取消')
+          copied += chunk.length
+          options?.onProgress?.(copied, total)
+          yield chunk
+        }
+      },
+      createWriteStream(to)
+    )
+    const dstStat = await stat(to)
+    if (srcStat.size !== dstStat.size) {
       await rm(to, { force: true })
       throw new Error(`跨磁盘移动校验失败（大小不一致）：${from}`)
     }
@@ -66,10 +86,10 @@ export async function moveFile(from, to) {
 }
 
 /** 移动到目标目录；重名自动加 (n)。返回最终路径。 */
-export async function moveWithCollision(from, toDir) {
+export async function moveWithCollision(from, toDir, options) {
   await mkdir(toDir, { recursive: true })
   const target = await ensureUniquePath(join(toDir, basename(from)))
-  await moveFile(from, target)
+  await moveFile(from, target, options)
   return target
 }
 
@@ -80,12 +100,12 @@ export async function directRename(from, to) {
 }
 
 /** 同目录改名；与自身相同则跳过，与其他文件重名自动加 (n)。返回最终路径。 */
-export async function renameWithCollision(from, newName) {
+export async function renameWithCollision(from, newName, options) {
   const dir = dirname(from)
   const desired = join(dir, newName)
   if (desired === from) return from
   const target = await ensureUniquePath(desired)
-  await moveFile(from, target)
+  await moveFile(from, target, options)
   return target
 }
 

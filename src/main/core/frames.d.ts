@@ -4,12 +4,13 @@ declare module './frames.mjs' {
   export function buildCaptureArgs(videoPath: string, seconds: number, targetPath: string): string[]
   export function detectSceneCuts(
     videoPath: string,
-    options?: { ffmpegPath?: string; threshold?: number; limit?: number }
+    options?: { ffmpegPath?: string; threshold?: number; limit?: number; signal?: AbortSignal }
   ): Promise<number[]>
   export function captureFrame(
     videoPath: string,
     seconds: number,
     targetPath: string,
-    ffmpegPath?: string
+    ffmpegPath?: string,
+    options?: { signal?: AbortSignal }
   ): Promise<string>
 }

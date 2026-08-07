@@ -9,6 +9,8 @@ declare module './execute.mjs' {
       taskCenter: TaskCenter
       taskId: string
       concurrency?: number
+      /** 上移阶段跨磁盘拷贝进度文案回调，用于更新 TaskEvent.current */
+      onMoveProgress?: (text: string) => void
     }
   ): Promise<CleanReport>
 }

@@ -53,7 +53,18 @@ export const DEFAULT_SETTINGS = {
     { name: '去除【】标签', pattern: '【[^】]*】', replacement: '', flags: 'g' },
     { name: '去除 [] 标签', pattern: '\\[[^\\]]*\\]', replacement: '', flags: 'g' }
   ],
-  recentWorkspaces: []
+  recentWorkspaces: [],
+  pipelinePresets: [
+    {
+      id: 'default',
+      name: '默认流程',
+      steps: [
+        { id: 's1', module: 'clean', enabled: true },
+        { id: 's2', module: 'nfo', enabled: true },
+        { id: 's3', module: 'health', enabled: true }
+      ]
+    }
+  ]
 }
 
 /** 把新工作区提到最近列表首位（去重、截断） */
@@ -132,8 +143,30 @@ export function normalizeSettings(raw) {
       ? input.recentWorkspaces
           .filter((p) => typeof p === 'string' && p.trim())
           .slice(0, MAX_RECENT_WORKSPACES)
-      : []
+      : [],
+    pipelinePresets: normalizePipelinePresets(input.pipelinePresets)
   }
+}
+
+const VALID_MODULES = ['clean', 'nfo', 'dedupe', 'health']
+
+function normalizePipelinePresets(raw) {
+  if (!Array.isArray(raw)) return DEFAULT_SETTINGS.pipelinePresets
+  return raw
+    .filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string')
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      steps: Array.isArray(p.steps)
+        ? p.steps
+            .filter((s) => s && VALID_MODULES.includes(s.module))
+            .map((s) => ({
+              id: typeof s.id === 'string' ? s.id : `s-${Math.random().toString(36).slice(2, 7)}`,
+              module: s.module,
+              enabled: s.enabled !== false
+            }))
+        : []
+    }))
 }
 
 /** 取当前生效的 AI 平台配置 */

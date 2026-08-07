@@ -12,6 +12,8 @@ import type {
   NfoPlan,
   NfoPlanItem,
   NfoReport,
+  PipelineReport,
+  PipelineStep,
   PosterBatchSaveReport,
   PosterPicks,
   PosterSaveResult,
@@ -91,6 +93,8 @@ declare global {
       }>
       scanHealth: (root: string) => Promise<HealthReport>
       cancelHealth: () => Promise<void>
+      executePipeline: (root: string, steps: PipelineStep[]) => Promise<PipelineReport>
+      cancelPipeline: () => Promise<void>
       getStorageStats: () => Promise<StorageStats>
       cleanStorage: (category: StorageCategory) => Promise<StorageCleanResult>
       checkUpdates: () => Promise<UpdateStatus>

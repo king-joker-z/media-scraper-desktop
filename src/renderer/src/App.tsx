@@ -5,6 +5,7 @@ import HealthPage from './pages/HealthPage'
 import LibraryPage from './pages/LibraryPage'
 import MergePage from './pages/MergePage'
 import NfoPage from './pages/NfoPage'
+import PipelinePage from './pages/PipelinePage'
 import PosterPage from './pages/PosterPage'
 import RenamePage from './pages/RenamePage'
 import SettingsPage from './pages/SettingsPage'
@@ -15,7 +16,7 @@ import { prunePlayPositions } from './utils/media'
 import { applyTheme } from './utils/theme'
 
 export type PageKey =
-  'clean' | 'merge' | 'rename' | 'poster' | 'nfo' | 'dedupe' | 'health' | 'library' | 'settings'
+  'clean' | 'merge' | 'rename' | 'poster' | 'nfo' | 'pipeline' | 'dedupe' | 'health' | 'library' | 'settings'
 
 const NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
   { key: 'clean', icon: '🧹', label: '目录清理' },
@@ -23,6 +24,7 @@ const NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
   { key: 'rename', icon: '✏️', label: '批量重命名' },
   { key: 'poster', icon: '🖼️', label: '封面管理' },
   { key: 'nfo', icon: '📦', label: 'NFO 归档' },
+  { key: 'pipeline', icon: '🔗', label: '流水线' },
   { key: 'dedupe', icon: '🧬', label: '视频去重' },
   { key: 'health', icon: '🩺', label: '健康体检' },
   { key: 'library', icon: '📺', label: '媒体库' },
@@ -165,6 +167,16 @@ function App(): React.JSX.Element {
       )
     },
     {
+      key: 'pipeline',
+      element: (
+        <PipelinePage
+          active={page === 'pipeline'}
+          workspace={workspace}
+          onChooseWorkspace={chooseWorkspace}
+        />
+      )
+    },
+    {
       key: 'dedupe',
       element: (
         <DedupePage
@@ -261,7 +273,7 @@ function App(): React.JSX.Element {
             </button>
           ))}
         </nav>
-        <div className="sidebar-footer">v1.0.0 · 本地处理，隐私安全</div>
+        <div className="sidebar-footer">v1.1.0 · 本地处理，隐私安全</div>
       </aside>
       <main className="content">
         {modulePages.map((item) => (

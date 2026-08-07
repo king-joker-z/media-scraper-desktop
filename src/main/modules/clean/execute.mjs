@@ -20,7 +20,7 @@ import { posterFinalName } from '../../core/scanner.mjs'
  * @param {string} options.taskId 任务 id（取消用）
  * @param {number} [options.concurrency] 并发数
  */
-export async function executeCleanPlan(plan, { picks = {}, taskCenter, taskId, concurrency = 5 }) {
+export async function executeCleanPlan(plan, { picks = {}, taskCenter, taskId, concurrency = 5, onMoveProgress } = {}) {
   const startedAt = Date.now()
   const report = {
     taskId,
@@ -96,8 +96,15 @@ export async function executeCleanPlan(plan, { picks = {}, taskCenter, taskId, c
 
   // ---- 3. 上移子目录保留项到工作区根（重名自动 (n)） ----
   const toMove = keep.filter((item) => item.dir !== '.')
-  const moveResult = await runPhase('上移保留文件', toMove, async (item) => {
-    const finalPath = await moveWithCollision(item.path, plan.root)
+  const moveResult = await runPhase('上移保留文件', toMove, async (item, signal) => {
+    const finalPath = await moveWithCollision(item.path, plan.root, {
+      onProgress: (copied, total) => {
+        if (total > 1024 * 1024) {
+          onMoveProgress?.(`${item.relativePath} ${Math.round((copied / total) * 100)}%`)
+        }
+      },
+      signal
+    })
     report.moved.push({ from: item.relativePath, to: basename(finalPath) })
   })
   collectFailures(report, moveResult, toMove)

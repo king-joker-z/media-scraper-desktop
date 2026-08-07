@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain, net, Notification, protocol } from 'electron'
 import { extname, join, sep } from 'path'
 import { tmpdir } from 'os'
 import { pathToFileURL } from 'url'
@@ -17,7 +17,9 @@ import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
 import { deleteMergeSources, mergeVideos } from './modules/merge/merge.mjs'
 import { findDuplicates } from './modules/dedupe/dedupe.mjs'
 import { healthScan } from './modules/health/health.mjs'
+import { runPipeline } from './modules/pipeline/pipeline.mjs'
 import { listDirNames, permanentDelete, pathExists } from './core/fs-ops.mjs'
+import { killAllActiveProcesses, activeProcessCount } from './core/process-registry.mjs'
 import { listOpLogs, writeOpLog } from './core/op-log.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
 import { dirSizeBytes, diskFreeBytes } from './core/fs-ops.mjs'
@@ -34,6 +36,7 @@ import type {
   MergeSourceItem,
   MergeVideoItem,
   NfoPlanItem,
+  PipelineStep,
   PosterPicks,
   PosterVideoItem,
   RenamePairInput,
@@ -195,21 +198,45 @@ const sendUpdateStatus = (patch: UpdateStatus): void => {
 
 let installingUpdate = false
 
+/** 窗口是否处于后台（失焦或最小化），后台时用系统通知打扰用户 */
+const isWindowBackground = (): boolean => {
+  const win = BrowserWindow.getFocusedWindow()
+  if (!win) return true // 无聚焦窗口 = 最小化或隐藏
+  return !win.isFocused() || win.isMinimized()
+}
+
+/** 发送系统通知（仅窗口处于后台时），点击通知聚焦窗口 */
+const notifyIfBackground = (title: string, body: string): void => {
+  if (!isWindowBackground()) return
+  if (!Notification.isSupported()) return
+  const notification = new Notification({ title, body, silent: false })
+  notification.on('click', () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+  })
+  notification.show()
+}
+
 function setupAutoUpdate(): void {
   // 仅打包后启用（开发环境没有 publish 目标）
   if (!app.isPackaged) return
   autoUpdater.autoDownload = false
   autoUpdater.on('checking-for-update', () => sendUpdateStatus({ state: 'checking' }))
-  autoUpdater.on('update-available', (info) =>
+  autoUpdater.on('update-available', (info) => {
     sendUpdateStatus({ state: 'available', version: info.version })
-  )
+    notifyIfBackground('发现新版本', `v${info.version} 已可用，点击前往设置下载`)
+  })
   autoUpdater.on('update-not-available', () => sendUpdateStatus({ state: 'none' }))
   autoUpdater.on('download-progress', (progress) =>
     sendUpdateStatus({ state: 'downloading', percent: Math.round(progress.percent) })
   )
-  autoUpdater.on('update-downloaded', (info) =>
+  autoUpdater.on('update-downloaded', (info) => {
     sendUpdateStatus({ state: 'downloaded', version: info.version })
-  )
+    notifyIfBackground('更新已就绪', `v${info.version} 已下载完成，点击重启安装`)
+  })
   autoUpdater.on('error', (error) => sendUpdateStatus({ state: 'error', message: error.message }))
   // 启动静默检查一次（失败只落状态，不打扰用户）
   autoUpdater.checkForUpdates().catch(() => {})
@@ -258,6 +285,7 @@ let activePosterTaskId: string | null = null
 let activeRenameTaskId: string | null = null
 let activeNfoTaskId: string | null = null
 let activeHealthTaskId: string | null = null
+let activePipelineAbort: AbortController | null = null
 let activeMergeAbort: AbortController | null = null
 
 function registerIpcHandlers(): void {
@@ -293,7 +321,18 @@ function registerIpcHandlers(): void {
         picks,
         taskCenter,
         taskId: activeCleanTaskId,
-        concurrency: settings.concurrency
+        concurrency: settings.concurrency,
+        onMoveProgress: (text) =>
+          broadcastTaskEvent({
+            type: 'progress',
+            taskId: activeCleanTaskId ?? '',
+            label: '上移保留文件',
+            current: text,
+            total: 0,
+            completed: 0,
+            failed: 0,
+            at: Date.now()
+          })
       })
       logOp('clean', {
         root: plan.root,
@@ -325,10 +364,11 @@ function registerIpcHandlers(): void {
         label: '截取候选封面',
         items: relativePaths,
         concurrency: settings.concurrency,
-        worker: async (relativePath) => {
+        worker: async (relativePath, signal) => {
           const frames = await captureCandidates(join(root, relativePath), framesRoot, {
             ffmpegPath: resolveFfmpegPath(),
-            ffprobePath: resolveFfprobePath()
+            ffprobePath: resolveFfprobePath(),
+            signal
           })
           return { relativePath, frames }
         }
@@ -687,6 +727,62 @@ function registerIpcHandlers(): void {
     return { category, freedBytes }
   })
 
+  // ---------- 自动化流水线 ----------
+  ipcMain.handle(
+    'pipeline:execute',
+    async (_event, root: string, steps: PipelineStep[]) => {
+      if (activePipelineAbort) throw new Error('已有流水线在执行中')
+      const settings = await settingsStore.get()
+      const abort = new AbortController()
+      activePipelineAbort = abort
+      const taskId = `pipeline-${Date.now()}`
+      const emit = (type: TaskEvent['type'], current: string): void =>
+        broadcastTaskEvent({
+          type,
+          taskId,
+          label: '流水线',
+          total: steps.filter((s) => s.enabled).length,
+          completed: 0,
+          failed: 0,
+          current,
+          at: Date.now()
+        })
+      let completed = 0
+      try {
+        emit('start', '准备执行流水线')
+        const report = await runPipeline(root, steps, {
+          taskCenter,
+          concurrency: settings.concurrency,
+          signal: abort.signal,
+          onStepStart: (step) => {
+            emit('progress', `执行步骤：${step.module}`)
+          },
+          onStepDone: (result) => {
+            completed += 1
+            broadcastTaskEvent({
+              type: 'progress',
+              taskId,
+              label: '流水线',
+              total: steps.filter((s) => s.enabled).length,
+              completed,
+              failed: result.success ? 0 : 1,
+              current: result.summary,
+              at: Date.now()
+            })
+          }
+        })
+        emit(report.cancelled ? 'cancelled' : 'done', report.cancelled ? '已取消' : '流水线完成')
+        logOp('pipeline', { root, steps, report, summary: report.results.map((r) => r.summary).join('；') })
+        return report
+      } finally {
+        activePipelineAbort = null
+      }
+    }
+  )
+  ipcMain.handle('pipeline:cancel', async () => {
+    activePipelineAbort?.abort()
+  })
+
   // ---------- 自动更新（F7） ----------
   ipcMain.handle('update:check', async () => {
     if (!app.isPackaged) return { state: 'error', message: '开发环境不支持检查更新' }
@@ -771,18 +867,23 @@ app.whenReady().then(async () => {
 })
 
 // 退出前收尾：取消全部在途任务（在途 ffmpeg 经 AbortSignal 被杀），
-// 自动清理截帧缓存与合并临时目录（操作日志保留不自动清），完成后退出
+// 强杀残留子进程防死占用，自动清理截帧缓存与合并临时目录（操作日志保留不自动清），完成后退出
 let quitting = false
 app.on('before-quit', (event) => {
   if (quitting || installingUpdate) return
   event.preventDefault()
   quitting = true
   void (async () => {
-    if (taskCenter.hasActive() || activeMergeAbort) {
+    if (taskCenter.hasActive() || activeMergeAbort || activePipelineAbort) {
       taskCenter.cancelAll()
       activeMergeAbort?.abort()
-      // 给 AbortSignal 传递与在途 ffmpeg 进程退出留出收尾窗口
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      activePipelineAbort?.abort()
+    }
+    // 兜底强杀所有活跃子进程（ffmpeg/ffprobe），防退出后孤儿进程死占用 CPU/内存
+    if (activeProcessCount() > 0) killAllActiveProcesses()
+    if (taskCenter.hasActive() || activeMergeAbort || activePipelineAbort) {
+      // 给 AbortSignal 传递与在途进程退出留出收尾窗口
+      await new Promise((resolve) => setTimeout(resolve, 600))
     }
     await Promise.all([cleanFramesCache(), cleanMergeTempDirs()])
     app.quit()

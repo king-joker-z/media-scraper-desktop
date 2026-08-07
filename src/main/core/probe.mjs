@@ -1,9 +1,6 @@
-import { execFile } from 'node:child_process'
 import { stat } from 'node:fs/promises'
-import { promisify } from 'node:util'
 import ffprobeStatic from 'ffprobe-static'
-
-const execFileAsync = promisify(execFile)
+import { execManaged } from './process-registry.mjs'
 
 /**
  * ffprobe 二进制路径：开发时来自 node_modules；
@@ -72,7 +69,7 @@ export function parseProbeJson(raw) {
  * 探测单个媒体文件。失败抛出带文件路径的错误，由任务中心收集。
  */
 export async function probeMedia(filePath, ffprobePath = resolveFfprobePath()) {
-  const { stdout } = await execFileAsync(ffprobePath, [
+  const { stdout } = await execManaged(ffprobePath, [
     '-v',
     'error',
     '-print_format',

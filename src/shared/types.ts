@@ -133,6 +133,8 @@ export interface AppSettings {
   regexTemplates: RegexTemplate[]
   /** 最近使用的工作区（最新在前，最多 8 个） */
   recentWorkspaces: string[]
+  /** 流水线预设列表 */
+  pipelinePresets: PipelinePreset[]
 }
 
 /* ------------------------- 模块四：封面管理 ------------------------- */
@@ -392,6 +394,50 @@ export interface StorageStats {
 export interface StorageCleanResult {
   category: StorageCategory
   freedBytes: number
+}
+
+/* ------------------------- 自动化流水线 ------------------------- */
+
+/** 流水线可编排的模块类型 */
+export type PipelineModuleId = 'clean' | 'nfo' | 'dedupe' | 'health'
+
+/** 流水线步骤：一个模块实例 + 可选参数 */
+export interface PipelineStep {
+  /** 唯一 ID（用于 dnd-kit 排序 key） */
+  id: string
+  /** 模块类型 */
+  module: PipelineModuleId
+  /** 是否启用（关闭的步骤执行时跳过） */
+  enabled: boolean
+}
+
+/** 流水线预设 */
+export interface PipelinePreset {
+  /** 唯一 ID */
+  id: string
+  /** 预设名称 */
+  name: string
+  /** 有序步骤列表 */
+  steps: PipelineStep[]
+}
+
+/** 单个步骤的执行结果 */
+export interface PipelineStepResult {
+  module: PipelineModuleId
+  success: boolean
+  /** 耗时（毫秒） */
+  durationMs: number
+  /** 步骤产出的摘要文本 */
+  summary: string
+  /** 错误信息（失败时） */
+  error?: string
+}
+
+/** 流水线执行报告 */
+export interface PipelineReport {
+  cancelled: boolean
+  results: PipelineStepResult[]
+  totalDurationMs: number
 }
 
 /* ------------------------- 自动更新（F7） ------------------------- */
