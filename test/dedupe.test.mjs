@@ -111,3 +111,31 @@ test('findDuplicates detects similar videos with same resolution and close durat
     assert.equal(result.similar[0].keepRel, 'v2.mp4')
   })
 })
+
+test('findDuplicates ignores false positive: same resolution+duration but nearly same size', async () => {
+  await withTempDir(async (root) => {
+    // 三个不同内容的短视频，分辨率时长一致，体积几乎相同 → 不应误判为相似重复
+    await writeFile(join(root, 'a.mp4'), Buffer.alloc(100_000, 1))
+    await writeFile(join(root, 'b.mp4'), Buffer.alloc(102_000, 2))
+    await writeFile(join(root, 'c.mp4'), Buffer.alloc(98_000, 3))
+
+    const mockProbe = async () => ({
+      container: 'mp4',
+      durationMs: 6000,
+      sizeBytes: 100_000,
+      width: 1440,
+      height: 960,
+      orientation: 'landscape',
+      videoCodec: 'h264',
+      audioCodec: 'aac',
+      fps: 30,
+      pixFmt: 'yuv420p',
+      sampleRate: 48000,
+      channels: 2
+    })
+
+    const result = await findDuplicates(root, { probeFn: mockProbe })
+    assert.equal(result.exact.length, 0)
+    assert.equal(result.similar.length, 0)
+  })
+})

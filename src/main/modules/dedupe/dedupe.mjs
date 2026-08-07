@@ -2,8 +2,11 @@ import { createScanPlan } from '../../core/scanner.mjs'
 import { hashFileSample } from '../../core/file-hash.mjs'
 import { probeMediaCached } from '../../core/probe.mjs'
 
-/** 相似重复判定：时长容差 ±2s（同片不同压制的时长可能略有出入） */
-export const SIMILAR_DURATION_TOLERANCE_MS = 2000
+/** 相似重复判定：时长容差 ±0.5s（同片不同压制的时长几乎一致，容差收紧防误判） */
+export const SIMILAR_DURATION_TOLERANCE_MS = 500
+
+/** 相似重复判定：组内最大体积差比例下限（同片不同压制通常码率差异大，体积差 >= 10%） */
+export const SIMILAR_SIZE_RATIO_MIN = 0.1
 
 /**
  * 质量分：分辨率面积优先，其次平均码率（大小/时长）。
@@ -145,6 +148,15 @@ export async function findDuplicates(
       )
       // 全部同指纹 → 已在完全重复组体现；仅单个文件 → 非重复
       if (cluster.length >= 2 && distinctHashes.size >= 2) {
+        // 体积差比例判定：同片不同压制的体积通常差异明显（码率不同）；
+        // 不同内容的视频即使分辨率/时长一致，体积也几乎相同（如截图中的 3 个 6s 视频）
+        const sizes = cluster.map((entry) => entry.video.size)
+        const maxSize = Math.max(...sizes)
+        const minSize = Math.min(...sizes)
+        if (maxSize > 0 && (maxSize - minSize) / maxSize < SIMILAR_SIZE_RATIO_MIN) {
+          cluster = []
+          return
+        }
         const items = cluster
           .map((entry) => ({
             relativePath: entry.video.relativePath,

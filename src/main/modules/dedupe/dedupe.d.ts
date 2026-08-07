@@ -3,6 +3,7 @@ declare module './dedupe.mjs' {
   import type { MediaInfo } from '../../../shared/types'
 
   export const SIMILAR_DURATION_TOLERANCE_MS: number
+  export const SIMILAR_SIZE_RATIO_MIN: number
 
   export interface DupGroupItem {
     relativePath: string
