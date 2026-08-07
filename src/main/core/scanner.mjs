@@ -111,22 +111,34 @@ const WALK_BATCH = 32
 // 每发现多少个文件上报一次进度（供大目录扫描的进度反馈）
 const PROGRESS_EVERY = 200
 
+// 默认子目录并发深度：大目录树（如数万文件的 NAS）并行遍历子目录可 3-5x 提速
+const DEFAULT_WALK_CONCURRENCY = 4
+
+/**
+ * 并发目录遍历：同一层目录的子目录并行递归，stat 批量并发。
+ * 使用 lane 模式（与 TaskCenter 一致）避免子目录数过多时一次性 spawn 无限 Promise。
+ */
 async function walk(root, current, records, skipped, state) {
   const entries = await readdir(current, { withFileTypes: true })
-  for (let i = 0; i < entries.length; i += WALK_BATCH) {
-    const batch = entries.slice(i, i + WALK_BATCH)
+
+  // 先分类：子目录需递归，文件直接 stat
+  const subdirs = []
+  const files = []
+  for (const entry of entries) {
+    if (isHiddenName(entry.name)) {
+      skipped.push(relative(root, join(current, entry.name)))
+      continue
+    }
+    if (entry.isDirectory()) subdirs.push(entry)
+    else if (entry.isFile()) files.push(entry)
+  }
+
+  // 文件批量 stat（批内并发）
+  for (let i = 0; i < files.length; i += WALK_BATCH) {
+    const batch = files.slice(i, i + WALK_BATCH)
     await Promise.all(
       batch.map(async (entry) => {
         const fullPath = join(current, entry.name)
-        if (isHiddenName(entry.name)) {
-          skipped.push(relative(root, fullPath))
-          return
-        }
-        if (entry.isDirectory()) {
-          await walk(root, fullPath, records, skipped, state)
-          return
-        }
-        if (!entry.isFile()) return
         try {
           const info = await stat(fullPath)
           const relativePath = relative(root, fullPath)
@@ -147,13 +159,33 @@ async function walk(root, current, records, skipped, state) {
       })
     )
   }
+
+  // 子目录并发递归：lane 模式限流，防止万级子目录一次性铺开
+  const concurrency = Math.min(state.concurrency, subdirs.length)
+  if (concurrency <= 1) {
+    for (const dir of subdirs) await walk(root, join(current, dir.name), records, skipped, state)
+    return
+  }
+  let cursor = 0
+  const lane = async () => {
+    while (cursor < subdirs.length) {
+      const index = cursor
+      cursor += 1
+      await walk(root, join(current, subdirs[index].name), records, skipped, state)
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, lane))
 }
 
 /** 单次全量遍历：产出文件记录与隐藏项；onProgress(已发现文件数) 可选 */
-async function walkWorkspace(root, onProgress) {
+async function walkWorkspace(root, onProgress, { concurrency = DEFAULT_WALK_CONCURRENCY } = {}) {
   const records = []
   const skipped = []
-  await walk(root, root, records, skipped, { scanned: 0, onProgress })
+  await walk(root, root, records, skipped, {
+    scanned: 0,
+    onProgress,
+    concurrency: Math.max(1, concurrency)
+  })
   return { records, skippedHidden: skipped }
 }
 
@@ -183,8 +215,8 @@ const fingerprintOf = (records) => {
  * 用于页面切换时的“无变化不重扫”判定。
  * 遍历结果会短暂暂存：紧随其后的 createScanPlan 直接复用，不再二次遍历。
  */
-export async function computeFingerprint(root, { onProgress } = {}) {
-  const { records, skippedHidden } = await walkWorkspace(root, onProgress)
+export async function computeFingerprint(root, { onProgress, concurrency } = {}) {
+  const { records, skippedHidden } = await walkWorkspace(root, onProgress, { concurrency })
   const fingerprint = fingerprintOf(records)
   lastWalk = { root, at: Date.now(), fingerprint, records, skippedHidden }
   return fingerprint
@@ -205,7 +237,7 @@ export function invalidateScanCache() {
  * - 其他文件一律删除候选；
  * - 保留项在子目录中的生成上移预览（跨平台：以 dirname 判断而非字符串 '/'）。
  */
-export async function createScanPlan(root, { onProgress } = {}) {
+export async function createScanPlan(root, { onProgress, concurrency } = {}) {
   let records
   let skippedHidden
   let fingerprint
@@ -213,7 +245,7 @@ export async function createScanPlan(root, { onProgress } = {}) {
     // 复用指纹计算时的遍历结果，省掉一次全量递归
     ;({ records, skippedHidden, fingerprint } = lastWalk)
   } else {
-    const walked = await walkWorkspace(root, onProgress)
+    const walked = await walkWorkspace(root, onProgress, { concurrency })
     records = walked.records
     skippedHidden = walked.skippedHidden
     fingerprint = fingerprintOf(records)

@@ -20,6 +20,7 @@ import { healthScan } from './modules/health/health.mjs'
 import { runPipeline } from './modules/pipeline/pipeline.mjs'
 import { listDirNames, permanentDelete, pathExists } from './core/fs-ops.mjs'
 import { killAllActiveProcesses, activeProcessCount } from './core/process-registry.mjs'
+import { setPoolSize } from './core/ffmpeg-pool.mjs'
 import { listOpLogs, writeOpLog } from './core/op-log.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
 import { dirSizeBytes, diskFreeBytes } from './core/fs-ops.mjs'
@@ -303,15 +304,24 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle('workspace:scan-plan', async (_event, root: string) => {
     setWorkspaceRoot(root)
-    return trackScan('扫描工作区', (onProgress) => createScanPlan(root, { onProgress }))
+    const settings = await settingsStore.get()
+    return trackScan('扫描工作区', (onProgress) =>
+      createScanPlan(root, { onProgress, concurrency: settings.scanConcurrency })
+    )
   })
-  ipcMain.handle('workspace:fingerprint', async (_event, root: string) =>
-    trackScan('检查工作区变化', (onProgress) => computeFingerprint(root, { onProgress }))
-  )
+  ipcMain.handle('workspace:fingerprint', async (_event, root: string) => {
+    const settings = await settingsStore.get()
+    return trackScan('检查工作区变化', (onProgress) =>
+      computeFingerprint(root, { onProgress, concurrency: settings.scanConcurrency })
+    )
+  })
   ipcMain.handle('settings:get', async () => settingsStore.get())
-  ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) =>
-    settingsStore.update(patch)
-  )
+  ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) => {
+    const updated = await settingsStore.update(patch)
+    // 运行时同步 FFmpeg 进程池大小
+    if (updated.ffmpegPoolSize) setPoolSize(updated.ffmpegPoolSize)
+    return updated
+  })
   ipcMain.handle('clean:execute', async (_event, plan: ScanPlan, picks: PosterPicks) => {
     if (activeCleanTaskId) throw new Error('已有清理任务在执行中')
     const settings = await settingsStore.get()
@@ -351,7 +361,10 @@ function registerIpcHandlers(): void {
   // ---------- 模块四：封面管理 ----------
   ipcMain.handle('poster:list', async (_event, root: string) => {
     setWorkspaceRoot(root)
-    return trackScan('扫描视频列表', (onProgress) => listPosterVideos(root, { onProgress }))
+    const settings = await settingsStore.get()
+    return trackScan('扫描视频列表', (onProgress) =>
+      listPosterVideos(root, { onProgress, concurrency: settings.scanConcurrency })
+    )
   })
   ipcMain.handle('poster:capture', async (_event, root: string, relativePaths: string[]) => {
     if (activePosterTaskId) throw new Error('已有截帧任务在执行中')
@@ -529,7 +542,10 @@ function registerIpcHandlers(): void {
   // ---------- 模块五：NFO 归档 ----------
   ipcMain.handle('nfo:plan', async (_event, root: string) => {
     setWorkspaceRoot(root)
-    return trackScan('生成归档计划', (onProgress) => createNfoPlan(root, { onProgress }))
+    const settings = await settingsStore.get()
+    return trackScan('生成归档计划', (onProgress) =>
+      createNfoPlan(root, { onProgress, concurrency: settings.scanConcurrency })
+    )
   })
   ipcMain.handle(
     'nfo:execute',
@@ -557,13 +573,13 @@ function registerIpcHandlers(): void {
   // ---------- 模块二：视频合并 ----------
   ipcMain.handle('merge:scan', async (_event, root: string) => {
     setWorkspaceRoot(root)
+    const settings = await settingsStore.get()
     // 排除本产品生成的合并产物，避免再次参与合并
     const videos = (
       await trackScan<PosterVideoItem[]>('扫描视频列表', (onProgress) =>
-        listPosterVideos(root, { onProgress })
+        listPosterVideos(root, { onProgress, concurrency: settings.scanConcurrency })
       )
     ).filter((v) => !isMergeOutputName(v.name))
-    const settings = await settingsStore.get()
     const probed = await taskCenter.run({
       taskId: `merge-probe-${Date.now()}`,
       label: '读取媒体信息',
@@ -825,6 +841,10 @@ function registerIpcHandlers(): void {
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.mediascraper.desktop')
+
+  // 初始化 FFmpeg 进程池大小
+  const initSettings = await settingsStore.get()
+  setPoolSize(initSettings.ffmpegPoolSize)
 
   protocol.handle('media', async (request) => {
     // 渲染端格式：media://local<encodeURI(绝对路径)>

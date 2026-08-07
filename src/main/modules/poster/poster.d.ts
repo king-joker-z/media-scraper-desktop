@@ -4,7 +4,7 @@ declare module './poster.mjs' {
   export function mapPosterVideos(plan: ScanPlan): PosterVideoItem[]
   export function listPosterVideos(
     root: string,
-    options?: { onProgress?: (scanned: number) => void }
+    options?: { onProgress?: (scanned: number) => void; concurrency?: number }
   ): Promise<PosterVideoItem[]>
   export function framesDirFor(framesRoot: string, videoPath: string): string
   export function captureCandidates(

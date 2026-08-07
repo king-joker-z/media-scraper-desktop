@@ -16,6 +16,8 @@ declare module './scanner.mjs' {
   export function predictMoves(keep: KeepItem[], skippedHidden: string[]): MoveItem[]
   export interface ScanOptions {
     onProgress?: (scanned: number) => void
+    /** 子目录并发遍历数（默认 4，大目录树可适当调高） */
+    concurrency?: number
   }
   export function createScanPlan(root: string, options?: ScanOptions): Promise<ScanPlan>
   export function computeFingerprint(root: string, options?: ScanOptions): Promise<string>

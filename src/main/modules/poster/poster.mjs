@@ -34,8 +34,8 @@ export function mapPosterVideos(plan) {
 const relativeOf = (root, absolute) => absolute.slice(root.length + 1)
 
 /** 视频列表：复用只读扫描计划（带指纹缓存），附带现存 poster 信息。 */
-export async function listPosterVideos(root, { onProgress } = {}) {
-  const plan = await createScanPlan(root, { onProgress })
+export async function listPosterVideos(root, { onProgress, concurrency } = {}) {
+  const plan = await createScanPlan(root, { onProgress, concurrency })
   return mapPosterVideos(plan)
 }
 

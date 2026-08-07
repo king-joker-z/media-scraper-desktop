@@ -124,6 +124,10 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 export interface AppSettings {
   /** 全局并发线程数，1-20，默认 5（视频合并除外） */
   concurrency: number
+  /** 扫描子目录并发数，1-16，默认 4（大目录树加速遍历） */
+  scanConcurrency: number
+  /** FFmpeg/FFprobe 进程池大小，1-8，默认 4（限制同时运行的媒体处理进程数） */
+  ffmpegPoolSize: number
   /** 界面主题，默认跟随系统 */
   theme: ThemeMode
   aiProviders: AiProviderConfig[]

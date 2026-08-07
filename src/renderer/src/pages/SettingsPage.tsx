@@ -204,6 +204,39 @@ function SettingsPage(): React.JSX.Element {
       </section>
 
       <section className="settings-card">
+        <h2>扫描并发</h2>
+        <p className="muted">目录遍历的子目录并行数（1–16，默认 4）。NAS 或大目录树建议调高。</p>
+        <div className="slider-row">
+          <input
+            type="range"
+            min={1}
+            max={16}
+            value={settings.scanConcurrency}
+            onChange={(event) => persist({ scanConcurrency: Number(event.target.value) })}
+          />
+          <b>{settings.scanConcurrency}</b>
+        </div>
+      </section>
+
+      <section className="settings-card">
+        <h2>FFmpeg 进程池</h2>
+        <p className="muted">
+          同时运行的 ffmpeg/ffprobe 进程数上限（1–8，默认 4）。截帧、探测、体检共用此池，
+          防止并发任务叠加导致进程数打满 CPU。
+        </p>
+        <div className="slider-row">
+          <input
+            type="range"
+            min={1}
+            max={8}
+            value={settings.ffmpegPoolSize}
+            onChange={(event) => persist({ ffmpegPoolSize: Number(event.target.value) })}
+          />
+          <b>{settings.ffmpegPoolSize}</b>
+        </div>
+      </section>
+
+      <section className="settings-card">
         <h2>AI 平台</h2>
         <div className="mode-tabs">
           {settings.aiProviders.map((provider) => (

@@ -38,8 +38,30 @@ export const THEME_OPTIONS = ['system', 'light', 'dark']
 /** 最近工作区最多记忆条数 */
 export const MAX_RECENT_WORKSPACES = 8
 
+export const DEFAULT_SCAN_CONCURRENCY = 4
+export const MIN_SCAN_CONCURRENCY = 1
+export const MAX_SCAN_CONCURRENCY = 16
+
+export const clampScanConcurrency = (value) => {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_SCAN_CONCURRENCY
+  return Math.min(MAX_SCAN_CONCURRENCY, Math.max(MIN_SCAN_CONCURRENCY, Math.round(n)))
+}
+
+export const DEFAULT_FFMPEG_POOL_SIZE = 4
+export const MIN_FFMPEG_POOL_SIZE = 1
+export const MAX_FFMPEG_POOL_SIZE = 8
+
+export const clampFfmpegPoolSize = (value) => {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_FFMPEG_POOL_SIZE
+  return Math.min(MAX_FFMPEG_POOL_SIZE, Math.max(MIN_FFMPEG_POOL_SIZE, Math.round(n)))
+}
+
 export const DEFAULT_SETTINGS = {
   concurrency: DEFAULT_CONCURRENCY,
+  scanConcurrency: DEFAULT_SCAN_CONCURRENCY,
+  ffmpegPoolSize: DEFAULT_FFMPEG_POOL_SIZE,
   theme: 'system',
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
     ...preset,
@@ -127,6 +149,10 @@ export function normalizeSettings(raw) {
 
   return {
     concurrency: clampConcurrency(input.concurrency ?? DEFAULT_SETTINGS.concurrency),
+    scanConcurrency: clampScanConcurrency(
+      input.scanConcurrency ?? DEFAULT_SETTINGS.scanConcurrency
+    ),
+    ffmpegPoolSize: clampFfmpegPoolSize(input.ffmpegPoolSize ?? DEFAULT_SETTINGS.ffmpegPoolSize),
     theme: THEME_OPTIONS.includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     aiProviders,
     activeProviderId,
