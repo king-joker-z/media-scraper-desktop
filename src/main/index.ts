@@ -50,6 +50,25 @@ const opLogDir = join(app.getPath('userData'), 'op-logs')
 /** 合并断点续传工作目录的统一前缀（merge.mjs mergeWorkDir 约定） */
 const MERGE_TEMP_PREFIX = 'msd-merge-'
 
+/** 清空截帧缓存目录，返回释放的字节数 */
+const cleanFramesCache = async (): Promise<number> => {
+  const freed = await dirSizeBytes(framesRoot)
+  await permanentDelete(framesRoot).catch(() => {})
+  return freed
+}
+
+/** 清空系统临时目录下的全部合并工作目录，返回释放的字节数 */
+const cleanMergeTempDirs = async (): Promise<number> => {
+  let freed = 0
+  const entries = await listDirNames(tmpdir()).catch(() => [] as string[])
+  for (const name of entries.filter((n) => n.startsWith(MERGE_TEMP_PREFIX))) {
+    const target = join(tmpdir(), name)
+    freed += await dirSizeBytes(target)
+    await permanentDelete(target).catch(() => {})
+  }
+  return freed
+}
+
 /** 记录一条操作日志（不阻塞主流程） */
 const logOp = (module: string, payload: object): void => {
   writeOpLog(opLogDir, module, payload).catch(() => {})
@@ -655,15 +674,9 @@ function registerIpcHandlers(): void {
   ipcMain.handle('storage:clean', async (_event, category: StorageCategory) => {
     let freedBytes = 0
     if (category === 'frames') {
-      freedBytes = await dirSizeBytes(framesRoot)
-      await permanentDelete(framesRoot)
+      freedBytes = await cleanFramesCache()
     } else if (category === 'merge-temp') {
-      const entries = await listDirNames(tmpdir())
-      for (const name of entries.filter((n) => n.startsWith(MERGE_TEMP_PREFIX))) {
-        const target = join(tmpdir(), name)
-        freedBytes += await dirSizeBytes(target)
-        await permanentDelete(target)
-      }
+      freedBytes = await cleanMergeTempDirs()
     } else {
       freedBytes = await dirSizeBytes(opLogDir)
       const files = await listDirNames(opLogDir)
@@ -757,16 +770,23 @@ app.whenReady().then(async () => {
   })
 })
 
-// 退出前收尾：取消全部在途任务（在途 ffmpeg 经 AbortSignal 被杀），留出收尾窗口再退出
+// 退出前收尾：取消全部在途任务（在途 ffmpeg 经 AbortSignal 被杀），
+// 自动清理截帧缓存与合并临时目录（操作日志保留不自动清），完成后退出
 let quitting = false
 app.on('before-quit', (event) => {
   if (quitting || installingUpdate) return
-  if (!taskCenter.hasActive() && !activeMergeAbort) return
   event.preventDefault()
-  taskCenter.cancelAll()
-  activeMergeAbort?.abort()
   quitting = true
-  setTimeout(() => app.quit(), 1200)
+  void (async () => {
+    if (taskCenter.hasActive() || activeMergeAbort) {
+      taskCenter.cancelAll()
+      activeMergeAbort?.abort()
+      // 给 AbortSignal 传递与在途 ffmpeg 进程退出留出收尾窗口
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+    await Promise.all([cleanFramesCache(), cleanMergeTempDirs()])
+    app.quit()
+  })()
 })
 
 app.on('window-all-closed', () => {
