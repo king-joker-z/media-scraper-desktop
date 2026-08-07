@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { clampConcurrency, DEFAULT_CONCURRENCY } from './task-center.mjs'
 
@@ -33,8 +33,14 @@ export const PROVIDER_PRESETS = [
   }
 ]
 
+export const THEME_OPTIONS = ['system', 'light', 'dark']
+
+/** 最近工作区最多记忆条数 */
+export const MAX_RECENT_WORKSPACES = 8
+
 export const DEFAULT_SETTINGS = {
   concurrency: DEFAULT_CONCURRENCY,
+  theme: 'system',
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
     ...preset,
     token: '',
@@ -46,7 +52,14 @@ export const DEFAULT_SETTINGS = {
     { name: '去除 @ 尾巴', pattern: '@[^\\s@]+$', replacement: '', flags: 'g' },
     { name: '去除【】标签', pattern: '【[^】]*】', replacement: '', flags: 'g' },
     { name: '去除 [] 标签', pattern: '\\[[^\\]]*\\]', replacement: '', flags: 'g' }
-  ]
+  ],
+  recentWorkspaces: []
+}
+
+/** 把新工作区提到最近列表首位（去重、截断） */
+export function pushRecentWorkspace(list, workspace) {
+  const rest = (Array.isArray(list) ? list : []).filter((item) => item !== workspace)
+  return [workspace, ...rest].slice(0, MAX_RECENT_WORKSPACES)
 }
 
 const sanitizeModels = (models, fallback) =>
@@ -103,6 +116,7 @@ export function normalizeSettings(raw) {
 
   return {
     concurrency: clampConcurrency(input.concurrency ?? DEFAULT_SETTINGS.concurrency),
+    theme: THEME_OPTIONS.includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     aiProviders,
     activeProviderId,
     promptTemplate:
@@ -113,7 +127,12 @@ export function normalizeSettings(raw) {
       ? input.regexTemplates.filter(
           (t) => t && typeof t.name === 'string' && typeof t.pattern === 'string'
         )
-      : DEFAULT_SETTINGS.regexTemplates
+      : DEFAULT_SETTINGS.regexTemplates,
+    recentWorkspaces: Array.isArray(input.recentWorkspaces)
+      ? input.recentWorkspaces
+          .filter((p) => typeof p === 'string' && p.trim())
+          .slice(0, MAX_RECENT_WORKSPACES)
+      : []
   }
 }
 
@@ -136,7 +155,13 @@ export class SettingsStore {
       const raw = await readFile(this.filePath, 'utf8')
       this.cache = normalizeSettings(JSON.parse(raw))
     } catch {
-      this.cache = normalizeSettings(null)
+      // 主文件损坏/缺失时尝试 .bak 备份（例如上次写入中途崩溃），避免 token 等配置全丢
+      try {
+        const backup = await readFile(`${this.filePath}.bak`, 'utf8')
+        this.cache = normalizeSettings(JSON.parse(backup))
+      } catch {
+        this.cache = normalizeSettings(null)
+      }
     }
     return this.cache
   }
@@ -150,7 +175,15 @@ export class SettingsStore {
     const current = await this.get()
     this.cache = normalizeSettings({ ...current, ...patch })
     await mkdir(dirname(this.filePath), { recursive: true })
-    await writeFile(this.filePath, JSON.stringify(this.cache, null, 2), 'utf8')
+    // 原子写入：先写临时文件，备份旧文件后 rename 替换，防止写一半留坏档
+    const tmp = `${this.filePath}.tmp`
+    await writeFile(tmp, JSON.stringify(this.cache, null, 2), 'utf8')
+    try {
+      await copyFile(this.filePath, `${this.filePath}.bak`)
+    } catch {
+      // 首次写入没有旧文件，忽略
+    }
+    await rename(tmp, this.filePath)
     return this.cache
   }
 }

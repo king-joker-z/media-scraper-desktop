@@ -9,6 +9,9 @@ declare module './settings.mjs' {
     models: string[]
   }[]
   export const DEFAULT_SETTINGS: AppSettings
+  export const THEME_OPTIONS: string[]
+  export const MAX_RECENT_WORKSPACES: number
+  export function pushRecentWorkspace(list: string[], workspace: string): string[]
   export function normalizeSettings(raw: unknown): AppSettings
   export function activeProvider(settings: AppSettings): AiProviderConfig
 

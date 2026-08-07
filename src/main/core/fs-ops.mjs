@@ -1,4 +1,15 @@
-import { access, mkdir, readdir, rename, rm, rmdir, statfs, writeFile } from 'node:fs/promises'
+import {
+  access,
+  copyFile,
+  mkdir,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+  stat,
+  statfs,
+  writeFile
+} from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 
 /**
@@ -35,11 +46,30 @@ export async function ensureUniquePath(target) {
   }
 }
 
+/**
+ * 移动文件：优先 rename（同设备秒级）；跨设备（EXDEV，如工作区在移动硬盘、
+ * 归档目标在 NAS）自动回退为 复制 + 大小校验 + 删源，校验失败不丢源文件。
+ */
+export async function moveFile(from, to) {
+  try {
+    await rename(from, to)
+  } catch (error) {
+    if (error?.code !== 'EXDEV') throw error
+    await copyFile(from, to)
+    const [src, dst] = await Promise.all([stat(from), stat(to)])
+    if (src.size !== dst.size) {
+      await rm(to, { force: true })
+      throw new Error(`跨磁盘移动校验失败（大小不一致）：${from}`)
+    }
+    await rm(from)
+  }
+}
+
 /** 移动到目标目录；重名自动加 (n)。返回最终路径。 */
 export async function moveWithCollision(from, toDir) {
   await mkdir(toDir, { recursive: true })
   const target = await ensureUniquePath(join(toDir, basename(from)))
-  await rename(from, target)
+  await moveFile(from, target)
   return target
 }
 
@@ -55,8 +85,35 @@ export async function renameWithCollision(from, newName) {
   const desired = join(dir, newName)
   if (desired === from) return from
   const target = await ensureUniquePath(desired)
-  await rename(from, target)
+  await moveFile(from, target)
   return target
+}
+
+/** 目录递归总大小（字节）；目录不存在或无权限返回 0，不抛错。 */
+export async function dirSizeBytes(dir) {
+  let total = 0
+  async function visit(current) {
+    let entries
+    try {
+      entries = await readdir(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const full = join(current, entry.name)
+      if (entry.isDirectory()) {
+        await visit(full)
+      } else if (entry.isFile()) {
+        try {
+          total += (await stat(full)).size
+        } catch {
+          // 竞态消失的文件跳过
+        }
+      }
+    }
+  }
+  await visit(dir)
+  return total
 }
 
 /** 确保目录存在（递归创建）。 */

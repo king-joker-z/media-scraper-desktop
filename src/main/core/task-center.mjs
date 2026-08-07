@@ -82,5 +82,15 @@ export function createTaskCenter({ emit } = {}) {
     controllers.get(taskId)?.abort()
   }
 
-  return { run, cancel }
+  /** 取消全部在途任务（应用退出前收尾用） */
+  function cancelAll() {
+    for (const controller of controllers.values()) controller.abort()
+  }
+
+  /** 是否有在途任务 */
+  function hasActive() {
+    return controllers.size > 0
+  }
+
+  return { run, cancel, cancelAll, hasActive }
 }

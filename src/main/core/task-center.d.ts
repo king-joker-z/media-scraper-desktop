@@ -24,6 +24,8 @@ declare module './task-center.mjs' {
   export interface TaskCenter {
     run<T = unknown, R = unknown>(options: RunOptions<T, R>): Promise<TaskResult<R>>
     cancel(taskId: string): void
+    cancelAll(): void
+    hasActive(): boolean
   }
 
   export function createTaskCenter(options?: { emit?: (event: TaskEvent) => void }): TaskCenter

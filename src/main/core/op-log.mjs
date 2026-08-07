@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeTextFile } from './fs-ops.mjs'
 
@@ -7,6 +7,28 @@ import { writeTextFile } from './fs-ops.mjs'
  * 每个执行任务落一份 JSON 到 userData/op-logs/。
  */
 
+/** 最多保留的日志份数（超出后最旧的被清理，防止目录无限增长） */
+export const OP_LOG_KEEP = 100
+
+/** 清理旧日志：按文件名（ISO 时间戳可排序）保留最新 keep 份。返回删除的文件数。 */
+export async function pruneOpLogs(dir, keep = OP_LOG_KEEP) {
+  let files = []
+  try {
+    files = await readdir(dir)
+  } catch {
+    return 0
+  }
+  const sorted = files
+    .filter((f) => f.endsWith('.json'))
+    .sort()
+    .reverse()
+  const stale = sorted.slice(Math.max(0, keep))
+  for (const file of stale) {
+    await rm(join(dir, file), { force: true }).catch(() => {})
+  }
+  return stale.length
+}
+
 export async function writeOpLog(dir, module, payload) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const file = join(dir, `${stamp}-${module}.json`)
@@ -14,6 +36,8 @@ export async function writeOpLog(dir, module, payload) {
     file,
     JSON.stringify({ module, finishedAt: new Date().toISOString(), ...payload }, null, 2)
   )
+  // 顺带修剪历史日志，失败不影响主流程
+  await pruneOpLogs(dir).catch(() => 0)
   return file
 }
 
