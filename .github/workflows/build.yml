@@ -51,9 +51,10 @@ jobs:
           key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
       - if: steps.deps.outputs.cache-hit != 'true'
         run: npm ci
-      # GH_TOKEN：electron-builder publish(github) 需要；tag 构建时自动创建 Release 并上传
-      # latest.yml 元数据（自动更新依赖）与安装包，普通 push 不发布（onTagOrDraft）
-      - run: npm run build:win
+      # GH_TOKEN：electron-builder publish(github) 需要。
+      # 仅 tag 构建发布到 Release（--publish always）；分支/PR 构建显式 never，
+      # 防止 onTagOrDraft 撞上同名草稿 Release 的资产导致 422 already_exists
+      - run: npm run build:win -- --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
@@ -61,6 +62,8 @@ jobs:
           name: media-scraper-desktop-win-x64
           path: dist/*.exe
           if-no-files-found: error
+          # 安装包体积大，7 天过期防止 artifact 存储配额被打满
+          retention-days: 7
 
   build-macos:
     name: macOS installer
@@ -80,7 +83,7 @@ jobs:
           key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
       - if: steps.deps.outputs.cache-hit != 'true'
         run: npm ci
-      - run: npm run build:mac
+      - run: npm run build:mac -- --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
@@ -88,3 +91,4 @@ jobs:
           name: media-scraper-desktop-macos
           path: dist/*.dmg
           if-no-files-found: error
+          retention-days: 7

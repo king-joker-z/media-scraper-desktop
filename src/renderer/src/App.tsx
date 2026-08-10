@@ -281,7 +281,7 @@ function App(): React.JSX.Element {
             </button>
           ))}
         </nav>
-        <div className="sidebar-footer">v1.1.0 · 本地处理，隐私安全</div>
+        <div className="sidebar-footer">v1.3.0 · 本地处理，隐私安全</div>
       </aside>
       <main className="content">
         {modulePages.map((item) => (
