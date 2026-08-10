@@ -30,8 +30,9 @@ export default defineConfig(
   },
   {
     // 写操作唯一入口约束：IPC 层与业务模块禁止直接引用 node:fs，
-    // 统一走 src/main/core/fs-ops.mjs（只读扫描 core/scanner.mjs 除外）
+    // 统一走 src/main/core/fs-ops.mjs（只读扫描 core/scanner.mjs 与 comic/scan.mjs 除外）
     files: ['src/main/index.ts', 'src/main/ipc/**/*.{ts,mjs}', 'src/main/modules/**/*.{ts,mjs}'],
+    ignores: ['src/main/modules/comic/scan.mjs'],
     rules: {
       'no-restricted-imports': [
         'error',

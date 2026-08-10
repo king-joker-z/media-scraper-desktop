@@ -19,6 +19,8 @@ import { findDuplicates } from './modules/dedupe/dedupe.mjs'
 import { healthScan } from './modules/health/health.mjs'
 import { runPipeline } from './modules/pipeline/pipeline.mjs'
 import { undoOpLog } from './modules/undo/undo.mjs'
+import { scanComicWorkspace } from './modules/comic/scan.mjs'
+import { deleteComicSources, mergeComics } from './modules/comic/merge.mjs'
 import {
   cleanMovePartials,
   deleteToTrash,
@@ -45,7 +47,9 @@ import {
 } from './modules/poster/poster.mjs'
 import type {
   AiFileInput,
+  AppModule,
   AppSettings,
+  ComicFormat,
   MergeSourceItem,
   MergeVideoItem,
   NfoPlanItem,
@@ -114,6 +118,11 @@ let workspaceRoot: string | null = null
 const setWorkspaceRoot = (root: string): void => {
   workspaceRoot = root
 }
+// 漫画模块工作区（与视频工作区并存，media:// 白名单双根）
+let comicRoot: string | null = null
+const setComicRoot = (root: string): void => {
+  comicRoot = root
+}
 
 /**
  * 路径归一化（白名单比较用）：统一为正斜杠、去尾部分隔符、盘符统一大写。
@@ -121,7 +130,9 @@ const setWorkspaceRoot = (root: string): void => {
  * 不归一化会导致白名单全部误判 403（封面/视频全挂）。
  */
 const isMediaAllowed = (filePath: string): boolean => {
-  const roots = workspaceRoot ? [framesRoot, workspaceRoot] : [framesRoot]
+  const roots = [framesRoot]
+  if (workspaceRoot) roots.push(workspaceRoot)
+  if (comicRoot) roots.push(comicRoot)
   return isMediaPathAllowed(filePath, roots)
 }
 
@@ -259,10 +270,18 @@ async function trackScan<T>(
   }
 }
 
-/** 注册工作区：media:// 白名单（替换语义）+ 最近工作区持久化 + 目录监控重建 */
-const registerWorkspace = async (root: string): Promise<void> => {
-  setWorkspaceRoot(root)
+/** 注册工作区：media:// 白名单 + 最近工作区持久化；视频模块附加目录监控重建 */
+const registerWorkspace = async (root: string, module: AppModule = 'video'): Promise<void> => {
   const settings = await settingsStore.get()
+  if (module === 'comic') {
+    setComicRoot(root)
+    await settingsStore.update({
+      comicWorkspace: root,
+      comicRecentWorkspaces: pushRecentWorkspace(settings.comicRecentWorkspaces, root)
+    })
+    return
+  }
+  setWorkspaceRoot(root)
   await settingsStore.update({
     recentWorkspaces: pushRecentWorkspace(settings.recentWorkspaces, root)
   })
@@ -506,16 +525,16 @@ function createWindow(theme: string): void {
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.handle('dialog:select-workspace', async () => {
+  ipcMain.handle('dialog:select-workspace', async (_event, module: AppModule = 'video') => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     const selected = result.canceled ? null : result.filePaths[0]
-    if (selected) await registerWorkspace(selected)
+    if (selected) await registerWorkspace(selected, module)
     return selected
   })
   // 渲染端恢复/拖拽工作区：校验目录存在后注册（media:// 白名单 + 最近列表）
-  ipcMain.handle('workspace:use', async (_event, root: string) => {
+  ipcMain.handle('workspace:use', async (_event, root: string, module: AppModule = 'video') => {
     if (!(await pathExists(root))) throw new Error('目录不存在或不可读')
-    await registerWorkspace(root)
+    await registerWorkspace(root, module)
     return root
   })
   ipcMain.handle('workspace:scan-plan', async (_event, root: string) => {
@@ -905,6 +924,61 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle('pipeline:cancel', async () => abortSlot('pipeline'))
 
+  // ---------- 漫画模块 ----------
+  ipcMain.handle('comic:scan', async (_event, root: string) =>
+    trackScan('扫描漫画工作区', async () => scanComicWorkspace(root))
+  )
+  ipcMain.handle(
+    'comic:merge',
+    async (
+      _event,
+      root: string,
+      relDirs: string[],
+      format: ComicFormat,
+      options: { raw?: boolean; rebuild?: boolean } = {}
+    ) =>
+      runExclusive('comic', '漫画合并', async (taskId) => {
+        const settings = await settingsStore.get()
+        const report = await mergeComics(root, {
+          relDirs,
+          format,
+          raw: options.raw === true,
+          rebuild: options.rebuild === true,
+          taskCenter,
+          taskId,
+          concurrency: settings.concurrency
+        })
+        logOp('comic-merge', {
+          root,
+          format,
+          report,
+          summary: `合并漫画 ${report.merged.length} 部（${format}）${
+            report.failed.length > 0 ? `，失败 ${report.failed.length} 部` : ''
+          }`
+        })
+        return report
+      })
+  )
+  ipcMain.handle('comic:cancel', async () => cancelSlot('comic'))
+  ipcMain.handle('comic:delete-sources', async (_event, root: string, relDirs: string[]) => {
+    const settings = await settingsStore.get()
+    return runExclusive('comic-delete', '删除漫画源图片', async (taskId) => {
+      const report = await deleteComicSources(root, {
+        relDirs,
+        taskCenter,
+        taskId,
+        concurrency: settings.concurrency,
+        deleteFn: deleteFnOf(settings)
+      })
+      logOp('comic-delete-sources', {
+        root,
+        report,
+        summary: `删除漫画源图片 ${report.deletedCount} 张`
+      })
+      return report
+    })
+  })
+
   // ---------- 目录监控（F4） ----------
   ipcMain.handle('watch:status', async () => getWatchStatus())
 
@@ -943,6 +1017,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle('op-logs:list', async () => listOpLogs(opLogDir))
   ipcMain.handle('op-logs:reveal', async (_event, file: string) => {
     shell.showItemInFolder(file)
+  })
+  // 系统默认应用打开文件（漫画库打开 EPUB/PDF）
+  ipcMain.handle('shell:open-path', async (_event, target: string) => {
+    const error = await shell.openPath(target)
+    if (error) throw new Error(error)
   })
   // 一键撤销（F2）：按日志反向恢复重命名/NFO 归档
   ipcMain.handle('op-logs:undo', async (_event, file: string) =>

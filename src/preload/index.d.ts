@@ -1,9 +1,13 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   AiFileInput,
+  AppModule,
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  ComicFormat,
+  ComicMergeReport,
+  ComicScanResult,
   DedupeScanResult,
   HealthReport,
   MergeResult,
@@ -35,8 +39,9 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: {
-      selectWorkspace: () => Promise<string | null>
-      useWorkspace: (path: string) => Promise<string>
+      selectWorkspace: (module?: AppModule) => Promise<string | null>
+      useWorkspace: (path: string, module?: AppModule) => Promise<string>
+      openPath: (target: string) => Promise<void>
       pathForFile: (file: File) => string
       scanPlan: (root: string) => Promise<ScanPlan>
       getWorkspaceFingerprint: (root: string) => Promise<string>
@@ -95,6 +100,22 @@ declare global {
       }>
       scanHealth: (root: string) => Promise<HealthReport>
       cancelHealth: () => Promise<void>
+      scanComics: (root: string) => Promise<ComicScanResult>
+      mergeComics: (
+        root: string,
+        relDirs: string[],
+        format: ComicFormat,
+        options?: { raw?: boolean; rebuild?: boolean }
+      ) => Promise<ComicMergeReport>
+      cancelComicMerge: () => Promise<void>
+      deleteComicSources: (
+        root: string,
+        relDirs: string[]
+      ) => Promise<{
+        cancelled: boolean
+        deletedCount: number
+        failed: { target: string; error: string }[]
+      }>
       executePipeline: (root: string, steps: PipelineStep[]) => Promise<PipelineReport>
       cancelPipeline: () => Promise<void>
       getStorageStats: () => Promise<StorageStats>

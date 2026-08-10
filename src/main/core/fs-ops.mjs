@@ -279,6 +279,18 @@ export async function readTextFile(target) {
   return readFile(target, 'utf8')
 }
 
+/** 读取二进制文件（EPUB/PDF 等本地打包模块复用，避免绕过 fs-ops） */
+export async function readBinaryFile(target) {
+  return readFile(target)
+}
+
+/** 原子写入二进制文件：先写 .part 再 rename，避免中断留下损坏产物 */
+export async function writeBinaryFile(target, data) {
+  const temporary = `${target}.part`
+  await writeFile(temporary, data)
+  await withLockRetry(() => rename(temporary, target))
+}
+
 /**
  * 操作系统生成的垃圾文件（可安全删除，用户数据不受影响）：
  * macOS 的 .DS_Store / ._AppleDouble、Windows 的 Thumbs.db / desktop.ini。

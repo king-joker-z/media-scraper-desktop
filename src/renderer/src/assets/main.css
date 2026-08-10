@@ -1687,3 +1687,279 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- 模块选择页（视频工坊 / 漫画书房） ---------- */
+.module-picker {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px;
+  background:
+    radial-gradient(1200px 500px at 20% 0%, rgba(10, 132, 255, 0.12), transparent 60%),
+    radial-gradient(900px 480px at 85% 100%, rgba(94, 92, 230, 0.14), transparent 60%),
+    var(--bg-window);
+}
+.module-picker-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  -webkit-app-region: drag;
+}
+.module-picker h1 {
+  font-size: 30px;
+}
+.module-picker > .muted {
+  margin: 0 0 18px;
+}
+.module-cards {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.module-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 300px;
+  padding: 34px 26px 28px;
+  border-radius: 20px;
+  background: var(--bg-card);
+  color: var(--label-primary);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--separator);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+}
+.module-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-pop);
+}
+.module-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 22px;
+  font-size: 40px;
+}
+.module-card-video .module-card-icon {
+  background: linear-gradient(135deg, rgba(10, 132, 255, 0.22), rgba(94, 92, 230, 0.22));
+}
+.module-card-comic .module-card-icon {
+  background: linear-gradient(135deg, rgba(255, 159, 10, 0.22), rgba(255, 69, 58, 0.18));
+}
+.module-card-name {
+  font-size: 19px;
+  font-weight: 700;
+}
+.module-card-desc {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--label-secondary);
+  text-align: center;
+}
+
+/* ---------- 侧边栏模块切换 ---------- */
+.module-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--label-primary);
+}
+.module-switch:hover {
+  background: var(--fill-quaternary);
+}
+.module-switch-caret {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+/* ---------- 漫画合并页 ---------- */
+.comic-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.comic-search {
+  margin-left: auto;
+  min-width: 200px;
+}
+.warning-text {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--danger);
+}
+.comic-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.comic-item {
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.comic-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.comic-row:hover {
+  background: var(--fill-quaternary);
+}
+.comic-cover {
+  width: 44px;
+  height: 60px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--fill-quaternary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.comic-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.comic-cover-empty {
+  font-size: 20px;
+}
+.comic-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.comic-info b {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comic-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.comic-badge-muted {
+  background: var(--fill-tertiary);
+  color: var(--label-secondary);
+}
+.comic-badge-ok {
+  background: rgba(48, 209, 88, 0.16);
+  color: var(--success);
+}
+.comic-badge-new {
+  background: rgba(10, 132, 255, 0.16);
+  color: var(--accent);
+}
+.comic-badge-warn {
+  background: rgba(255, 69, 58, 0.14);
+  color: var(--danger);
+}
+.comic-expand {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.comic-chapters {
+  border-top: 1px solid var(--separator);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.comic-chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.comic-chapter-row > .muted {
+  margin-left: auto;
+}
+.comic-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.plan-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--separator);
+}
+
+/* ---------- 漫画库 ---------- */
+.comic-card {
+  display: flex;
+  flex-direction: column;
+}
+.comic-card-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 0;
+  background: transparent;
+  color: var(--label-primary);
+  text-align: left;
+  border-radius: inherit;
+}
+.comic-thumb {
+  position: relative;
+}
+.comic-thumb img {
+  object-fit: cover;
+}
+.comic-format-badge {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+}
+.comic-card-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+}
+.comic-card-actions button {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 12px;
+}

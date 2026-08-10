@@ -2,9 +2,13 @@ import { contextBridge, ipcRenderer, webUtils, IpcRendererEvent } from 'electron
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
   AiFileInput,
+  AppModule,
   AppSettings,
   CaptureOutcome,
   CleanReport,
+  ComicFormat,
+  ComicMergeReport,
+  ComicScanResult,
   DedupeScanResult,
   HealthReport,
   MergeResult,
@@ -33,9 +37,13 @@ import type {
 } from '../shared/types'
 
 const api = {
-  selectWorkspace: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-workspace'),
-  /** 校验并注册工作区（启动恢复 / 拖拽导入 / 最近列表切换） */
-  useWorkspace: (path: string): Promise<string> => ipcRenderer.invoke('workspace:use', path),
+  selectWorkspace: (module?: AppModule): Promise<string | null> =>
+    ipcRenderer.invoke('dialog:select-workspace', module),
+  /** 校验并注册工作区（启动恢复 / 拖拽导入 / 最近列表切换；module 区分视频/漫画工作区） */
+  useWorkspace: (path: string, module?: AppModule): Promise<string> =>
+    ipcRenderer.invoke('workspace:use', path, module),
+  /** 系统默认应用打开文件（漫画库打开 EPUB/PDF） */
+  openPath: (target: string): Promise<void> => ipcRenderer.invoke('shell:open-path', target),
   /** 取拖拽文件的绝对路径（Electron 39 移除了 File.path，必须走 webUtils） */
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
   scanPlan: (root: string): Promise<ScanPlan> => ipcRenderer.invoke('workspace:scan-plan', root),
@@ -99,6 +107,22 @@ const api = {
   }> => ipcRenderer.invoke('dedupe:delete', root, relativePaths),
   scanHealth: (root: string): Promise<HealthReport> => ipcRenderer.invoke('health:scan', root),
   cancelHealth: (): Promise<void> => ipcRenderer.invoke('health:cancel'),
+  scanComics: (root: string): Promise<ComicScanResult> => ipcRenderer.invoke('comic:scan', root),
+  mergeComics: (
+    root: string,
+    relDirs: string[],
+    format: ComicFormat,
+    options?: { raw?: boolean; rebuild?: boolean }
+  ): Promise<ComicMergeReport> => ipcRenderer.invoke('comic:merge', root, relDirs, format, options),
+  cancelComicMerge: (): Promise<void> => ipcRenderer.invoke('comic:cancel'),
+  deleteComicSources: (
+    root: string,
+    relDirs: string[]
+  ): Promise<{
+    cancelled: boolean
+    deletedCount: number
+    failed: { target: string; error: string }[]
+  }> => ipcRenderer.invoke('comic:delete-sources', root, relDirs),
   executePipeline: (root: string, steps: PipelineStep[]): Promise<PipelineReport> =>
     ipcRenderer.invoke('pipeline:execute', root, steps),
   cancelPipeline: (): Promise<void> => ipcRenderer.invoke('pipeline:cancel'),

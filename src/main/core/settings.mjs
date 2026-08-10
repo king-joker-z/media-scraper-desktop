@@ -76,6 +76,11 @@ export const DEFAULT_SETTINGS = {
     { name: '去除 [] 标签', pattern: '\\[[^\\]]*\\]', replacement: '', flags: 'g' }
   ],
   recentWorkspaces: [],
+  // 漫画模块（与视频工作区独立）：默认进入模块选择页
+  activeModule: null,
+  comicWorkspace: '',
+  comicRecentWorkspaces: [],
+  comicFormat: 'epub',
   pipelinePresets: [
     {
       id: 'default',
@@ -191,6 +196,14 @@ export function normalizeSettings(raw) {
           .filter((p) => typeof p === 'string' && p.trim())
           .slice(0, MAX_RECENT_WORKSPACES)
       : [],
+    activeModule: ['video', 'comic'].includes(input.activeModule) ? input.activeModule : null,
+    comicWorkspace: typeof input.comicWorkspace === 'string' ? input.comicWorkspace : '',
+    comicRecentWorkspaces: Array.isArray(input.comicRecentWorkspaces)
+      ? input.comicRecentWorkspaces
+          .filter((p) => typeof p === 'string' && p.trim())
+          .slice(0, MAX_RECENT_WORKSPACES)
+      : [],
+    comicFormat: input.comicFormat === 'pdf' ? 'pdf' : 'epub',
     pipelinePresets: normalizePipelinePresets(input.pipelinePresets),
     deleteToTrash: input.deleteToTrash !== false,
     watch: normalizeWatch(input.watch)

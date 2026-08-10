@@ -122,6 +122,14 @@ export interface AiProviderConfig {
 export type ThemeMode = 'system' | 'light' | 'dark'
 
 export interface AppSettings {
+  /** 当前激活的功能模块（null = 启动时显示模块选择页） */
+  activeModule: AppModule | null
+  /** 漫画模块工作区（与视频工作区相互独立） */
+  comicWorkspace: string
+  /** 漫画模块最近工作区（最新在前，最多 8 个） */
+  comicRecentWorkspaces: string[]
+  /** 漫画合并默认输出格式 */
+  comicFormat: ComicFormat
   /** 全局并发线程数，1-20，默认 5（视频合并除外） */
   concurrency: number
   /** 扫描子目录并发数，1-16，默认 4（大目录树加速遍历） */
@@ -509,4 +517,81 @@ export interface UpdateStatus {
   /** 下载进度 0-100（state = downloading） */
   percent?: number
   message?: string
+}
+
+/* ------------------------- 漫画模块 ------------------------- */
+
+/** 功能模块：视频工坊 / 漫画书房 */
+export type AppModule = 'video' | 'comic'
+
+/** 漫画合并输出格式 */
+export type ComicFormat = 'epub' | 'pdf'
+
+/** 漫画章节：子文件夹为一章；漫画目录下的扁平图片归入 relDir 为 '' 的虚拟章节 */
+export interface ComicChapter {
+  /** 章节名（子文件夹名；扁平图片为 ''） */
+  name: string
+  /** 相对漫画目录（扁平为 ''） */
+  relDir: string
+  /** 有序图片（相对漫画目录，自然排序） */
+  images: string[]
+}
+
+/** 已合并产物清单（存于漫画目录 .comic-merge.json） */
+export interface ComicMergedState {
+  version: 1
+  format: ComicFormat
+  /** 输出文件名（相对漫画目录） */
+  outputName: string
+  /** 输出体积（字节） */
+  outputBytes: number
+  /** 已合并章节快照（用于增量更新检测） */
+  chapters: ComicChapter[]
+  updatedAt: string
+}
+
+/** 一部漫画（工作区一级子文件夹） */
+export interface Comic {
+  /** 漫画名 = 一级子文件夹名 */
+  name: string
+  /** 相对工作区根 */
+  relDir: string
+  chapters: ComicChapter[]
+  imageCount: number
+  /** 封面图（相对漫画目录；无图时为 null；已删源后为 .comic-cover.jpg） */
+  coverRel: string | null
+  /** 已合并状态（无则未合并） */
+  merged: ComicMergedState | null
+  /** 相对清单新增的章节（可增量追加） */
+  newChapters: ComicChapter[]
+  /** 已合并但内容发生变化的章节名（需全量重建） */
+  changedChapters: string[]
+}
+
+export interface ComicScanResult {
+  comics: Comic[]
+  totalImages: number
+}
+
+/** 单部漫画合并结果 */
+export interface ComicMergeItem {
+  relDir: string
+  name: string
+  mode: 'full' | 'update'
+  outputName: string
+  chapters: number
+  images: number
+  /** 产物体积（字节） */
+  bytes: number
+  /** 本次合并的源图片总体积（字节，删源确认用） */
+  sourceBytes: number
+}
+
+export interface ComicMergeReport {
+  taskId: string | null
+  cancelled: boolean
+  format: ComicFormat
+  merged: ComicMergeItem[]
+  failed: { target: string; error: string }[]
+  durationMs: number
 }

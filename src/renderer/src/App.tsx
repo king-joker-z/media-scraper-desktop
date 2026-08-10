@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import CleanPage from './pages/CleanPage'
+import ComicLibraryPage from './pages/ComicLibraryPage'
+import ComicMergePage from './pages/ComicMergePage'
 import DedupePage from './pages/DedupePage'
 import HealthPage from './pages/HealthPage'
 import LibraryPage from './pages/LibraryPage'
@@ -15,6 +17,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { prunePlayPositions } from './utils/media'
 import { applyTheme } from './utils/theme'
 import { basenameOf } from './utils/format'
+import type { AppModule } from '../../shared/types'
 
 export type PageKey =
   | 'clean'
@@ -27,8 +30,10 @@ export type PageKey =
   | 'health'
   | 'library'
   | 'settings'
+  | 'comic-merge'
+  | 'comic-library'
 
-const NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
+const VIDEO_NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
   { key: 'clean', icon: '🧹', label: '目录清理' },
   { key: 'merge', icon: '🎬', label: '视频合并' },
   { key: 'rename', icon: '✏️', label: '批量重命名' },
@@ -41,33 +46,56 @@ const NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
   { key: 'settings', icon: '⚙️', label: '设置' }
 ]
 
+const COMIC_NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
+  { key: 'comic-merge', icon: '📚', label: '漫画合并' },
+  { key: 'comic-library', icon: '📖', label: '漫画库' },
+  { key: 'settings', icon: '⚙️', label: '设置' }
+]
+
+const MODULE_META: Record<AppModule, { icon: string; name: string; home: PageKey }> = {
+  video: { icon: '🎞️', name: '视频工坊', home: 'clean' },
+  comic: { icon: '📚', name: '漫画书房', home: 'comic-merge' }
+}
+
 function App(): React.JSX.Element {
+  // null = 显示模块选择页（首次启动 / 主动返回）
+  const [module, setModule] = useState<AppModule | null>(null)
   const [page, setPage] = useState<PageKey>('clean')
-  const [workspace, setWorkspace] = useState('')
-  const [recents, setRecents] = useState<string[]>([])
+  const [workspaces, setWorkspaces] = useState<Record<AppModule, string>>({ video: '', comic: '' })
+  const [recents, setRecents] = useState<Record<AppModule, string[]>>({ video: [], comic: [] })
   const [showRecents, setShowRecents] = useState(false)
   const [dropActive, setDropActive] = useState(false)
   const dragDepth = useRef(0)
 
-  const refreshRecents = useCallback((): void => {
-    window.api
-      .getSettings()
-      .then((settings) => setRecents(settings.recentWorkspaces))
-      .catch(() => {})
-  }, [])
+  const workspace = module ? workspaces[module] : ''
+  const moduleRecents = module ? recents[module] : []
 
-  // 启动初始化：应用主题、恢复上次工作区（media:// 白名单同步注册）、
+  // 启动初始化：应用主题、恢复上次模块与双工作区（media:// 白名单同步注册）、
   // 请求系统通知权限、清理过期播放进度缓存
   useEffect(() => {
     window.api
       .getSettings()
       .then(async (settings) => {
         applyTheme(settings.theme)
-        setRecents(settings.recentWorkspaces)
-        const last = settings.recentWorkspaces[0]
-        if (last) {
-          const valid = await window.api.useWorkspace(last).catch(() => null)
-          if (valid) setWorkspace(valid)
+        setRecents({
+          video: settings.recentWorkspaces,
+          comic: settings.comicRecentWorkspaces
+        })
+        const nextWorkspaces = { video: '', comic: '' }
+        const lastVideo = settings.recentWorkspaces[0]
+        if (lastVideo) {
+          const valid = await window.api.useWorkspace(lastVideo, 'video').catch(() => null)
+          if (valid) nextWorkspaces.video = valid
+        }
+        const lastComic = settings.comicWorkspace || settings.comicRecentWorkspaces[0]
+        if (lastComic) {
+          const valid = await window.api.useWorkspace(lastComic, 'comic').catch(() => null)
+          if (valid) nextWorkspaces.comic = valid
+        }
+        setWorkspaces(nextWorkspaces)
+        if (settings.activeModule) {
+          setModule(settings.activeModule)
+          setPage(MODULE_META[settings.activeModule].home)
         }
       })
       .catch(() => {})
@@ -77,29 +105,53 @@ function App(): React.JSX.Element {
     prunePlayPositions()
   }, [])
 
+  /** 切换模块（运行时灵活切换，双模块页面状态各自保留） */
+  const switchModule = useCallback((next: AppModule | null): void => {
+    setModule(next)
+    setShowRecents(false)
+    if (next) {
+      setPage(MODULE_META[next].home)
+      window.api.updateSettings({ activeModule: next }).catch(() => {})
+    }
+  }, [])
+
+  const refreshRecents = useCallback((): void => {
+    window.api
+      .getSettings()
+      .then((settings) =>
+        setRecents({
+          video: settings.recentWorkspaces,
+          comic: settings.comicRecentWorkspaces
+        })
+      )
+      .catch(() => {})
+  }, [])
+
   const chooseWorkspace = useCallback(async (): Promise<void> => {
-    const selected = await window.api.selectWorkspace()
+    if (!module) return
+    const selected = await window.api.selectWorkspace(module)
     if (selected) {
-      setWorkspace(selected)
+      setWorkspaces((prev) => ({ ...prev, [module]: selected }))
       refreshRecents()
     }
-  }, [refreshRecents])
+  }, [module, refreshRecents])
 
   // 命名不能以 use 开头，否则会被 react-hooks 规则误判为 Hook
   const openWorkspace = useCallback(
     async (path: string): Promise<void> => {
+      if (!module) return
       try {
-        const valid = await window.api.useWorkspace(path)
-        setWorkspace(valid)
+        const valid = await window.api.useWorkspace(path, module)
+        setWorkspaces((prev) => ({ ...prev, [module]: valid }))
         refreshRecents()
       } catch {
         // 无效目录（不存在/不可读）忽略
       }
     },
-    [refreshRecents]
+    [module, refreshRecents]
   )
 
-  // 拖拽文件夹到窗口任意位置即可设为工作区（Electron 39 需经 webUtils 取路径）
+  // 拖拽文件夹到窗口任意位置即可设为当前模块工作区（Electron 39 需经 webUtils 取路径）
   const onDragEnter = (event: React.DragEvent): void => {
     if (![...event.dataTransfer.types].includes('Files')) return
     event.preventDefault()
@@ -128,8 +180,8 @@ function App(): React.JSX.Element {
       key: 'clean',
       element: (
         <CleanPage
-          active={page === 'clean'}
-          workspace={workspace}
+          active={module === 'video' && page === 'clean'}
+          workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
         />
       )
@@ -138,8 +190,8 @@ function App(): React.JSX.Element {
       key: 'merge',
       element: (
         <MergePage
-          active={page === 'merge'}
-          workspace={workspace}
+          active={module === 'video' && page === 'merge'}
+          workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
         />
       )
@@ -148,8 +200,8 @@ function App(): React.JSX.Element {
       key: 'rename',
       element: (
         <RenamePage
-          active={page === 'rename'}
-          workspace={workspace}
+          active={module === 'video' && page === 'rename'}
+          workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
         />
       )
@@ -158,8 +210,8 @@ function App(): React.JSX.Element {
       key: 'poster',
       element: (
         <PosterPage
-          active={page === 'poster'}
-          workspace={workspace}
+          active={module === 'video' && page === 'poster'}
+          workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
         />
       )
@@ -168,8 +220,8 @@ function App(): React.JSX.Element {
       key: 'nfo',
       element: (
         <NfoPage
-          active={page === 'nfo'}
-          workspace={workspace}
+          active={module === 'video' && page === 'nfo'}
+          workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
         />
       )
@@ -178,8 +230,8 @@ function App(): React.JSX.Element {
       key: 'pipeline',
       element: (
         <PipelinePage
-          active={page === 'pipeline'}
-          workspace={workspace}
+          active={module === 'video' && page === 'pipeline'}
+          workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
         />
       )
@@ -188,8 +240,8 @@ function App(): React.JSX.Element {
       key: 'dedupe',
       element: (
         <DedupePage
-          active={page === 'dedupe'}
-          workspace={workspace}
+          active={module === 'video' && page === 'dedupe'}
+          workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
         />
       )
@@ -198,8 +250,8 @@ function App(): React.JSX.Element {
       key: 'health',
       element: (
         <HealthPage
-          active={page === 'health'}
-          workspace={workspace}
+          active={module === 'video' && page === 'health'}
+          workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
         />
       )
@@ -208,14 +260,67 @@ function App(): React.JSX.Element {
       key: 'library',
       element: (
         <LibraryPage
-          active={page === 'library'}
-          workspace={workspace}
+          active={module === 'video' && page === 'library'}
+          workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
+        />
+      )
+    },
+    {
+      key: 'comic-merge',
+      element: (
+        <ComicMergePage
+          active={module === 'comic' && page === 'comic-merge'}
+          workspace={workspaces.comic}
+          onChooseWorkspace={chooseWorkspace}
+          onOpenLibrary={() => setPage('comic-library')}
+        />
+      )
+    },
+    {
+      key: 'comic-library',
+      element: (
+        <ComicLibraryPage
+          active={module === 'comic' && page === 'comic-library'}
+          workspace={workspaces.comic}
+          onChooseWorkspace={chooseWorkspace}
+          onOpenMerge={() => setPage('comic-merge')}
         />
       )
     },
     { key: 'settings', element: <SettingsPage /> }
   ]
+
+  // 模块选择页：启动（未记忆模块）或主动切换时展示
+  if (!module) {
+    return (
+      <div className="module-picker">
+        <div className="module-picker-drag" />
+        <p className="eyebrow">Media Scraper</p>
+        <h1>选择你的工作模式</h1>
+        <p className="muted">随时可从侧边栏返回此页切换模块，两个模块的页面状态各自保留。</p>
+        <div className="module-cards">
+          {(Object.keys(MODULE_META) as AppModule[]).map((key) => (
+            <button
+              key={key}
+              className={`module-card module-card-${key}`}
+              onClick={() => switchModule(key)}
+            >
+              <span className="module-card-icon">{MODULE_META[key].icon}</span>
+              <span className="module-card-name">{MODULE_META[key].name}</span>
+              <span className="module-card-desc">
+                {key === 'video'
+                  ? '清理 · 合并 · 重命名 · 封面 · 归档 · 去重 · 体检'
+                  : '章节合并 EPUB/PDF · 追更增量追加 · 漫画库'}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const navItems = module === 'video' ? VIDEO_NAV_ITEMS : COMIC_NAV_ITEMS
 
   return (
     <div
@@ -228,17 +333,24 @@ function App(): React.JSX.Element {
       <aside className="sidebar">
         <div className="sidebar-drag" />
         <div className="sidebar-brand">
-          <span className="brand-icon">🎞️</span>
-          <span className="brand-name">Media Scraper</span>
+          <button
+            className="module-switch"
+            title="切换模块（视频 / 漫画）"
+            onClick={() => switchModule(null)}
+          >
+            <span className="brand-icon">{MODULE_META[module].icon}</span>
+            <span className="brand-name">{MODULE_META[module].name}</span>
+            <span className="module-switch-caret">⇄</span>
+          </button>
         </div>
         <div className="workspace-host">
           <button className="workspace-button" onClick={chooseWorkspace} title={workspace}>
-            <span className="workspace-label">工作区</span>
+            <span className="workspace-label">{module === 'video' ? '工作区' : '漫画工作区'}</span>
             <span className="workspace-value">
               {workspace ? basenameOf(workspace) : '点击选择 / 拖入文件夹'}
             </span>
           </button>
-          {recents.length > 0 && (
+          {moduleRecents.length > 0 && (
             <button
               className="recents-toggle"
               title="最近使用的工作区"
@@ -247,11 +359,11 @@ function App(): React.JSX.Element {
               🕘 最近
             </button>
           )}
-          {showRecents && recents.length > 0 && (
+          {showRecents && moduleRecents.length > 0 && (
             <>
               <div className="recents-mask" onClick={() => setShowRecents(false)} />
               <div className="recents-pop">
-                {recents.map((path) => (
+                {moduleRecents.map((path) => (
                   <button
                     key={path}
                     className={`recents-item ${path === workspace ? 'active' : ''}`}
@@ -270,7 +382,7 @@ function App(): React.JSX.Element {
           )}
         </div>
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <button
               key={item.key}
               className={`nav-item ${page === item.key ? 'active' : ''}`}
@@ -281,7 +393,7 @@ function App(): React.JSX.Element {
             </button>
           ))}
         </nav>
-        <div className="sidebar-footer">v1.3.0 · 本地处理，隐私安全</div>
+        <div className="sidebar-footer">v1.4.0 · 本地处理，隐私安全</div>
       </aside>
       <main className="content">
         {modulePages.map((item) => (
@@ -292,7 +404,7 @@ function App(): React.JSX.Element {
       </main>
       {dropActive && (
         <div className="drop-overlay">
-          <div className="drop-hint">松开以设为工作区</div>
+          <div className="drop-hint">松开以设为{module === 'video' ? '' : '漫画'}工作区</div>
         </div>
       )}
       <TaskProgress />
