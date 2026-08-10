@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, Notification, protocol } from 'electron'
-import { extname, join, sep } from 'path'
+import { extname, join } from 'path'
 import { tmpdir } from 'os'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -113,11 +113,23 @@ let workspaceRoot: string | null = null
 const setWorkspaceRoot = (root: string): void => {
   workspaceRoot = root
 }
+
+/**
+ * 路径归一化（白名单比较用）：统一为正斜杠、去尾部分隔符、盘符统一大写。
+ * Windows 上工作区根来自系统对话框（反斜杠），而 media:// URL 解码后是正斜杠，
+ * 不归一化会导致白名单全部误判 403（封面/视频全挂）。
+ */
+const normalizeMediaPath = (p: string): string => {
+  let n = p.replaceAll('\\', '/').replace(/\/+$/, '')
+  if (/^[a-z]:\//.test(n)) n = n[0].toUpperCase() + n.slice(1)
+  return n
+}
 const isMediaAllowed = (filePath: string): boolean => {
+  const target = normalizeMediaPath(filePath)
   const roots = workspaceRoot ? [framesRoot, workspaceRoot] : [framesRoot]
   for (const root of roots) {
-    if (filePath === root || filePath.startsWith(root.endsWith(sep) ? root : root + sep))
-      return true
+    const normalizedRoot = normalizeMediaPath(root)
+    if (target === normalizedRoot || target.startsWith(normalizedRoot + '/')) return true
   }
   return false
 }
@@ -968,7 +980,7 @@ app.whenReady().then(async () => {
   await recoverRenameJournal(renameJournalPath).catch(() => null)
 
   protocol.handle('media', async (request) => {
-    // 渲染端格式：media://local<encodeURI(绝对路径)>
+    // 渲染端格式：media://local<逐段 encodeURIComponent(正斜杠绝对路径)>
     const decoded = decodeURIComponent(new URL(request.url).pathname)
     const filePath = /^\/[A-Za-z]:/.test(decoded) ? decoded.slice(1) : decoded
     if (!isMediaAllowed(filePath)) {

@@ -1,7 +1,8 @@
 /** 将本地绝对路径转为 media:// 协议 URL（主进程白名单校验） */
 export function mediaUrl(absolutePath: string): string {
   const normalized = absolutePath.replaceAll('\\', '/')
-  return `media://local${encodeURI(normalized)}`
+  // 逐段 encodeURIComponent：encodeURI 不编码 # ?，文件名含这些字符会截断 URL（Windows 高发）
+  return `media://local${normalized.split('/').map(encodeURIComponent).join('/')}`
 }
 
 /* ---------------- 播放进度记忆（localStorage，带 30 天过期清理） ---------------- */
