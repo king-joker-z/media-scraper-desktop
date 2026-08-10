@@ -24,6 +24,29 @@ declare module './epub.mjs' {
     }
   ): Uint8Array
 
+  /** 流式创建 EPUB：页面由 preparePage 按需读取，避免整书图片驻留内存。 */
+  export function createEpubFile(input: {
+    outputPath: string
+    title: string
+    chapters: { name: string; pages: unknown[] }[]
+    preparePage: (page: unknown) => Promise<EpubPage & { sourcePath?: string }>
+    signal?: AbortSignal
+  }): Promise<void>
+
+  /** 流式追加 EPUB：既有图片逐 entry 复制，不解压整书到内存。 */
+  export function appendEpubFile(input: {
+    sourcePath: string
+    outputPath: string
+    title: string
+    existingChapters: { name: string; pageCount: number }[]
+    newChapters: { name: string; pages: unknown[] }[]
+    preparePage: (page: unknown) => Promise<EpubPage & { sourcePath?: string }>
+    signal?: AbortSignal
+  }): Promise<void>
+
+  /** 校验流式 EPUB 的关键结构与预期页数。 */
+  export function verifyEpubFile(sourcePath: string, expectedPages: number): Promise<true>
+
   /** 读取 EPUB 内页面数（测试与校验用） */
   export function countEpubPages(bytes: Uint8Array): number
 

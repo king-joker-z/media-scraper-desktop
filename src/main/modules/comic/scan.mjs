@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { recoverStagedOutputs } from '../../core/fs-ops.mjs'
 import {
   COMIC_COVER_NAME,
   COMIC_STATE_NAME,
@@ -63,6 +64,8 @@ export async function readComicState(comicDir) {
 /** 扫描单部漫画 */
 export async function scanComic(root, relDir) {
   const comicDir = join(root, relDir)
+  // 扫描前恢复上次断电/进程被终止时遗留的安全替换备份。
+  await recoverStagedOutputs(comicDir)
   const entries = await readdir(comicDir, { withFileTypes: true })
 
   const chapterDirs = entries

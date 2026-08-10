@@ -1,13 +1,17 @@
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { scanComic } from './scan.mjs'
-import { appendEpub, createEpub } from './epub.mjs'
+import { appendEpubFile, createEpubFile, verifyEpubFile } from './epub.mjs'
 import { appendPdf, createPdf } from './pdf.mjs'
 import {
+  commitStagedFile,
+  createStagingPath,
+  discardStagedFile,
+  fileSize,
   readBinaryFile,
   removeEmptyDirs,
-  writeBinaryFile,
-  writeTextFile
+  writeAtomicTextFile,
+  writeBinaryFile
 } from '../../core/fs-ops.mjs'
 import {
   COMIC_COVER_NAME,
@@ -47,7 +51,8 @@ const extOf = (name) => {
 async function preparePage(absPath, { format, raw }) {
   const buffer = await readBinaryFile(absPath)
   const sourceExt = extOf(absPath)
-  // sharp 默认像素上限约 2.68 亿，条漫长图可能超限，关闭限制（本地可信文件）
+  // sharp 默认像素上限约 2.68 亿，条漫长图可能超限，关闭限制（本地可信文件）。
+  // 此函数只在当前页生命周期内保留 Buffer，绝不累积整章/整书图片。
   const image = sharp(buffer, { limitInputPixels: false })
 
   if (raw && (format === 'epub' || PDF_DIRECT_EXTS.has(sourceExt))) {
@@ -108,48 +113,97 @@ export async function mergeOneComic(
   const outputName = comicOutputName(comic.name, format)
   const outputPath = join(comicDir, outputName)
 
-  // 逐章预处理图片（章内严格顺序；取消信号在图间检查）
-  const preparedChapters = []
+  // EPUB 采用流式 ZIP：逐页读取/转码/写入，数千页也不会累积整书 Buffer。
+  // PDF 受 pdf-lib 限制仍需完整序列化，故仅在 PDF 分支保留逐页预处理数组。
   let sourceBytes = 0
-  for (const chapter of chaptersToProcess) {
-    const pages = []
-    for (const image of chapter.images) {
-      if (signal?.aborted) throw new Error('已取消')
-      const page = await preparePage(join(comicDir, image), { format, raw })
-      pages.push(page)
-      sourceBytes += page.sourceBytes ?? page.data.length
-    }
-    preparedChapters.push({ name: chapterDisplayName(chapter), pages })
-  }
-
-  let bytes
+  let outputBytes = 0
   if (format === 'epub') {
-    bytes =
-      mode === 'update'
-        ? appendEpub(await readBinaryFile(outputPath), {
-            title: comic.name,
-            existingChapters: state.chapters.map((chapter) => ({
-              name: chapterDisplayName(chapter),
-              pageCount: chapter.images.length
-            })),
-            newChapters: preparedChapters
-          })
-        : createEpub({ title: comic.name, chapters: preparedChapters })
+    const stagingPath = createStagingPath(outputPath)
+    const streamChapters = chaptersToProcess.map((chapter) => ({
+      name: chapterDisplayName(chapter),
+      pages: chapter.images.map((image) => ({ path: join(comicDir, image) }))
+    }))
+    const expectedPages =
+      (mode === 'update'
+        ? state.chapters.reduce((sum, chapter) => sum + chapter.images.length, 0)
+        : 0) + streamChapters.reduce((sum, chapter) => sum + chapter.pages.length, 0)
+    const prepareStreamPage = async ({ path }) => {
+      // 原样 EPUB 无须读入图片；sharp 仅读取元数据，yazl 在写入时按需流式读取源文件。
+      if (raw) {
+        const metadata = await sharp(path, { limitInputPixels: false }).metadata()
+        const source = await fileSize(path)
+        sourceBytes += source
+        return {
+          sourcePath: path,
+          width: metadata.width ?? 0,
+          height: metadata.height ?? 0,
+          ext: extOf(path),
+          sourceBytes: source
+        }
+      }
+      const page = await preparePage(path, { format, raw })
+      sourceBytes += page.sourceBytes ?? page.data.length
+      return page
+    }
+    try {
+      if (mode === 'update') {
+        await appendEpubFile({
+          sourcePath: outputPath,
+          outputPath: stagingPath,
+          title: comic.name,
+          existingChapters: state.chapters.map((chapter) => ({
+            name: chapterDisplayName(chapter),
+            pageCount: chapter.images.length
+          })),
+          newChapters: streamChapters,
+          preparePage: prepareStreamPage,
+          signal
+        })
+      } else {
+        await createEpubFile({
+          outputPath: stagingPath,
+          title: comic.name,
+          chapters: streamChapters,
+          preparePage: prepareStreamPage,
+          signal
+        })
+      }
+      if (signal?.aborted) throw new Error('已取消')
+      await verifyEpubFile(stagingPath, expectedPages)
+      await commitStagedFile(stagingPath, outputPath)
+      outputBytes = await fileSize(outputPath)
+    } catch (error) {
+      await discardStagedFile(stagingPath)
+      throw error
+    }
   } else {
+    const preparedChapters = []
+    for (const chapter of chaptersToProcess) {
+      const pages = []
+      for (const image of chapter.images) {
+        if (signal?.aborted) throw new Error('已取消')
+        const page = await preparePage(join(comicDir, image), { format, raw })
+        pages.push(page)
+        sourceBytes += page.sourceBytes ?? page.data.length
+      }
+      preparedChapters.push({ name: chapterDisplayName(chapter), pages })
+    }
     const flatPages = preparedChapters.flatMap((chapter) => chapter.pages)
-    bytes =
+    const bytes =
       mode === 'update'
         ? await appendPdf(await readBinaryFile(outputPath), { pages: flatPages })
         : await createPdf({ title: comic.name, pages: flatPages })
+    if (signal?.aborted) throw new Error('已取消')
+    await writeBinaryFile(outputPath, bytes)
+    outputBytes = bytes.length
   }
 
-  if (signal?.aborted) throw new Error('已取消')
-  await writeBinaryFile(outputPath, bytes)
-
-  // 封面缩略图（删源后漫画库仍有封面可显示）；更新模式保留旧封面
-  if (mode === 'full' && preparedChapters[0]?.pages[0]) {
+  // 封面缩略图（删源后漫画库仍有封面可显示）；更新模式保留旧封面。
+  if (mode === 'full' && comic.chapters[0]?.images[0]) {
     try {
-      const cover = await sharp(preparedChapters[0].pages[0].data, { limitInputPixels: false })
+      const cover = await sharp(join(comicDir, comic.chapters[0].images[0]), {
+        limitInputPixels: false
+      })
         .resize({ width: COVER_WIDTH, withoutEnlargement: true })
         .jpeg({ quality: 78, mozjpeg: true })
         .toBuffer()
@@ -165,7 +219,7 @@ export async function mergeOneComic(
     version: 1,
     format,
     outputName,
-    outputBytes: bytes.length,
+    outputBytes,
     chapters: mergedChapters.map((chapter) => ({
       name: chapter.name,
       relDir: chapter.relDir,
@@ -173,7 +227,8 @@ export async function mergeOneComic(
     })),
     updatedAt: new Date().toISOString()
   }
-  await writeTextFile(join(comicDir, COMIC_STATE_NAME), JSON.stringify(newState, null, 2))
+  // 清单在产物校验、事务提交都成功后才更新，避免清单指向半成品。
+  await writeAtomicTextFile(join(comicDir, COMIC_STATE_NAME), JSON.stringify(newState, null, 2))
 
   return {
     relDir,
@@ -182,7 +237,7 @@ export async function mergeOneComic(
     outputName,
     chapters: chaptersToProcess.length,
     images: chaptersToProcess.reduce((sum, chapter) => sum + chapter.images.length, 0),
-    bytes: bytes.length,
+    bytes: outputBytes,
     sourceBytes
   }
 }
@@ -209,7 +264,9 @@ export async function mergeComics(
     taskId,
     label: format === 'epub' ? '合并漫画（EPUB）' : '合并漫画（PDF）',
     items: relDirs,
-    concurrency,
+    // 单部漫画内部已经顺序处理图片；同时处理多部超大漫画会争抢磁盘与内存。
+    // EPUB 至多 2 本并行，PDF 强制单本，优先保证 Windows 的稳定性。
+    concurrency: format === 'pdf' ? 1 : Math.min(2, concurrency),
     worker: async (relDir, signal) => {
       if (signal?.aborted) throw new Error('已取消')
       const item = await mergeOneComic(root, relDir, { format, raw, rebuild, signal })

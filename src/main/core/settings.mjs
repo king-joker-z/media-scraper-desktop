@@ -1,6 +1,7 @@
-import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { clampConcurrency, DEFAULT_CONCURRENCY } from './task-center.mjs'
+import { writeAtomicTextFile } from './fs-ops.mjs'
 
 export const DEFAULT_PROMPT_TEMPLATE = [
   '你是文件重命名助手。请根据以下信息为视频文件生成一个简洁、规范的新文件名：',
@@ -280,14 +281,15 @@ export class SettingsStore {
     this.cache = normalizeSettings({ ...current, ...patch })
     await mkdir(dirname(this.filePath), { recursive: true })
     // 原子写入：先写临时文件，备份旧文件后 rename 替换，防止写一半留坏档
-    const tmp = `${this.filePath}.tmp`
-    await writeFile(tmp, JSON.stringify(this.cache, null, 2), 'utf8')
+    // 先写可校验 JSON，再保留上一份备份，最后经 fs-ops 的 Windows 安全替换提交。
+    const serialized = JSON.stringify(this.cache, null, 2)
+    JSON.parse(serialized)
     try {
       await copyFile(this.filePath, `${this.filePath}.bak`)
     } catch {
       // 首次写入没有旧文件，忽略
     }
-    await rename(tmp, this.filePath)
+    await writeAtomicTextFile(this.filePath, serialized)
     return this.cache
   }
 }

@@ -5,10 +5,10 @@
 
 ## 项目概述
 
-**Media Scraper Desktop**：本地视频整理与刮削桌面工具。所有处理在本地完成（除可选的 AI 命名走 OpenAI 兼容 API），无后端服务。
+**Media Scraper Desktop**：本地视频整理、刮削与漫画打包桌面工具。应用启动时可选择「视频工坊」或「漫画书房」，运行时可随时切换；所有处理在本地完成（除可选的 AI 命名走 OpenAI 兼容 API），无后端服务。
 
 - 技术栈：Electron 39 + React 19 + TypeScript 5.9 + electron-vite 5（Vite 7）
-- 媒体处理：`ffmpeg-static` / `ffprobe-static`（打包时随应用分发）、`sharp`（图片转码）
+- 媒体处理：`ffmpeg-static` / `ffprobe-static`（打包时随应用分发）、`sharp`（图片转码）、`fflate`（EPUB ZIP）、`pdf-lib`（PDF）
 - 平台：macOS / Windows（Linux 配置存在但非主目标）
 - 语言：UI 与代码注释均为**中文**，提交信息使用中文
 
@@ -32,7 +32,7 @@ npm run build:mac    # macOS DMG（dist/*.dmg，ad-hoc 签名）
 
 ```
 src/shared/types.ts     ← 唯一的跨进程类型来源（只允许类型，禁止运行时代码）
-src/shared/*.mjs        ← 纯函数共享规则（rename-rules / merge-rules），main 与 renderer 都直接 import
+src/shared/*.mjs        ← 纯函数共享规则（rename-rules / merge-rules / comic-rules），main 与 renderer 都直接 import
 src/main/               ← 主进程：全部文件写入、ffmpeg/ffprobe 调用、AI 请求都发生在这里
 src/preload/            ← contextBridge 暴露 window.api（渲染端唯一入口）
 src/renderer/           ← React UI：无 Node 权限，一切经 window.api
@@ -42,8 +42,8 @@ src/renderer/           ← React UI：无 Node 权限，一切经 window.api
 
 1. **`.mjs` + 手写 `.d.ts` 配对**：主进程业务逻辑全部是 `.mjs`（Node ESM，可直接被 `node --test` 测试），旁边的手写 `.d.ts` 用 `declare module './xxx.mjs'` 为 TS 侧提供类型。新增主进程模块时沿用此模式。
 2. **TaskCenter**（`core/task-center.mjs`）：所有批量任务的统一并发调度器（并发 1–20，默认 5，设置页可调）。产出 `TaskEvent`（start/progress/item-done/item-error/done/cancelled），主进程 120ms 节流后经 `tasks:event` 频道广播；渲染端 `TaskProgress`（全局进度条）与 `TaskCenter` 组件（任务抽屉）订阅展示。新批量任务必须接入 TaskCenter 以获得并发控制、取消与进度展示。
-3. **页面常驻挂载 + 指纹同步**：`App.tsx` 一次性挂载全部 10 个页面，切换只切显隐 class（状态不丢）；每页通过 `useWorkspaceSync(workspace, active, scan)` 在变为可见时对比 `computeFingerprint(root)`（递归文件 相对路径+大小+mtime 的 MD5），**有变化自动重扫，无变化直接展示缓存**。不要用 `key` 强制重挂载页面。
-4. **`media://` 自定义协议**：渲染端访问本地图片/视频的唯一通道（`renderer/src/utils/media.ts` 的 `mediaUrl()`）。主进程维护允许根集合（已选工作区 + 截帧临时目录），范围外一律 403；透传 Range 请求（视频拖动进度条依赖）；图片响应强制 `Cache-Control: no-store`（封面是同路径覆盖写入，禁缓存防旧图）。URL 解码后的路径还原与白名单归一化统一走 `core/media-path.mjs`（盘符/反斜杠/UNC/`..` 穿越防护），不要在 `index.ts` 里另写归一化逻辑。
+3. **双模块切换 + 页面常驻挂载**：`App.tsx` 启动时显示视频/漫画模块选择页，视频与漫画分别维护工作区和最近列表；运行时切换模块不丢失各自页面状态。视频页面通过 `useWorkspaceSync(workspace, active, scan)` 在可见时以 `computeFingerprint(root)`（递归文件 相对路径+大小+mtime 的 MD5）决定是否重扫；不要用 `key` 强制重挂载页面。
+4. **`media://` 自定义协议**：渲染端访问本地图片/视频的唯一通道（`renderer/src/utils/media.ts` 的 `mediaUrl()`）。主进程维护允许根集合（已选视频工作区 + 已选漫画工作区 + 截帧临时目录），范围外一律 403；透传 Range 请求（视频拖动进度条依赖）；图片响应强制 `Cache-Control: no-store`（封面是同路径覆盖写入，禁缓存防旧图）。URL 解码后的路径还原与白名单归一化统一走 `core/media-path.mjs`（盘符/反斜杠/UNC/`..` 穿越防护），不要在 `index.ts` 里另写归一化逻辑。
 5. **两段式重命名**（`modules/rename/execute.mjs`）：先全部改到临时名再改到目标名，规避 A↔B 交换冲突。
 6. **操作日志 + 撤销**（`core/op-log.mjs` + `modules/undo/undo.mjs`）：清理/重命名/归档/合并删源/去重删除完成后写 JSON 到 `userData/op-logs/`；重命名与 NFO 归档类日志支持**一键撤销**（按日志反向恢复，成功后标记 `undoneAt`，重复撤销被拒绝）。渲染端 `OpLogPanel` 展示，可跳转系统文件管理器定位。日志写入不阻塞主流程。
 7. **FFmpeg 进程池**（`core/ffmpeg-pool.mjs`）：所有 ffmpeg/ffprobe 子进程经 `runPooled`/`spawnPooled` 受池控（1–8，默认 4，设置页 `ffmpegPoolSize` 可调），防大批量任务同时起几十个子进程打满 CPU/内存。池大小可运行时 `setPoolSize` 调整。
@@ -51,18 +51,19 @@ src/renderer/           ← React UI：无 Node 权限，一切经 window.api
 9. **LRU 有界缓存**（`core/lru-cache.mjs`）：probe 缓存、AI 命名缓存、文件哈希缓存统一用 `createLruCache(cap)`，防长期使用后 Map 无界增长。
 10. **扫描钉住（pinning）**（`core/scanner.mjs`）：`pinScanRecords(root)` 后流水线各步经 `applyScanMutations(root, { deleted, moved })` 增量维护记录，`createScanPlan` 直接复用不重复遍历磁盘；流水线结束必须 `unpinScanRecords()`（建议 try/finally）。未钉住时 `applyScanMutations` 是 no-op。
 11. **自动化流水线**（`modules/pipeline/pipeline.mjs`）：clean/nfo/dedupe/health 四模块可编排成有序步骤串行执行，预设持久化在设置（`pipelinePresets`）；配合 `core/dir-watch.mjs` 目录监控（尾随防抖）实现「丢入新片自动执行预设」。
+12. **漫画合并与追更**（`modules/comic/`）：工作区一级目录为漫画、子目录为章节，按数字感知自然顺序打包 EPUB/PDF；`.comic-merge.json` 保存章节快照，只有新增章节时增量追加，已有章节变更或切换格式必须全量重建。默认优化为限宽 1600 + mozjpeg q85；原样模式尽量保留原图。合并完成后可删除已纳入清单的源图，隐藏封面 `.comic-cover.jpg` 与清单保留以支持漫画库和后续追更。
 
 ## 目录速查
 
-| 路径                           | 职责                                                                                                                                                                                                                                    |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/main/index.ts`            | 主进程入口：窗口、`media://` 协议、全部 `ipcMain.handle` 注册、任务事件节流广播、退出前进程收尾                                                                                                                                         |
+| 路径                           | 职责                                                                                                                                                                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main/index.ts`            | 主进程入口：窗口、`media://` 协议、全部 `ipcMain.handle` 注册、任务事件节流广播、退出前进程收尾                                                                                                                                                          |
 | `src/main/core/`               | 基础设施：scanner（扫描+指纹+pinning）、task-center、settings、probe（ffprobe+缓存）、frames（截帧/场景切分）、fs-ops（唯一文件写入口）、image（sharp）、file-hash、op-log、ffmpeg-pool、process-registry、lru-cache、media-path、dir-watch、task-report |
-| `src/main/modules/`            | 业务能力：clean / merge / rename(execute+ai) / poster / nfo / dedupe / health / pipeline / undo                                                                                                                                         |
-| `src/shared/`                  | `types.ts`（类型唯一来源）、`rename-rules.mjs`、`merge-rules.mjs`（纯函数规则，双端复用）                                                                                                                                               |
-| `src/renderer/src/pages/`      | 10 个页面，与侧边栏模块一一对应                                                                                                                                                                                                         |
-| `src/renderer/src/components/` | ConfirmDialog / TaskCenter / TaskProgress / VideoModal / MergeSortableList / PosterDetail / OpLogPanel / ErrorBoundary                                                                                                                  |
-| `test/`                        | 23 个 `node:test` 测试文件，与主进程模块基本一一对应                                                                                                                                                                                    |
+| `src/main/modules/`            | 业务能力：clean / merge / comic（scan+epub+pdf+merge）/ rename(execute+ai) / poster / nfo / dedupe / health / pipeline / undo                                                                                                                            |
+| `src/shared/`                  | `types.ts`（类型唯一来源）、`rename-rules.mjs`、`merge-rules.mjs`、`comic-rules.mjs`（纯函数规则，双端复用）                                                                                                                                             |
+| `src/renderer/src/pages/`      | 视频模块 10 个页面 + `ComicMergePage` / `ComicLibraryPage`                                                                                                                                                                                               |
+| `src/renderer/src/components/` | ConfirmDialog / TaskCenter / TaskProgress / VideoModal / MergeSortableList / PosterDetail / OpLogPanel / ErrorBoundary                                                                                                                                   |
+| `test/`                        | `node:test` 测试文件，覆盖视频能力与漫画排序、扫描、EPUB/PDF、增量追更、删源后追更                                                                                                                                                                       |
 
 ## 约定（新增/修改代码时遵守）
 
@@ -71,7 +72,7 @@ src/renderer/           ← React UI：无 Node 权限，一切经 window.api
 - 文件删除/移动/改名只允许走 `core/fs-ops.mjs`；重名冲突由 `ensureUniquePath`/`moveWithCollision` 追加 ` (n)` 后缀处理。
 - 共享纯逻辑（命名规则、合并判定）放 `src/shared/*.mjs`，保持零依赖、可单测。
 - 危险操作（删除类）UI 必经 `ConfirmDialog`；高风险计划（删除>50 项 / >1GB / 无视频）要求输入确认词。
-- 页面要接 `active` prop + `useWorkspaceSync`，不要自行在 `useEffect(() => {...}, [])` 里无条件扫描。
+- 视频模块页面要接 `active` prop + `useWorkspaceSync`，不要自行在 `useEffect(() => {...}, [])` 里无条件扫描；漫画页面复用漫画工作区，在可见时自行按扫描结果刷新。
 - Prettier 格式化（无分号、单引号、100 列）；ESLint 含 react-hooks 规则（渲染期间禁止写 ref，需放 effect 内）。
 
 ## 测试约定
@@ -91,10 +92,11 @@ src/renderer/           ← React UI：无 Node 权限，一切经 window.api
 - **ffmpeg concat 清单**：Windows 上 `buildConcatList` 生成的清单必须把 `\` 替换为 `/`，否则 concat demuxer 解析失败。
 - **Windows 杀 ffmpeg**：Windows 无 POSIX 信号，`process.kill()` 等于强杀，mp4 moov 来不及写导致输出损坏。`process-registry.mjs` 已处理（stdin 写 `q` + 延长宽限期），新增子进程类型时注意其优雅退出方式。
 - **Windows 瞬态文件锁**：杀软/索引器会短暂锁住刚写入的文件，`fs-ops.mjs` 的 `withLockRetry` 已对删除/移动做重试，新增写操作复用它。
-- **图片缓存**：封面保存是同路径覆盖写，渲染端 `<img>` 需配合 URL 版本参数 + 协议层 `no-store`，否则显示旧图。
+- **图片缓存**：封面保存是同路径覆盖写，渲染端 `<img>` 需配合 URL 版本参数 + 协议层 `no-store`，否则显示旧图。漫画删源后依赖 `.comic-cover.jpg` 继续在漫画库显示封面。
 - **macOS 隔离属性**：本机下载的 DMG 首次打开可能报「已损坏」，属 Gatekeeper quarantine（ad-hoc 签名），`xattr -cr` 可解。
 - **合并断点续传**：中间段就绪判定必须校验时长（±1s），否则上次取消留下的截断段会被误判为可复用，导致输出时长校验失败。
 - **合并产物再参与合并**：扫描合并候选时必须用 `isMergeOutputName` 排除 `*-merged.mp4`。
+- **漫画增量边界**：增量仅支持「新增完整章节」。已合并章节增删图片、调整顺序、切换 EPUB/PDF、改变图片优化策略时必须全量重建；删源后新增章节仍可追加，旧章节由现有产物保留。
 - **CI artifact 配额**：私有仓 Actions 存储有限，workflow 已加「只保留最新 4 个 artifact」修剪步骤 + 7 天过期；新增上传步骤时沿用 `retention-days` 并不要删修剪步骤。
 - **react-hooks/purity**：渲染期间禁止调 `Date.now()` 等 impure 函数（ESLint 报错），生成 ID 用 `crypto.randomUUID()`。
 - **`no-control-regex`**：命名校验正则刻意匹配控制字符（`\x00-\x1f`），用行内 `eslint-disable-next-line` 豁免，不要为过 lint 删掉控制字符段。

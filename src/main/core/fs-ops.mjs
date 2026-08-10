@@ -13,6 +13,7 @@ import {
 import { createReadStream, createWriteStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { basename, dirname, extname, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 
 /**
  * 执行层唯一写入口：所有模块的删除/移动/改名/写文件必须经由本文件，
@@ -284,11 +285,109 @@ export async function readBinaryFile(target) {
   return readFile(target)
 }
 
-/** 原子写入二进制文件：先写 .part 再 rename，避免中断留下损坏产物 */
+/**
+ * 为大文件生成同目录暂存路径：确保最终提交时同卷 rename，不产生跨卷复制窗口。
+ * 调用方必须在 finally 中调用 discardStagedFile，或提交后由 commitStagedFile 自动清理。
+ */
+export function createStagingPath(target) {
+  return `${target}.msd-new-${randomUUID()}`
+}
+
+/** 将可读流完整写入指定暂存文件，保留背压；适合 EPUB 等数 GB 级产物。 */
+export async function writeReadableFile(target, readable) {
+  await mkdir(dirname(target), { recursive: true })
+  await pipeline(readable, createWriteStream(target, { highWaterMark: 4 * 1024 * 1024 }))
+  return target
+}
+
+/** 删除未提交的暂存文件；取消或构建失败时使用，绝不影响正式产物。 */
+export async function discardStagedFile(target) {
+  await rm(target, { force: true }).catch(() => {})
+}
+
+/** 获取文件字节数（不存在时抛出，避免调用方将不完整产物误判成功）。 */
+export async function fileSize(target) {
+  return (await stat(target)).size
+}
+
+/**
+ * 将已验证的同目录暂存文件安全替换为正式产物。
+ * Windows 上先将旧产物移至 backup，再落位 staging；任何失败都会优先恢复旧产物，
+ * 因此阅读器/同步软件造成的短暂锁定不会导致原书丢失。
+ */
+export async function commitStagedFile(staging, target) {
+  const backup = `${target}.msd-backup-${randomUUID()}`
+  const hadTarget = await pathExists(target)
+  let movedOld = false
+  try {
+    if (hadTarget) {
+      await withLockRetry(() => rename(target, backup))
+      movedOld = true
+    }
+    await withLockRetry(() => rename(staging, target))
+  } catch (error) {
+    if (movedOld && !(await pathExists(target)) && (await pathExists(backup))) {
+      await withLockRetry(() => rename(backup, target)).catch(() => {})
+    }
+    throw error
+  } finally {
+    if (await pathExists(staging)) await discardStagedFile(staging)
+  }
+  // 备份只在新产物成功落位后删除；失败不影响新产物可用性，下次操作可清理残留。
+  if (movedOld) await withLockRetry(() => rm(backup, { force: true }))
+  return target
+}
+
+/** 原子写入小型二进制文件：先写同目录暂存，再经安全替换提交。 */
 export async function writeBinaryFile(target, data) {
-  const temporary = `${target}.part`
-  await writeFile(temporary, data)
-  await withLockRetry(() => rename(temporary, target))
+  const temporary = createStagingPath(target)
+  try {
+    await writeFile(temporary, data)
+    await commitStagedFile(temporary, target)
+  } catch (error) {
+    await discardStagedFile(temporary)
+    throw error
+  }
+}
+
+/** 原子写入文本文件，设置与漫画清单等元数据不可留下半截 JSON。 */
+export async function writeAtomicTextFile(target, content) {
+  await writeBinaryFile(target, Buffer.from(content, 'utf8'))
+  return target
+}
+
+/**
+ * 恢复大文件安全替换中因断电/强制退出留下的暂存件。
+ * 只识别本应用带 UUID 后缀的 .epub/.pdf 文件：正式文件缺失时恢复 backup，
+ * 正式文件存在时清理过期 backup/new，绝不扫描或触碰用户的其他文件。
+ */
+export async function recoverStagedOutputs(dir) {
+  let entries
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  const recovered = []
+  for (const entry of entries) {
+    if (!entry.isFile()) continue
+    const match = /^(.*\.(?:epub|pdf))\.msd-(new|backup)-[\da-f-]+$/i.exec(entry.name)
+    if (!match) continue
+    const [, outputName, kind] = match
+    const artifact = join(dir, entry.name)
+    const output = join(dir, outputName)
+    if (kind === 'backup' && !(await pathExists(output))) {
+      try {
+        await withLockRetry(() => rename(artifact, output))
+        recovered.push(output)
+      } catch {
+        // 锁定时保留 backup，下次扫描还可继续恢复
+      }
+    } else {
+      await discardStagedFile(artifact)
+    }
+  }
+  return recovered
 }
 
 /**

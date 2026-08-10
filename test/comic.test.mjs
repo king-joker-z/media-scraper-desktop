@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -8,9 +8,12 @@ import sharp from 'sharp'
 import { createTaskCenter } from '../src/main/core/task-center.mjs'
 import {
   appendEpub,
+  appendEpubFile,
   countEpubPages,
+  createEpubFile,
   createEpub,
-  listEpubNavItems
+  listEpubNavItems,
+  verifyEpubFile
 } from '../src/main/modules/comic/epub.mjs'
 import { appendPdf, createPdf } from '../src/main/modules/comic/pdf.mjs'
 import { deleteComicSources, mergeComics } from '../src/main/modules/comic/merge.mjs'
@@ -62,6 +65,45 @@ test('PDF：创建与增量追加页数正确', async () => {
   assert.equal((await PDFDocument.load(initial)).getPageCount(), 2)
   const updated = await appendPdf(initial, { pages: [page] })
   assert.equal((await PDFDocument.load(updated)).getPageCount(), 3)
+})
+
+test('EPUB 流式创建与追加：大量页面不在内存中累积且可校验', async () => {
+  await withTempDir(async (root) => {
+    const images = join(root, 'images')
+    const first = join(root, 'first.epub')
+    const updated = join(root, 'updated.epub')
+    await mkdir(images)
+    const pages = []
+    for (let index = 0; index < 1200; index += 1) {
+      const path = join(images, `${index}.png`)
+      await writeFile(path, TINY_PNG)
+      pages.push({ path })
+    }
+    const prepare = async ({ path }) => ({
+      sourcePath: path,
+      width: 1,
+      height: 1,
+      ext: 'png',
+      data: null
+    })
+    await createEpubFile({
+      outputPath: first,
+      title: '千页测试',
+      chapters: [{ name: '第1话', pages: pages.slice(0, 1000) }],
+      preparePage: prepare
+    })
+    await verifyEpubFile(first, 1000)
+    await appendEpubFile({
+      sourcePath: first,
+      outputPath: updated,
+      title: '千页测试',
+      existingChapters: [{ name: '第1话', pageCount: 1000 }],
+      newChapters: [{ name: '第2话', pages: pages.slice(1000) }],
+      preparePage: prepare
+    })
+    await verifyEpubFile(updated, 1200)
+    assert.ok((await stat(updated)).size > 0)
+  })
 })
 
 test('漫画扫描：一级目录为漫画，章节自然排序，扁平图片为正篇', async () => {
