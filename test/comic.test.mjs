@@ -15,7 +15,7 @@ import {
   listEpubNavItems,
   verifyEpubFile
 } from '../src/main/modules/comic/epub.mjs'
-import { appendPdf, createPdf } from '../src/main/modules/comic/pdf.mjs'
+import { appendPdf, createPdf, verifyPdfFile } from '../src/main/modules/comic/pdf.mjs'
 import { deleteComicSources, mergeComics } from '../src/main/modules/comic/merge.mjs'
 import { scanComicWorkspace } from '../src/main/modules/comic/scan.mjs'
 
@@ -65,6 +65,17 @@ test('PDF：创建与增量追加页数正确', async () => {
   assert.equal((await PDFDocument.load(initial)).getPageCount(), 2)
   const updated = await appendPdf(initial, { pages: [page] })
   assert.equal((await PDFDocument.load(updated)).getPageCount(), 3)
+})
+
+test('PDF 文件校验会拒绝页数不符或损坏产物', async () => {
+  await withTempDir(async (root) => {
+    const output = join(root, 'book.pdf')
+    await writeFile(output, await createPdf({ title: '测试漫画', pages: [page] }))
+    await verifyPdfFile(output, 1)
+    await assert.rejects(() => verifyPdfFile(output, 2), /页数校验失败/)
+    await writeFile(output, 'broken')
+    await assert.rejects(() => verifyPdfFile(output, 1))
+  })
 })
 
 test('EPUB 流式创建与追加：大量页面不在内存中累积且可校验', async () => {

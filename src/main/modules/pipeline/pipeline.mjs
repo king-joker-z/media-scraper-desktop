@@ -37,7 +37,11 @@ const stepTaskId = (prefix) => `${prefix}-${Date.now()}-${(stepSeq += 1)}`
  * @returns {Promise<{ summary: string, mutations?: object }>}
  *   mutations 为本步骤对文件系统的已知变更（相对路径），供流水线增量合并扫描记录
  */
-async function runStep(root, module, { taskCenter, concurrency, deleteFn = permanentDelete }) {
+async function runStep(
+  root,
+  module,
+  { taskCenter, concurrency, signal, deleteFn = permanentDelete }
+) {
   const taskId = stepTaskId(`pipeline-${module}`)
 
   switch (module) {
@@ -53,7 +57,8 @@ async function runStep(root, module, { taskCenter, concurrency, deleteFn = perma
         taskId,
         concurrency,
         picks: {},
-        deleteFn
+        deleteFn,
+        signal
       })
       // renamed/converted 的 to 是同目录新基名；moved 的 to 是根目录新基名
       const moved = [
@@ -78,7 +83,8 @@ async function runStep(root, module, { taskCenter, concurrency, deleteFn = perma
       const report = await executeNfoPlan(root, plan.items, actorName, {
         taskCenter,
         taskId,
-        concurrency
+        concurrency,
+        signal
       })
       // 归档 = 视频/poster 移入子目录 + 新建 .nfo
       const moved = []
@@ -101,7 +107,8 @@ async function runStep(root, module, { taskCenter, concurrency, deleteFn = perma
         taskCenter,
         taskId,
         concurrency,
-        ffprobePath: resolveFfprobePath()
+        ffprobePath: resolveFfprobePath(),
+        signal
       })
       if (result.exact.length === 0) {
         return { summary: '未发现完全重复项' }
@@ -124,6 +131,7 @@ async function runStep(root, module, { taskCenter, concurrency, deleteFn = perma
         label: '删除重复视频',
         items: toDelete,
         concurrency,
+        signal,
         worker: async (relativePath, signal) => {
           if (signal?.aborted) throw new Error('已取消')
           await deleteFn(join(root, relativePath))
@@ -144,7 +152,8 @@ async function runStep(root, module, { taskCenter, concurrency, deleteFn = perma
         taskCenter,
         taskId,
         concurrency,
-        ffmpegPath: resolveFfmpegPath()
+        ffmpegPath: resolveFfmpegPath(),
+        signal
       })
       const parts = [`检查 ${report.checked}/${report.total} 个视频`]
       if (report.corrupted.length > 0) parts.push(`损坏 ${report.corrupted.length} 个`)
@@ -169,7 +178,15 @@ async function runStep(root, module, { taskCenter, concurrency, deleteFn = perma
 export async function runPipeline(
   root,
   steps,
-  { taskCenter, concurrency = 5, onStepStart, onStepDone, signal, deleteFn }
+  {
+    taskCenter,
+    concurrency = 5,
+    onStepStart,
+    onStepDone,
+    signal,
+    deleteFn,
+    allowDestructive = true
+  }
 ) {
   const startedAt = Date.now()
   const results = []
@@ -193,11 +210,26 @@ export async function runPipeline(
       onStepStart?.(step)
       const stepStart = Date.now()
       try {
+        if (!allowDestructive && (step.module === 'clean' || step.module === 'dedupe')) {
+          const result = {
+            module: step.module,
+            success: true,
+            durationMs: Date.now() - stepStart,
+            summary: '自动监控模式为保护文件安全，已跳过破坏性步骤'
+          }
+          results.push(result)
+          onStepDone?.(result)
+          continue
+        }
         const { summary, mutations } = await runStep(root, step.module, {
           taskCenter,
           concurrency,
+          signal,
           deleteFn
         })
+        if (signal?.aborted) {
+          return { cancelled: true, results, totalDurationMs: Date.now() - startedAt }
+        }
         if (mutations) await applyScanMutations(root, mutations)
         const result = {
           module: step.module,

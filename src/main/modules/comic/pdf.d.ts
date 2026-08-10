@@ -15,4 +15,7 @@ declare module './pdf.mjs' {
     existingBytes: Uint8Array,
     input: { pages: PdfPage[] }
   ): Promise<Uint8Array>
+
+  /** 重新解析 PDF 并校验页数 */
+  export function verifyPdfFile(path: string, expectedPages: number): Promise<void>
 }

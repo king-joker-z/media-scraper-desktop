@@ -13,6 +13,8 @@ declare module './pipeline.mjs' {
       signal?: AbortSignal
       /** 删除实现（默认永久删除；主进程按设置注入回收站删除） */
       deleteFn?: (target: string) => Promise<void>
+      /** 自动监控模式下禁用 clean/dedupe 的破坏性写入 */
+      allowDestructive?: boolean
     }
   ): Promise<PipelineReport>
 }

@@ -47,6 +47,8 @@ declare module './dedupe.mjs' {
       concurrency?: number
       ffprobePath?: string
       probeFn?: (path: string) => Promise<MediaInfo | null>
+      includeSimilar?: boolean
+      signal?: AbortSignal
     }
   ): Promise<DedupeResult>
 }

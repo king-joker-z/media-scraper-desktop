@@ -9,7 +9,12 @@ import {
 } from '../../core/frames.mjs'
 import { probeMediaCached } from '../../core/probe.mjs'
 import { convertToJpg } from '../../core/image.mjs'
-import { permanentDelete } from '../../core/fs-ops.mjs'
+import {
+  commitStagedFile,
+  createStagingPath,
+  discardStagedFile,
+  permanentDelete
+} from '../../core/fs-ops.mjs'
 
 /**
  * 从扫描计划映射视频与现存 poster 的对应关系（纯函数，可单测）。
@@ -111,7 +116,12 @@ export async function captureAt(videoPath, seconds, framesRoot, { ffmpegPath, si
  * 转 JPG 写入 <视频基名>-poster.jpg（覆盖旧 poster 位），删除旧关联图（若不同名），
  * 并清理该视频的临时候选目录。
  */
-export async function savePoster({ videoPath, chosenFramePath, oldPosterPath }) {
+export async function savePoster({
+  videoPath,
+  chosenFramePath,
+  oldPosterPath,
+  deleteFn = permanentDelete
+}) {
   const dir = dirname(videoPath)
   const target = join(dir, posterFinalName(videoPath))
   const deletedOld = []
@@ -121,12 +131,20 @@ export async function savePoster({ videoPath, chosenFramePath, oldPosterPath }) 
     return { saved: oldPosterPath, deletedOld }
   }
 
-  await convertToJpg(chosenFramePath, target)
+  // 先转到同目录暂存文件，验证生成成功后再安全替换，规避 Windows 文件锁导致旧封面丢失。
+  const stagingPath = createStagingPath(target)
+  try {
+    await convertToJpg(chosenFramePath, stagingPath)
+    await commitStagedFile(stagingPath, target)
+  } catch (error) {
+    await discardStagedFile(stagingPath)
+    throw error
+  }
   if (oldPosterPath && resolve(oldPosterPath) !== resolve(target)) {
-    await permanentDelete(oldPosterPath)
+    await deleteFn(oldPosterPath)
     deletedOld.push(oldPosterPath)
   }
-  // 清理临时候选目录
+  // 候选帧为应用缓存，写入成功后可安全永久清理。
   await permanentDelete(dirname(chosenFramePath))
   return { saved: target, deletedOld }
 }

@@ -21,6 +21,7 @@ declare module './health.mjs' {
       taskId?: string
       concurrency?: number
       ffmpegPath?: string
+      signal?: AbortSignal
     }
   ): Promise<HealthReport>
 }

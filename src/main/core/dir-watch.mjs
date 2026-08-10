@@ -4,6 +4,7 @@ import { watch } from 'node:fs'
  * 目录变化监控（F4）：递归 fs.watch + 尾随防抖。
  * 变化静默 debounceMs 后触发一次 onChange；监控本身不读取文件内容。
  * 递归监控依赖平台支持（macOS/Windows 可用；Linux 不支持时会走 onError）。
+ * 网络共享、云盘与可移动盘的事件可靠性不一，调用方应将其当作触发提示而非唯一数据源。
  *
  * @param {string} root 被监控目录
  * @param {object} options

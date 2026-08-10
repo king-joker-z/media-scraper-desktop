@@ -70,18 +70,15 @@ export function setTrashImpl(fn) {
 
 /**
  * 删除到系统回收站（可从回收站恢复）。
- * 未注入实现或回收站不可用（部分 Linux 环境）时回退为永久删除——与旧行为一致。
+ * 纯 Node 环境未注入实现时回退永久删除；已注入但回收站失败时必须报错，
+ * 不得违背用户“可恢复删除”的选择而静默永久删除。
  */
 export async function deleteToTrash(target) {
   if (!trashImpl) {
     await permanentDelete(target)
     return
   }
-  try {
-    await trashImpl(target)
-  } catch {
-    await permanentDelete(target)
-  }
+  await trashImpl(target)
 }
 
 /**

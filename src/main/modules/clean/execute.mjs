@@ -24,7 +24,7 @@ import { collectFailures, finishReport } from '../../core/task-report.mjs'
  */
 export async function executeCleanPlan(
   plan,
-  { picks = {}, taskCenter, taskId, concurrency = 5, onMoveProgress, deleteFn } = {}
+  { picks = {}, taskCenter, taskId, concurrency = 5, signal, onMoveProgress, deleteFn } = {}
 ) {
   const doDelete = deleteFn ?? permanentDelete
   const startedAt = Date.now()
@@ -66,7 +66,7 @@ export async function executeCleanPlan(
   }
 
   const runPhase = (label, items, worker) =>
-    taskCenter.run({ taskId, label, items, worker, concurrency })
+    taskCenter.run({ taskId, label, items, worker, concurrency, signal })
 
   // ---- 1. 删除清理项（默认进回收站，可在设置改永久删除；最先执行，释放根目录占位名） ----
   const deleteResult = await runPhase('删除清理项', deleteItems, async (item, signal) => {

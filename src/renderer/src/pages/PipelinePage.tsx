@@ -14,6 +14,7 @@ import type {
   PipelineReport,
   PipelineStep
 } from '../../../shared/types'
+import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
 
 /** 生成步骤 ID（使用 React ref 存储计数器，避免渲染期不纯函数） */
@@ -74,6 +75,7 @@ function PipelinePage({
   const [report, setReport] = useState<PipelineReport | null>(null)
   const [error, setError] = useState('')
   const [presetName, setPresetName] = useState('')
+  const [confirming, setConfirming] = useState(false)
 
   // 加载设置 & 初始化预设
   useEffect(() => {
@@ -195,6 +197,7 @@ function PipelinePage({
   // 执行流水线
   const execute = async (): Promise<void> => {
     if (!workspace || steps.filter((s) => s.enabled).length === 0) return
+    setConfirming(false)
     setRunning(true)
     setError('')
     setReport(null)
@@ -211,6 +214,10 @@ function PipelinePage({
   const cancel = (): void => {
     window.api.cancelPipeline()
   }
+
+  const destructiveSteps = steps.filter(
+    (step) => step.enabled && (step.module === 'clean' || step.module === 'dedupe')
+  )
 
   return (
     <div className="page">
@@ -229,7 +236,7 @@ function PipelinePage({
           </button>
           <button
             className="primary"
-            onClick={execute}
+            onClick={() => (destructiveSteps.length > 0 ? setConfirming(true) : void execute())}
             disabled={!workspace || running || steps.filter((s) => s.enabled).length === 0}
           >
             {running ? '执行中…' : '▶ 执行流水线'}
@@ -243,6 +250,20 @@ function PipelinePage({
       </header>
 
       {error && <ErrorBanner message={error} />}
+
+      {confirming && (
+        <ConfirmDialog
+          title="执行包含删除操作的流水线？"
+          deleteCount={0}
+          deleteBytes={0}
+          danger
+          confirmWord="执行流水线"
+          recoverable
+          extra={`本次将自动执行：${destructiveSteps.map((step) => moduleLabel(step.module)).join('、')}。实际删除清单会在运行时扫描生成；请确认预设与工作区无误。`}
+          onConfirm={execute}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
 
       {!workspace && (
         <div className="empty-state">

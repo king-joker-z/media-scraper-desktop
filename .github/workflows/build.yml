@@ -58,10 +58,25 @@ jobs:
           key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
       - if: steps.deps.outputs.cache-hit != 'true'
         run: npm ci
+      # 在真实 Windows 文件系统执行测试，覆盖盘符/反斜杠、锁重试与 Windows 进程分支。
+      - run: npm test
+      - run: npm run lint
+      - run: npm run typecheck
       # GH_TOKEN：electron-builder publish(github) 需要。
       # 仅 tag 构建发布到 Release（--publish always）；分支/PR 构建显式 never，
       # 防止 onTagOrDraft 撞上同名草稿 Release 的资产导致 422 already_exists
       - run: npm run build:win -- --${{ matrix.arch }} --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
+      # 检查 unpacked 目录中原生依赖确实随安装包分发，避免只在 CI 构建成功、用户启动即崩溃。
+      - run: npm run build:unpack
+      - name: Verify unpacked native dependencies
+        shell: pwsh
+        run: |
+          $app = Get-ChildItem -Path dist -Directory | Where-Object { $_.Name -like '*unpacked' } | Select-Object -First 1
+          if (-not $app) { throw '未找到 unpacked 应用目录' }
+          $unpacked = Join-Path $app.FullName 'resources/app.asar.unpacked/node_modules'
+          @('ffmpeg-static', 'ffprobe-static', 'sharp', '@img') | ForEach-Object {
+            if (-not (Test-Path (Join-Path $unpacked $_))) { throw "缺少已解包原生依赖：$_" }
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4

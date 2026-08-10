@@ -218,15 +218,16 @@ test('deleteToTrash 未注入实现时回退永久删除；注入后走回收站
   })
 })
 
-test('deleteToTrash 回收站实现抛错时回退永久删除', async () => {
+test('deleteToTrash 回收站实现抛错时保留文件并向调用方报错', async () => {
   const { deleteToTrash, setTrashImpl } = await import('../src/main/core/fs-ops.mjs')
   await withTempDir(async (root) => {
     setTrashImpl(async () => {
       throw new Error('trash unsupported')
     })
-    await writeFile(join(root, 'c.txt'), 'x')
-    await deleteToTrash(join(root, 'c.txt'))
-    assert.equal(await pathExists(join(root, 'c.txt')), false)
+    const target = join(root, 'c.txt')
+    await writeFile(target, 'x')
+    await assert.rejects(() => deleteToTrash(target), /trash unsupported/)
+    assert.equal(await pathExists(target), true)
     setTrashImpl(null)
   })
 })

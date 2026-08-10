@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { formatBytes } from '../utils/format'
 
@@ -40,12 +40,32 @@ function ConfirmDialog({
 }): React.JSX.Element {
   const [checked, setChecked] = useState(false)
   const [word, setWord] = useState('')
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const canConfirm = danger ? word === confirmWord : checked
 
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    ;(danger ? inputRef.current : cancelRef.current)?.focus()
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      previous?.focus()
+    }
+  }, [danger, onCancel])
+
   return (
-    <div className="dialog-overlay">
-      <div className={`dialog ${danger ? 'danger' : ''}`}>
-        <h2>{title}</h2>
+    <div className="dialog-overlay" role="presentation">
+      <div
+        className={`dialog ${danger ? 'danger' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+      >
+        <h2 id="confirm-dialog-title">{title}</h2>
         <div className="dialog-body">
           {deleteCount > 0 && (
             <p>
@@ -73,7 +93,7 @@ function ConfirmDialog({
         )}
         {danger ? (
           <input
-            autoFocus
+            ref={inputRef}
             className="confirm-input"
             placeholder={`请输入：${confirmWord}`}
             value={word}
@@ -90,7 +110,7 @@ function ConfirmDialog({
           </label>
         )}
         <div className="dialog-actions">
-          <button className="secondary" onClick={onCancel}>
+          <button ref={cancelRef} className="secondary" onClick={onCancel}>
             取消
           </button>
           <button className="danger-button" disabled={!canConfirm} onClick={onConfirm}>

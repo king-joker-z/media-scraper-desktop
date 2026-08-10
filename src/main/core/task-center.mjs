@@ -32,10 +32,13 @@ export function createTaskCenter({ emit } = {}) {
    * @param {number} [options.concurrency] 并发数（自动 clamp 到 1-20）
    * @returns {Promise<{cancelled: boolean, completed: number, failed: number, results: Array}>}
    */
-  async function run({ taskId, label, items, worker, concurrency = DEFAULT_CONCURRENCY }) {
+  async function run({ taskId, label, items, worker, concurrency = DEFAULT_CONCURRENCY, signal }) {
     const total = items.length
     const lanes = clampConcurrency(concurrency)
     const controller = new AbortController()
+    const abortFromParent = () => controller.abort()
+    if (signal?.aborted) controller.abort()
+    else signal?.addEventListener('abort', abortFromParent, { once: true })
     controllers.set(taskId, controller)
 
     let cursor = 0
@@ -76,12 +79,15 @@ export function createTaskCenter({ emit } = {}) {
       }
     }
 
-    await Promise.all(Array.from({ length: Math.min(lanes, total) }, lane))
-    controllers.delete(taskId)
-
-    const cancelled = controller.signal.aborted
-    emit?.({ type: cancelled ? 'cancelled' : 'done', ...snapshot() })
-    return { cancelled, completed, failed, results }
+    try {
+      await Promise.all(Array.from({ length: Math.min(lanes, total) }, lane))
+      const cancelled = controller.signal.aborted
+      emit?.({ type: cancelled ? 'cancelled' : 'done', ...snapshot() })
+      return { cancelled, completed, failed, results }
+    } finally {
+      controllers.delete(taskId)
+      signal?.removeEventListener('abort', abortFromParent)
+    }
   }
 
   function cancel(taskId) {

@@ -324,14 +324,18 @@ function ComicMergePage({
             <span className="muted">
               已选 {selectedComics.length} 部{rebuild ? '（全量重建）' : ''}
             </span>
-            <button
-              onClick={execute}
-              disabled={
-                selectedComics.length === 0 || merging || deleting || (needRebuild && !rebuild)
-              }
-            >
-              {merging ? '合并中…' : `合并 ${selectedComics.length} 部为 ${format.toUpperCase()}`}
-            </button>
+            {merging ? (
+              <button className="secondary" onClick={() => void window.api.cancelComicMerge()}>
+                取消合并
+              </button>
+            ) : (
+              <button
+                onClick={execute}
+                disabled={selectedComics.length === 0 || deleting || (needRebuild && !rebuild)}
+              >
+                {`合并 ${selectedComics.length} 部为 ${format.toUpperCase()}`}
+              </button>
+            )}
           </div>
         </section>
       )}

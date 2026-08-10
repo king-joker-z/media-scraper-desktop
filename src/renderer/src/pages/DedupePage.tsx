@@ -163,14 +163,16 @@ function DedupePage({
           <button className="secondary" onClick={scan} disabled={!workspace || loading || deleting}>
             {loading ? '检测中…' : '开始检测'}
           </button>
-          {checked.size > 0 && (
-            <button
-              className="danger-button"
-              disabled={deleting}
-              onClick={() => setConfirming(true)}
-            >
-              {deleting ? '删除中…' : `删除选中（${checked.size}）`}
+          {deleting ? (
+            <button className="secondary" onClick={() => void window.api.cancelDedupeDelete()}>
+              取消删除
             </button>
+          ) : (
+            checked.size > 0 && (
+              <button className="danger-button" onClick={() => setConfirming(true)}>
+                {`删除选中（${checked.size}）`}
+              </button>
+            )
           )}
         </div>
       </header>

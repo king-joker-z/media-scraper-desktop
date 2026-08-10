@@ -98,6 +98,7 @@ declare global {
         deletedCount: number
         failed: { target: string; error: string }[]
       }>
+      cancelDedupeDelete: () => Promise<void>
       scanHealth: (root: string) => Promise<HealthReport>
       cancelHealth: () => Promise<void>
       scanComics: (root: string) => Promise<ComicScanResult>

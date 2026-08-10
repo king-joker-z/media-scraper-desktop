@@ -19,6 +19,8 @@ declare module './task-center.mjs' {
     items: T[]
     worker: (item: T, signal: AbortSignal) => Promise<R>
     concurrency?: number
+    /** 外部取消信号，会联动取消该任务的内部调度器 */
+    signal?: AbortSignal
   }
 
   export interface TaskCenter {

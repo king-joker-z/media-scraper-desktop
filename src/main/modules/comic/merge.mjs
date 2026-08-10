@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import { scanComic } from './scan.mjs'
 import { appendEpubFile, createEpubFile, verifyEpubFile } from './epub.mjs'
-import { appendPdf, createPdf } from './pdf.mjs'
+import { appendPdf, createPdf, verifyPdfFile } from './pdf.mjs'
 import {
   commitStagedFile,
   createStagingPath,
@@ -177,25 +177,35 @@ export async function mergeOneComic(
       throw error
     }
   } else {
-    const preparedChapters = []
+    // pdf-lib 仍需完整序列化，但避免额外保留章节嵌套数组；超大书建议使用 EPUB。
+    const pages = []
     for (const chapter of chaptersToProcess) {
-      const pages = []
       for (const image of chapter.images) {
         if (signal?.aborted) throw new Error('已取消')
         const page = await preparePage(join(comicDir, image), { format, raw })
         pages.push(page)
         sourceBytes += page.sourceBytes ?? page.data.length
       }
-      preparedChapters.push({ name: chapterDisplayName(chapter), pages })
     }
-    const flatPages = preparedChapters.flatMap((chapter) => chapter.pages)
-    const bytes =
-      mode === 'update'
-        ? await appendPdf(await readBinaryFile(outputPath), { pages: flatPages })
-        : await createPdf({ title: comic.name, pages: flatPages })
-    if (signal?.aborted) throw new Error('已取消')
-    await writeBinaryFile(outputPath, bytes)
-    outputBytes = bytes.length
+    const expectedPages =
+      (mode === 'update'
+        ? state.chapters.reduce((sum, chapter) => sum + chapter.images.length, 0)
+        : 0) + pages.length
+    const stagingPath = createStagingPath(outputPath)
+    try {
+      const bytes =
+        mode === 'update'
+          ? await appendPdf(await readBinaryFile(outputPath), { pages })
+          : await createPdf({ title: comic.name, pages })
+      if (signal?.aborted) throw new Error('已取消')
+      await writeBinaryFile(stagingPath, bytes)
+      await verifyPdfFile(stagingPath, expectedPages)
+      await commitStagedFile(stagingPath, outputPath)
+      outputBytes = await fileSize(outputPath)
+    } catch (error) {
+      await discardStagedFile(stagingPath)
+      throw error
+    }
   }
 
   // 封面缩略图（删源后漫画库仍有封面可显示）；更新模式保留旧封面。

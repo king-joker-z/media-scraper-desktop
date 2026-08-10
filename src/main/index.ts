@@ -37,6 +37,7 @@ import { setPoolSize } from './core/ffmpeg-pool.mjs'
 import { listOpLogs, writeOpLog } from './core/op-log.mjs'
 import { watchDirectory } from './core/dir-watch.mjs'
 import { isMediaPathAllowed, mediaUrlPathToLocal } from './core/media-path.mjs'
+import { assertRegisteredRoot, assertSafeFileName, resolveInsideRoot } from './core/path-guard.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
 import {
   captureAt,
@@ -122,6 +123,25 @@ const setWorkspaceRoot = (root: string): void => {
 let comicRoot: string | null = null
 const setComicRoot = (root: string): void => {
   comicRoot = root
+}
+
+const requireVideoRoot = (root: string): string =>
+  assertRegisteredRoot(root, workspaceRoot, '视频工作区')
+const requireComicRoot = (root: string): string =>
+  assertRegisteredRoot(root, comicRoot, '漫画工作区')
+const registerVideoRootForRead = (root: string): string => {
+  if (!workspaceRoot) setWorkspaceRoot(root)
+  return requireVideoRoot(root)
+}
+const registerComicRootForRead = (root: string): string => {
+  if (!comicRoot) setComicRoot(root)
+  return requireComicRoot(root)
+}
+const requireRelPath = (root: string, relativePath: string): string =>
+  resolveInsideRoot(root, relativePath)
+const requireFileInRoots = (filePath: string, roots: string[], label: string): string => {
+  if (!isMediaPathAllowed(filePath, roots)) throw new Error(`${label}不在允许范围内`)
+  return filePath
 }
 
 /**
@@ -455,6 +475,7 @@ async function executePipelineRun(
       concurrency: settings.concurrency,
       deleteFn: deleteFnOf(settings),
       signal,
+      allowDestructive: label !== '目录监控流水线',
       onStepStart: (step) => {
         emitTask(taskId, label, { type: 'progress', current: `执行步骤：${step.module}`, total })
       },
@@ -538,12 +559,14 @@ function registerIpcHandlers(): void {
     return root
   })
   ipcMain.handle('workspace:scan-plan', async (_event, root: string) => {
-    setWorkspaceRoot(root)
+    const safeRoot = registerVideoRootForRead(root)
     const settings = await settingsStore.get()
     return trackScan('扫描工作区', (onProgress) =>
-      createScanPlan(root, { onProgress, concurrency: settings.scanConcurrency })
+      createScanPlan(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
     )
   })
+  // 指纹仅为只读的 UI 刷新提示：不改变 media:// 白名单，也不作为任何写操作授权。
+  // 页面常驻切换时可能带着上一轮 workspace 触发尾随 fingerprint，允许其自然失败并由渲染端忽略。
   ipcMain.handle('workspace:fingerprint', async (_event, root: string) => {
     const settings = await settingsStore.get()
     return trackScan('检查工作区变化', (onProgress) =>
@@ -560,8 +583,17 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle('clean:execute', async (_event, plan: ScanPlan, picks: PosterPicks) =>
     runExclusive('clean', '清理', async (taskId) => {
+      const safeRoot = requireVideoRoot(plan.root)
+      for (const item of [...plan.keep, ...plan.deleteItems])
+        requireRelPath(safeRoot, item.relativePath)
+      for (const move of plan.moves) requireRelPath(safeRoot, move.from)
+      for (const [video, image] of Object.entries(picks)) {
+        requireRelPath(safeRoot, video)
+        requireRelPath(safeRoot, image)
+      }
+      const safePlan = { ...plan, root: safeRoot }
       const settings = await settingsStore.get()
-      const report = await executeCleanPlan(plan, {
+      const report = await executeCleanPlan(safePlan, {
         picks,
         taskCenter,
         taskId,
@@ -571,7 +603,7 @@ function registerIpcHandlers(): void {
           emitTask(taskId, '上移保留文件', { type: 'progress', current: text })
       })
       logOp('clean', {
-        root: plan.root,
+        root: safeRoot,
         report,
         summary: `删除 ${report.deletedCount}，上移 ${report.moved.length}，转码 ${report.converted.length}`
       })
@@ -582,14 +614,16 @@ function registerIpcHandlers(): void {
 
   // ---------- 模块四：封面管理 ----------
   ipcMain.handle('poster:list', async (_event, root: string) => {
-    setWorkspaceRoot(root)
+    const safeRoot = requireVideoRoot(root)
     const settings = await settingsStore.get()
     return trackScan('扫描视频列表', (onProgress) =>
-      listPosterVideos(root, { onProgress, concurrency: settings.scanConcurrency })
+      listPosterVideos(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
     )
   })
   ipcMain.handle('poster:capture', async (_event, root: string, relativePaths: string[]) =>
     runExclusive('poster', '截帧', async (taskId) => {
+      const safeRoot = requireVideoRoot(root)
+      relativePaths.forEach((relativePath) => requireRelPath(safeRoot, relativePath))
       const settings = await settingsStore.get()
       const result = await taskCenter.run({
         taskId,
@@ -597,11 +631,15 @@ function registerIpcHandlers(): void {
         items: relativePaths,
         concurrency: settings.concurrency,
         worker: async (relativePath, signal) => {
-          const frames = await captureCandidates(join(root, relativePath), framesRoot, {
-            ffmpegPath: resolveFfmpegPath(),
-            ffprobePath: resolveFfprobePath(),
-            signal
-          })
+          const frames = await captureCandidates(
+            requireRelPath(safeRoot, relativePath),
+            framesRoot,
+            {
+              ffmpegPath: resolveFfmpegPath(),
+              ffprobePath: resolveFfprobePath(),
+              signal
+            }
+          )
           return { relativePath, frames }
         }
       })
@@ -621,21 +659,44 @@ function registerIpcHandlers(): void {
       }
     })
   )
-  ipcMain.handle('poster:capture-at', async (_event, videoPath: string, seconds: number) =>
-    captureAt(videoPath, seconds, framesRoot, { ffmpegPath: resolveFfmpegPath() })
-  )
+  ipcMain.handle('poster:capture-at', async (_event, videoPath: string, seconds: number) => {
+    const safeVideo = requireFileInRoots(
+      videoPath,
+      workspaceRoot ? [workspaceRoot] : [],
+      '视频文件'
+    )
+    if (!Number.isFinite(seconds) || seconds < 0) throw new Error('截帧时间无效')
+    return captureAt(safeVideo, seconds, framesRoot, { ffmpegPath: resolveFfmpegPath() })
+  })
   ipcMain.handle(
     'poster:save',
     async (
       _event,
       payload: { videoPath: string; chosenFramePath: string; oldPosterPath: string | null }
-    ) => savePoster(payload)
+    ) => {
+      requireFileInRoots(payload.videoPath, workspaceRoot ? [workspaceRoot] : [], '视频文件')
+      requireFileInRoots(
+        payload.chosenFramePath,
+        [framesRoot, ...(workspaceRoot ? [workspaceRoot] : [])],
+        '封面来源'
+      )
+      if (payload.oldPosterPath)
+        requireFileInRoots(payload.oldPosterPath, workspaceRoot ? [workspaceRoot] : [], '旧封面')
+      const settings = await settingsStore.get()
+      return savePoster({ ...payload, deleteFn: deleteFnOf(settings) })
+    }
   )
   ipcMain.handle(
     'poster:save-batch',
     async (_event, videos: PosterVideoItem[], selections: Record<string, string>) =>
       runExclusive('poster', '封面', async (taskId) => {
+        const safeRoot = requireVideoRoot(workspaceRoot ?? '')
         const items = computePendingSaves(videos, selections)
+        for (const item of items) {
+          requireFileInRoots(item.videoPath, [safeRoot], '视频文件')
+          requireFileInRoots(item.chosenFramePath, [framesRoot, safeRoot], '封面来源')
+          if (item.oldPosterPath) requireFileInRoots(item.oldPosterPath, [safeRoot], '旧封面')
+        }
         if (items.length === 0)
           return { cancelled: false, savedCount: 0, failedCount: 0, outcomes: [] }
         const settings = await settingsStore.get()
@@ -644,8 +705,9 @@ function registerIpcHandlers(): void {
           label: '批量保存封面',
           items,
           concurrency: settings.concurrency,
-          worker: async (item) => {
-            const saved = await savePoster(item)
+          worker: async (item, signal) => {
+            if (signal.aborted) throw new Error('已取消')
+            const saved = await savePoster({ ...item, deleteFn: deleteFnOf(settings) })
             return { relativePath: item.relativePath, saved: saved.saved }
           }
         })
@@ -669,6 +731,8 @@ function registerIpcHandlers(): void {
 
   // ---------- 模块三：批量重命名 ----------
   ipcMain.handle('rename:probe', async (_event, root: string, relativePaths: string[]) => {
+    const safeRoot = requireVideoRoot(root)
+    relativePaths.forEach((relativePath) => requireRelPath(safeRoot, relativePath))
     const settings = await settingsStore.get()
     const result = await taskCenter.run({
       taskId: newTaskId('probe'),
@@ -676,7 +740,7 @@ function registerIpcHandlers(): void {
       items: relativePaths,
       concurrency: settings.concurrency,
       worker: async (relativePath) => {
-        const info = await probeMedia(join(root, relativePath), resolveFfprobePath())
+        const info = await probeMedia(requireRelPath(safeRoot, relativePath), resolveFfprobePath())
         return {
           relativePath,
           container: info.container,
@@ -722,16 +786,21 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle('rename:execute', async (_event, root: string, pairs: RenamePairInput[]) =>
     runExclusive('rename', '重命名', async (taskId) => {
+      const safeRoot = requireVideoRoot(root)
+      pairs.forEach((pair) => {
+        requireRelPath(safeRoot, pair.videoRel)
+        if (pair.posterRel) requireRelPath(safeRoot, pair.posterRel)
+      })
       // 上次崩溃残留的临时文件先续跑收尾（S8）
       await recoverRenameJournal(renameJournalPath).catch(() => null)
       const settings = await settingsStore.get()
-      const report = await executeRename(root, pairs, {
+      const report = await executeRename(safeRoot, pairs, {
         taskCenter,
         taskId,
         concurrency: settings.concurrency,
         journalPath: renameJournalPath
       })
-      logOp('rename', { root, report, summary: `改名 ${report.renamedCount} 项` })
+      logOp('rename', { root: safeRoot, report, summary: `改名 ${report.renamedCount} 项` })
       return report
     })
   )
@@ -739,23 +808,34 @@ function registerIpcHandlers(): void {
 
   // ---------- 模块五：NFO 归档 ----------
   ipcMain.handle('nfo:plan', async (_event, root: string) => {
-    setWorkspaceRoot(root)
+    const safeRoot = requireVideoRoot(root)
     const settings = await settingsStore.get()
     return trackScan('生成归档计划', (onProgress) =>
-      createNfoPlan(root, { onProgress, concurrency: settings.scanConcurrency })
+      createNfoPlan(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
     )
   })
   ipcMain.handle(
     'nfo:execute',
     async (_event, root: string, items: NfoPlanItem[], actorName: string) =>
       runExclusive('nfo', '归档', async (taskId) => {
+        const safeRoot = requireVideoRoot(root)
+        items.forEach((item) => {
+          requireRelPath(safeRoot, item.videoRel)
+          requireRelPath(safeRoot, item.targetDir)
+          if (item.posterRel) requireRelPath(safeRoot, item.posterRel)
+        })
         const settings = await settingsStore.get()
-        const report = await executeNfoPlan(root, items, actorName, {
+        const report = await executeNfoPlan(safeRoot, items, actorName, {
           taskCenter,
           taskId,
           concurrency: settings.concurrency
         })
-        logOp('nfo', { root, actorName, report, summary: `归档 ${report.archivedCount} 个视频` })
+        logOp('nfo', {
+          root: safeRoot,
+          actorName,
+          report,
+          summary: `归档 ${report.archivedCount} 个视频`
+        })
         return report
       })
   )
@@ -763,12 +843,12 @@ function registerIpcHandlers(): void {
 
   // ---------- 模块二：视频合并 ----------
   ipcMain.handle('merge:scan', async (_event, root: string) => {
-    setWorkspaceRoot(root)
+    const safeRoot = requireVideoRoot(root)
     const settings = await settingsStore.get()
     // 排除本产品生成的合并产物，避免再次参与合并
     const videos = (
       await trackScan<PosterVideoItem[]>('扫描视频列表', (onProgress) =>
-        listPosterVideos(root, { onProgress, concurrency: settings.scanConcurrency })
+        listPosterVideos(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
       )
     ).filter((v) => !isMergeOutputName(v.name))
     const probed = await taskCenter.run({
@@ -784,7 +864,7 @@ function registerIpcHandlers(): void {
         }
       }
     })
-    const freeBytes = await diskFreeBytes(root).catch(() => 0)
+    const freeBytes = await diskFreeBytes(safeRoot).catch(() => 0)
     return {
       videos: probed.results.map((entry, index) =>
         entry.ok ? entry.value : { ...videos[index], media: null }
@@ -796,12 +876,15 @@ function registerIpcHandlers(): void {
     'merge:execute',
     async (_event, root: string, items: MergeVideoItem[], outputName: string) =>
       runExclusiveAbort('merge', '合并', async (signal, taskId) => {
+        const safeRoot = requireVideoRoot(root)
+        assertSafeFileName(outputName)
+        items.forEach((item) => requireFileInRoots(item.path, [safeRoot], '合并源文件'))
         const emit = (type: TaskEvent['type'], percent: number, stage: string): void =>
           emitTask(taskId, '视频合并', { type, total: 100, completed: percent, current: stage })
         emit('start', 0, '准备合并')
         const result = await mergeVideos({
           items: items.map((item) => ({ path: item.path, name: item.name, media: item.media })),
-          outputDir: root,
+          outputDir: safeRoot,
           outputName,
           ffmpegPath: resolveFfmpegPath(),
           ffprobePath: resolveFfprobePath(),
@@ -813,15 +896,20 @@ function registerIpcHandlers(): void {
       })
   )
   ipcMain.handle('merge:delete-sources', async (_event, root: string, items: MergeSourceItem[]) => {
+    const safeRoot = requireVideoRoot(root)
+    items.forEach((item) => {
+      requireRelPath(safeRoot, item.videoRel)
+      if (item.posterRel) requireRelPath(safeRoot, item.posterRel)
+    })
     const settings = await settingsStore.get()
-    const report = await deleteMergeSources(root, items, {
+    const report = await deleteMergeSources(safeRoot, items, {
       taskCenter,
       taskId: newTaskId('merge-clean'),
       concurrency: settings.concurrency,
       deleteFn: deleteFnOf(settings)
     })
     logOp('merge-delete-sources', {
-      root,
+      root: safeRoot,
       items,
       report,
       summary: `删除源文件 ${report.deletedCount} 个`
@@ -832,8 +920,9 @@ function registerIpcHandlers(): void {
 
   // ---------- 视频去重 ----------
   ipcMain.handle('dedupe:scan', async (_event, root: string, includeSimilar = true) => {
+    const safeRoot = requireVideoRoot(root)
     const settings = await settingsStore.get()
-    return findDuplicates(root, {
+    return findDuplicates(safeRoot, {
       taskCenter,
       taskId: newTaskId('dedupe'),
       concurrency: settings.concurrency,
@@ -842,38 +931,44 @@ function registerIpcHandlers(): void {
     })
   })
   ipcMain.handle('dedupe:delete', async (_event, root: string, relativePaths: string[]) => {
-    const settings = await settingsStore.get()
-    const doDelete = deleteFnOf(settings)
-    const result = await taskCenter.run({
-      taskId: newTaskId('dedupe-delete'),
-      label: '删除重复视频',
-      items: relativePaths,
-      concurrency: settings.concurrency,
-      worker: async (relativePath, signal) => {
-        if (signal?.aborted) throw new Error('已取消')
-        await doDelete(join(root, relativePath))
+    const safeRoot = requireVideoRoot(root)
+    relativePaths.forEach((relativePath) => requireRelPath(safeRoot, relativePath))
+    return runExclusive('dedupe-delete', '删除重复视频', async (taskId) => {
+      const settings = await settingsStore.get()
+      const doDelete = deleteFnOf(settings)
+      const result = await taskCenter.run({
+        taskId,
+        label: '删除重复视频',
+        items: relativePaths,
+        concurrency: settings.concurrency,
+        worker: async (relativePath, signal) => {
+          if (signal?.aborted) throw new Error('已取消')
+          await doDelete(requireRelPath(safeRoot, relativePath))
+        }
+      })
+      const report = {
+        cancelled: result.cancelled,
+        deletedCount: result.completed,
+        failed: [] as { target: string; error: string }[]
       }
+      collectFailures(report, result, relativePaths)
+      logOp('dedupe-delete', {
+        root: safeRoot,
+        items: relativePaths,
+        report,
+        summary: `删除重复文件 ${result.completed} 个`
+      })
+      return report
     })
-    const report = {
-      cancelled: result.cancelled,
-      deletedCount: result.completed,
-      failed: [] as { target: string; error: string }[]
-    }
-    collectFailures(report, result, relativePaths)
-    logOp('dedupe-delete', {
-      root,
-      items: relativePaths,
-      report,
-      summary: `删除重复文件 ${result.completed} 个`
-    })
-    return report
   })
+  ipcMain.handle('dedupe:cancel', async () => cancelSlot('dedupe-delete'))
 
   // ---------- 完整性体检（F3） ----------
   ipcMain.handle('health:scan', async (_event, root: string) =>
     runExclusive('health', '体检', async (taskId) => {
+      const safeRoot = requireVideoRoot(root)
       const settings = await settingsStore.get()
-      return healthScan(root, {
+      return healthScan(safeRoot, {
         taskCenter,
         taskId,
         concurrency: settings.concurrency,
@@ -920,13 +1015,13 @@ function registerIpcHandlers(): void {
 
   // ---------- 自动化流水线 ----------
   ipcMain.handle('pipeline:execute', async (_event, root: string, steps: PipelineStep[]) =>
-    executePipelineRun(root, steps)
+    executePipelineRun(requireVideoRoot(root), steps)
   )
   ipcMain.handle('pipeline:cancel', async () => abortSlot('pipeline'))
 
   // ---------- 漫画模块 ----------
   ipcMain.handle('comic:scan', async (_event, root: string) =>
-    trackScan('扫描漫画工作区', async () => scanComicWorkspace(root))
+    trackScan('扫描漫画工作区', async () => scanComicWorkspace(registerComicRootForRead(root)))
   )
   ipcMain.handle(
     'comic:merge',
@@ -938,8 +1033,10 @@ function registerIpcHandlers(): void {
       options: { raw?: boolean; rebuild?: boolean } = {}
     ) =>
       runExclusive('comic', '漫画合并', async (taskId) => {
+        const safeRoot = requireComicRoot(root)
+        relDirs.forEach((relDir) => requireRelPath(safeRoot, relDir))
         const settings = await settingsStore.get()
-        const report = await mergeComics(root, {
+        const report = await mergeComics(safeRoot, {
           relDirs,
           format,
           raw: options.raw === true,
@@ -949,7 +1046,7 @@ function registerIpcHandlers(): void {
           concurrency: settings.concurrency
         })
         logOp('comic-merge', {
-          root,
+          root: safeRoot,
           format,
           report,
           summary: `合并漫画 ${report.merged.length} 部（${format}）${
@@ -961,9 +1058,11 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle('comic:cancel', async () => cancelSlot('comic'))
   ipcMain.handle('comic:delete-sources', async (_event, root: string, relDirs: string[]) => {
+    const safeRoot = requireComicRoot(root)
+    relDirs.forEach((relDir) => requireRelPath(safeRoot, relDir))
     const settings = await settingsStore.get()
     return runExclusive('comic-delete', '删除漫画源图片', async (taskId) => {
-      const report = await deleteComicSources(root, {
+      const report = await deleteComicSources(safeRoot, {
         relDirs,
         taskCenter,
         taskId,
@@ -971,7 +1070,7 @@ function registerIpcHandlers(): void {
         deleteFn: deleteFnOf(settings)
       })
       logOp('comic-delete-sources', {
-        root,
+        root: safeRoot,
         report,
         summary: `删除漫画源图片 ${report.deletedCount} 张`
       })
@@ -1007,6 +1106,9 @@ function registerIpcHandlers(): void {
     })
   })
   ipcMain.handle('update:install', async () => {
+    if (taskCenter.hasActive() || abortSlots.size > 0 || activeProcessCount() > 0) {
+      throw new Error('仍有任务在运行，请等待完成或先取消后再安装更新')
+    }
     installingUpdate = true
     autoUpdater.quitAndInstall()
   })
@@ -1016,24 +1118,28 @@ function registerIpcHandlers(): void {
   // ---------- 操作日志 ----------
   ipcMain.handle('op-logs:list', async () => listOpLogs(opLogDir))
   ipcMain.handle('op-logs:reveal', async (_event, file: string) => {
-    shell.showItemInFolder(file)
+    shell.showItemInFolder(requireFileInRoots(file, [opLogDir], '操作日志'))
   })
   // 系统默认应用打开文件（漫画库打开 EPUB/PDF）
   ipcMain.handle('shell:open-path', async (_event, target: string) => {
-    const error = await shell.openPath(target)
+    const safeTarget = requireFileInRoots(target, comicRoot ? [comicRoot] : [], '漫画产物')
+    if (!['.epub', '.pdf'].includes(extname(safeTarget).toLowerCase()))
+      throw new Error('只允许打开 EPUB 或 PDF')
+    const error = await shell.openPath(safeTarget)
     if (error) throw new Error(error)
   })
   // 一键撤销（F2）：按日志反向恢复重命名/NFO 归档
   ipcMain.handle('op-logs:undo', async (_event, file: string) =>
     runExclusive('undo', '撤销', async (taskId) => {
+      const safeFile = requireFileInRoots(file, [opLogDir], '操作日志')
       const settings = await settingsStore.get()
-      const report = await undoOpLog(file, {
+      const report = await undoOpLog(safeFile, {
         taskCenter,
         taskId,
         concurrency: settings.concurrency
       })
       logOp('undo', {
-        file,
+        file: safeFile,
         report,
         summary: `撤销 ${report.module}：回退 ${report.undone} 项，跳过 ${report.skipped} 项`
       })
@@ -1108,11 +1214,10 @@ app.on('before-quit', (event) => {
       taskCenter.cancelAll()
       for (const controller of abortSlots.values()) controller.abort()
     }
-    // 先给在途进程优雅收尾的机会（POSIX SIGTERM / Windows stdin 'q'），轮询等待归零
-    // （上限 3s，快则立即继续、慢则兜底强杀，替代原先固定 600ms + 立即强杀——
-    // 立即强杀会让 ffmpeg 来不及写 mp4 moov，且固定等待对无任务场景也白等）
+    // 先给在途进程优雅收尾的机会（POSIX SIGTERM / Windows stdin 'q'）。
+    // Windows 写大型 MP4 的 moov 或网络盘落盘可能较慢，保留更长窗口后才兜底强杀。
     if (activeProcessCount() > 0) {
-      const deadline = Date.now() + 3000
+      const deadline = Date.now() + (process.platform === 'win32' ? 10_000 : 3_000)
       while (activeProcessCount() > 0 && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 100))
       }

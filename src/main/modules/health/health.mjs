@@ -42,7 +42,7 @@ const TOP_LARGEST = 10
  */
 export async function healthScan(
   root,
-  { taskCenter, taskId, concurrency = 5, ffmpegPath = resolveFfmpegPath() } = {}
+  { taskCenter, taskId, concurrency = 5, ffmpegPath = resolveFfmpegPath(), signal } = {}
 ) {
   const startedAt = Date.now()
   const plan = await createScanPlan(root)
@@ -81,6 +81,7 @@ export async function healthScan(
       label: '视频完整性体检',
       items: videos,
       concurrency,
+      signal,
       worker
     })
     cancelled = result.cancelled

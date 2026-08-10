@@ -48,3 +48,13 @@ export async function appendPdf(existingBytes, { pages }) {
   for (const page of pages) await embedPage(doc, page)
   return doc.save()
 }
+
+/** 写入后重新解析并核对页数，避免损坏产物覆盖既有 PDF。 */
+export async function verifyPdfFile(path, expectedPages) {
+  const { readFile } = await import('node:fs/promises')
+  const bytes = await readFile(path)
+  const doc = await PDFDocument.load(bytes, { updateMetadata: false })
+  if (doc.getPageCount() !== expectedPages) {
+    throw new Error(`PDF 页数校验失败：期望 ${expectedPages} 页，实际 ${doc.getPageCount()} 页`)
+  }
+}

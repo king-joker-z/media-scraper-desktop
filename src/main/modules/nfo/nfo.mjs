@@ -1,5 +1,13 @@
 import { basename, extname, join } from 'node:path'
-import { listDirNames, moveWithCollision, pathExists, writeTextFile } from '../../core/fs-ops.mjs'
+import {
+  listDirNames,
+  moveFile,
+  moveWithCollision,
+  pathExists,
+  permanentDelete,
+  removeEmptyDirs,
+  writeTextFile
+} from '../../core/fs-ops.mjs'
 import { collectFailures, finishReport } from '../../core/task-report.mjs'
 import { listPosterVideos } from '../poster/poster.mjs'
 
@@ -64,7 +72,7 @@ export async function executeNfoPlan(
   root,
   items,
   actorName,
-  { taskCenter, taskId, concurrency = 5 }
+  { taskCenter, taskId, concurrency = 5, signal }
 ) {
   const startedAt = Date.now()
   // archived 记录每个视频的落位明细（视频/poster/NFO 文件名），供「一键撤销」反向移动
@@ -82,34 +90,50 @@ export async function executeNfoPlan(
     label: 'NFO 归档',
     items,
     concurrency,
-    worker: async (item, signal) => {
-      if (signal?.aborted) throw new Error('已取消')
+    signal,
+    worker: async (item, itemSignal) => {
+      if (itemSignal?.aborted) throw new Error('已取消')
       const targetDir = join(root, item.targetDir)
-      // 移入视频与 poster（重名自动 (n)）
-      const videoFinal = await moveWithCollision(join(root, item.videoRel), targetDir)
-      let posterName = null
-      if (item.posterRel) {
-        const posterFinal = await moveWithCollision(join(root, item.posterRel), targetDir)
-        posterName = basename(posterFinal)
+      const originalVideo = join(root, item.videoRel)
+      const originalPoster = item.posterRel ? join(root, item.posterRel) : null
+      let videoFinal = null
+      let posterFinal = null
+      let nfoPath = null
+      try {
+        videoFinal = await moveWithCollision(originalVideo, targetDir, { signal: itemSignal })
+        if (originalPoster)
+          posterFinal = await moveWithCollision(originalPoster, targetDir, { signal: itemSignal })
+        const videoName = basename(videoFinal, extname(videoFinal))
+        const nfoName = `${videoName}.nfo`
+        nfoPath = join(targetDir, nfoName)
+        await writeTextFile(
+          nfoPath,
+          renderNfoXml({
+            title: videoName,
+            posterName: posterFinal ? basename(posterFinal) : null,
+            actorName
+          })
+        )
+        if (!(await pathExists(nfoPath)) || !(await pathExists(videoFinal)))
+          throw new Error('归档结果校验失败')
+        report.archivedCount += 1
+        report.archived.push({
+          videoRel: item.videoRel,
+          posterRel: item.posterRel,
+          targetDir: item.targetDir,
+          videoName: basename(videoFinal),
+          posterName: posterFinal ? basename(posterFinal) : null,
+          nfoName
+        })
+      } catch (error) {
+        await permanentDelete(nfoPath).catch(() => {})
+        if (posterFinal && originalPoster && (await pathExists(posterFinal)))
+          await moveFile(posterFinal, originalPoster).catch(() => {})
+        if (videoFinal && (await pathExists(videoFinal)))
+          await moveFile(videoFinal, originalVideo).catch(() => {})
+        await removeEmptyDirs(root).catch(() => [])
+        throw error
       }
-      // 生成 NFO
-      const videoName = basename(videoFinal, extname(videoFinal))
-      const nfoName = `${videoName}.nfo`
-      const nfoPath = join(targetDir, nfoName)
-      await writeTextFile(nfoPath, renderNfoXml({ title: videoName, posterName, actorName }))
-      // 校验：三个文件关系
-      if (!(await pathExists(nfoPath))) throw new Error('NFO 写入失败')
-      if (!(await pathExists(videoFinal))) throw new Error('视频移动校验失败')
-      report.archivedCount += 1
-      report.archived.push({
-        // 原始相对路径（撤销时恢复原位与原名的依据）
-        videoRel: item.videoRel,
-        posterRel: item.posterRel,
-        targetDir: item.targetDir,
-        videoName: basename(videoFinal),
-        posterName,
-        nfoName
-      })
     }
   })
 

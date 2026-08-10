@@ -42,7 +42,7 @@ const mediaOf = (mediaMap, relativePath) => mediaMap.get(relativePath) ?? null
  */
 export async function findDuplicates(
   root,
-  { taskCenter, taskId, concurrency = 5, ffprobePath, probeFn, includeSimilar = true } = {}
+  { taskCenter, taskId, concurrency = 5, ffprobePath, probeFn, includeSimilar = true, signal } = {}
 ) {
   const plan = await createScanPlan(root)
   const videos = plan.keep.filter((item) => item.kind === 'video')
@@ -67,6 +67,7 @@ export async function findDuplicates(
       label: '计算文件指纹',
       items: candidates,
       concurrency,
+      signal,
       worker: hashOne
     })
     hashed = result.results
@@ -99,6 +100,7 @@ export async function findDuplicates(
         label: '读取媒体信息',
         items: videos,
         concurrency,
+        signal,
         worker: probeOne
       })
       probed = result.results.map((entry, index) =>

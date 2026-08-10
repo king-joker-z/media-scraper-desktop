@@ -16,6 +16,6 @@ declare module './nfo.mjs' {
     root: string,
     items: NfoPlanItem[],
     actorName: string,
-    options: { taskCenter: TaskCenter; taskId: string; concurrency?: number }
+    options: { taskCenter: TaskCenter; taskId: string; concurrency?: number; signal?: AbortSignal }
   ): Promise<NfoReport>
 }

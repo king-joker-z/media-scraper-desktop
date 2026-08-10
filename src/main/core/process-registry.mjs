@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process'
 
 const activeChildren = new Set()
 /** abort 后 SIGTERM 的宽限期，超时升级 SIGKILL */
-const KILL_GRACE_MS = 800
+const KILL_GRACE_MS = 1500
 
 /**
  * 注册子进程并挂接生命周期清理。
@@ -32,7 +32,7 @@ export function trackChild(child, { signal, killGraceMs = KILL_GRACE_MS } = {}) 
       try {
         if (child.stdin && !child.stdin.destroyed && child.stdin.writable) {
           child.stdin.write('q')
-          gracefulGraceMs = Math.max(killGraceMs, 3000)
+          gracefulGraceMs = Math.max(killGraceMs, 10_000)
         }
       } catch {
         // stdin 不可用则直接走强杀兜底

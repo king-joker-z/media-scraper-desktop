@@ -105,6 +105,7 @@ const api = {
     deletedCount: number
     failed: { target: string; error: string }[]
   }> => ipcRenderer.invoke('dedupe:delete', root, relativePaths),
+  cancelDedupeDelete: (): Promise<void> => ipcRenderer.invoke('dedupe:cancel'),
   scanHealth: (root: string): Promise<HealthReport> => ipcRenderer.invoke('health:scan', root),
   cancelHealth: (): Promise<void> => ipcRenderer.invoke('health:cancel'),
   scanComics: (root: string): Promise<ComicScanResult> => ipcRenderer.invoke('comic:scan', root),

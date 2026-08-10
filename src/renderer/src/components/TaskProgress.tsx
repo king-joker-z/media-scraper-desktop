@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { TaskEvent } from '../../../shared/types'
 
 /**
@@ -18,25 +18,42 @@ const notifyTaskFinished = (event: TaskEvent): void => {
 
 function TaskProgress(): React.JSX.Element | null {
   const [tasks, setTasks] = useState<Map<string, TaskEvent>>(new Map())
+  const finishedTaskIds = useRef(new Set<string>())
+  const dismissTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
 
   useEffect(() => {
-    return window.api.onTaskEvent((event) => {
+    const timers = dismissTimers.current
+    const unsubscribe = window.api.onTaskEvent((event) => {
+      const finished = event.type === 'done' || event.type === 'cancelled'
+      // IPC 队列拥堵时，终态后抵达的旧进度事件不得让任务“复活”。
+      if (!finished && finishedTaskIds.current.has(event.taskId)) return
       setTasks((prev) => {
         const next = new Map(prev)
         next.set(event.taskId, event)
         return next
       })
-      if (event.type === 'done' || event.type === 'cancelled') {
+      if (finished) {
+        finishedTaskIds.current.add(event.taskId)
         notifyTaskFinished(event)
-        setTimeout(() => {
+        const existing = timers.get(event.taskId)
+        if (existing) clearTimeout(existing)
+        const timer = setTimeout(() => {
+          timers.delete(event.taskId)
+          finishedTaskIds.current.delete(event.taskId)
           setTasks((prev) => {
             const next = new Map(prev)
             next.delete(event.taskId)
             return next
           })
         }, 3000)
+        timers.set(event.taskId, timer)
       }
     })
+    return () => {
+      unsubscribe()
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+    }
   }, [])
 
   if (tasks.size === 0) return null
