@@ -363,10 +363,14 @@ async function refreshWatcher(): Promise<void> {
   watchState.watching = true
   watchState.root = root
   watchState.error = null
-  // 以当前指纹为基线，仅响应启用之后的新变化
-  watchState.lastFingerprint = await computeFingerprint(root, {
-    concurrency: settings.scanConcurrency
-  }).catch(() => null)
+  // 以当前指纹为基线，仅响应启用之后的新变化；基线异步计算，
+  // 不阻塞工作区注册（大目录遍历耗时），期间的变化按最新指纹判定即可
+  watchState.lastFingerprint = null
+  void computeFingerprint(root, { concurrency: settings.scanConcurrency })
+    .then((fingerprint) => {
+      if (watchState.lastFingerprint === null) watchState.lastFingerprint = fingerprint
+    })
+    .catch(() => {})
 }
 
 /** 工作区变化静默后：指纹比对防自触发，然后自动执行预设流水线 */
