@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { createScanPlan, posterFinalName } from '../../core/scanner.mjs'
-import { captureFrame, buildFrameTimestamps, detectSceneCuts } from '../../core/frames.mjs'
+import {
+  captureFrame,
+  captureFrames,
+  buildFrameTimestamps,
+  detectSceneCuts
+} from '../../core/frames.mjs'
 import { probeMediaCached } from '../../core/probe.mjs'
 import { convertToJpg } from '../../core/image.mjs'
 import { permanentDelete } from '../../core/fs-ops.mjs'
@@ -84,26 +89,13 @@ export async function captureCandidates(
   } else {
     timestamps = [0]
   }
-  // 同一视频的多个候选帧并行截取（外层 TaskCenter 按视频并发，帧级限制 3 路，
-  // 避免 ffmpeg 进程数 = 并发 × 帧数 打满 CPU）
+  // 单进程批量截帧：一次 ffmpeg 调用完成全部时点（输入侧快速 seek + 进程内并行解码），
+  // 进程创建开销从 N 次降为 1 次；缺帧时点被容忍剔除，全部失败才抛错
   const jobs = timestamps.map((seconds, i) => ({
     seconds,
     target: join(outDir, `candidate-${String(i + 1).padStart(2, '0')}.jpg`)
   }))
-  const frames = new Array(jobs.length)
-  let cursor = 0
-  const lane = async () => {
-    while (cursor < jobs.length) {
-      const index = cursor
-      cursor += 1
-      const job = jobs[index]
-      // 候选帧一律快速 seek：关键帧级精度足够选封面，长视频从几十秒降到亚秒级
-      await captureFrame(videoPath, job.seconds, job.target, ffmpegPath, { signal, fast: true })
-      frames[index] = job.target
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, lane))
-  return frames
+  return captureFrames(videoPath, jobs, ffmpegPath, { signal })
 }
 
 /** 在指定时间点精确截帧（用户在详情页拖动时间轴后手动选帧）。 */

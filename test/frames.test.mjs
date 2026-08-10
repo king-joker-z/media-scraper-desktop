@@ -9,7 +9,9 @@ import {
   buildCaptureArgs,
   buildFastCaptureArgs,
   buildFrameTimestamps,
+  buildMultiCaptureArgs,
   captureFrame,
+  captureFrames,
   detectSceneCuts,
   resolveFfmpegPath
 } from '../src/main/core/frames.mjs'
@@ -107,6 +109,64 @@ test('captureFrame extracts real jpegs via both seek paths', async () => {
     // 长 seek 路径（>10s，两段式 seek）
     const frame2 = await captureFrame(video, 11, join(dir, 'frame2.jpg'))
     assert.equal(await pathExists(frame2), true)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('buildMultiCaptureArgs emits one -ss/-i pair per job and per-output maps', () => {
+  const args = buildMultiCaptureArgs('/v/x.mp4', [
+    { seconds: 1, target: '/o/a.jpg' },
+    { seconds: 3, target: '/o/b.jpg' },
+    { seconds: 5, target: '/o/c.jpg' }
+  ])
+  // 三个输入：每个一组「-ss <t> -i <video>」
+  const inputCount = args.filter((a) => a === '-i').length
+  assert.equal(inputCount, 3)
+  // 三个输出：每个一组「-map <i>:v ... -y <target>」
+  assert.equal(args.filter((a) => a === '-map').length, 3)
+  assert.equal(args.filter((a) => a === '/o/a.jpg').length, 1)
+  assert.equal(args.filter((a) => a === '/o/b.jpg').length, 1)
+  assert.equal(args.filter((a) => a === '/o/c.jpg').length, 1)
+  // 顺序：先全部输入，再全部输出映射
+  assert.equal(args.indexOf('-i') < args.indexOf('-map'), true)
+})
+
+test('captureFrames extracts multiple frames in one process', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-frames-multi-'))
+  try {
+    const video = join(dir, 'sample.mp4')
+    await execFileAsync(resolveFfmpegPath(), [
+      '-v',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc=duration=12:size=320x240:rate=10',
+      '-pix_fmt',
+      'yuv420p',
+      '-y',
+      video
+    ])
+    const jobs = [
+      { seconds: 1, target: join(dir, 'c1.jpg') },
+      { seconds: 5, target: join(dir, 'c2.jpg') },
+      { seconds: 11, target: join(dir, 'c3.jpg') }
+    ]
+    const frames = await captureFrames(video, jobs)
+    assert.equal(frames.length, 3)
+    for (const f of frames) {
+      const bytes = await readFile(f)
+      assert.equal(bytes[0], 0xff) // JPEG SOI
+      assert.equal(bytes[1], 0xd8)
+    }
+    // 越过末尾的时点不产生帧 → 被容忍剔除而非报错
+    const partial = await captureFrames(video, [
+      { seconds: 1, target: join(dir, 'p1.jpg') },
+      { seconds: 999, target: join(dir, 'p2.jpg') }
+    ])
+    assert.equal(partial.length, 1)
+    assert.equal(partial[0], join(dir, 'p1.jpg'))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

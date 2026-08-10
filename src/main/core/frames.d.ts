@@ -19,4 +19,16 @@ declare module './frames.mjs' {
     ffmpegPath?: string,
     options?: { signal?: AbortSignal; fast?: boolean }
   ): Promise<string>
+  /** 单进程多帧截取参数 */
+  export function buildMultiCaptureArgs(
+    videoPath: string,
+    jobs: Array<{ seconds: number; target: string }>
+  ): string[]
+  /** 单进程批量截帧：返回成功生成的帧路径（缺帧时点被剔除，全失败才抛错） */
+  export function captureFrames(
+    videoPath: string,
+    jobs: Array<{ seconds: number; target: string }>,
+    ffmpegPath?: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<string[]>
 }

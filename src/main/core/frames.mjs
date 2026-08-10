@@ -67,6 +67,52 @@ export function buildCaptureArgs(videoPath, seconds, targetPath) {
 }
 
 /**
+ * 单进程多帧截取参数：每个时点一组「-ss <t> -i <视频>」输入（输入侧快速 seek），
+ * 再逐个 -map 输出单帧 JPG。一次进程完成全部候选帧——进程创建与启动开销
+ * （Windows 上尤其明显）从 N 次降为 1 次，多个输入在进程内并行解码。
+ * @param {Array<{seconds: number, target: string}>} jobs
+ */
+export function buildMultiCaptureArgs(videoPath, jobs) {
+  const args = ['-v', 'error']
+  for (const job of jobs) {
+    args.push('-ss', String(Math.max(0, job.seconds)), '-i', videoPath)
+  }
+  jobs.forEach((job, index) => {
+    args.push(
+      '-map',
+      `${index}:v`,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
+      '-vf',
+      "scale='min(1920,iw)':-2",
+      '-y',
+      job.target
+    )
+  })
+  return args
+}
+
+/**
+ * 单进程批量截帧：返回成功生成的帧路径（越过末尾/损坏时点产生的缺帧被容忍剔除）；
+ * 一帧都没产出才抛错。支持 AbortSignal 取消。
+ */
+export async function captureFrames(videoPath, jobs, ffmpegPath = resolveFfmpegPath(), { signal } = {}) {
+  if (jobs.length === 0) return []
+  await mkdir(dirname(jobs[0].target), { recursive: true })
+  await runPooled(ffmpegPath, buildMultiCaptureArgs(videoPath, jobs), { signal })
+  const frames = []
+  for (const job of jobs) {
+    if (await pathExists(job.target)) frames.push(job.target)
+  }
+  if (frames.length === 0) {
+    throw new Error(`截帧未生成任何图片：${videoPath}`)
+  }
+  return frames
+}
+
+/**
  * 场景切换检测：低分辨率快速解码全片，select 滤镜筛出内容突变帧，
  * 经 showinfo 输出时间戳。返回秒数组（按出现顺序）。
  * -skip_frame nokey 只解码关键帧（场景切换通常落在关键帧上），长视频提速显著；
