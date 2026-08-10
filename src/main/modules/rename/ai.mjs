@@ -3,7 +3,11 @@
  * 仅发送文件名与父目录名，绝不上传文件内容。
  */
 
+import { createLruCache } from '../../core/lru-cache.mjs'
+
 export const AI_BATCH_SIZE = 50
+/** 批间并发：429 由 fetchWithRetry 指数退避兜底，2 路并行在提速与限流间取平衡 */
+const AI_BATCH_CONCURRENCY = 2
 
 /**
  * OpenAI 兼容端点：baseUrl + /chat/completions。
@@ -19,7 +23,9 @@ const SYSTEM_MESSAGE = [
   '你必须只输出一个 JSON 字符串数组（不要输出任何其他文字、解释或 markdown 代码块），',
   '数组顺序与输入编号一一对应，元素为不含扩展名的新文件名。',
   '每个文件独立命名：只依据该文件自身的信息，不要参考或复用其他文件的输出。',
-  '新文件名不得包含 \\ / : * ? " < > | 这些字符。'
+  '新文件名不得包含 \\ / : * ? " < > | 这些字符。',
+  '新文件名不得是 CON、PRN、AUX、NUL、COM1-COM9、LPT1-LPT9 等 Windows 保留设备名，',
+  '末尾不得是点号或空格（与校验规则保持一致，避免生成后被判非法）。'
 ].join('\n')
 
 /** 模板变量替换（冻结稿：{{parentFolder}} {{fileName}} {{extension}}） */
@@ -116,7 +122,8 @@ export function buildAiMessages(template, files) {
 
 /* ---------------- 会话级结果缓存：相同输入不重复请求 ---------------- */
 
-const aiCache = new Map()
+// LRU 有界缓存（与探测/哈希缓存同策略）：防止长期使用后无界增长
+const aiCache = createLruCache(5000)
 
 const cacheKeyOf = (model, template, file) =>
   `${model}|${template}|${file.parentFolder}|${file.fileName}|${file.extension}`
@@ -155,52 +162,64 @@ export async function requestAiNames({
     else missing.push({ file, index })
   })
   // 有缓存命中时先上报一次（全部未命中时从 0 开始由 start 事件表达）
-  if (missing.length < files.length) onBatch?.(files.length - missing.length)
+  let doneCount = files.length - missing.length
+  if (missing.length < files.length) onBatch?.(doneCount)
 
+  // 分块后限流并发请求（结果按 entry.index 写回，顺序与并发无关）
+  const chunks = []
   for (let i = 0; i < missing.length; i += AI_BATCH_SIZE) {
-    const chunk = missing.slice(i, i + AI_BATCH_SIZE)
-    const response = await fetchWithRetry(
-      chatCompletionsUrl(baseUrl),
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://github.com/king-joker-z/media-scraper-desktop',
-          'X-Title': 'Media Scraper'
-        },
-        body: JSON.stringify({
-          model,
-          messages: buildAiMessages(
-            template,
-            chunk.map((entry) => entry.file)
-          ),
-          temperature: 0.2
-        })
-      },
-      { fetchImpl, retryDelayMs }
-    )
-    if (!response.ok) {
-      throw await toFriendlyHttpError(response)
-    }
-    const data = await response.json()
-    let chunkNames
-    try {
-      chunkNames = extractJsonArray(data?.choices?.[0]?.message?.content)
-    } catch {
-      throw new Error('AI 返回内容无法解析（不是有效的名称列表），可重试或更换模型')
-    }
-    if (chunkNames.length !== chunk.length) {
-      throw new Error(
-        `AI 返回数量（${chunkNames.length}）与请求数量（${chunk.length}）不一致，可重试或更换模型`
-      )
-    }
-    chunk.forEach((entry, chunkIndex) => {
-      const name = String(chunkNames[chunkIndex]).trim()
-      names[entry.index] = name
-      aiCache.set(cacheKeyOf(model, template, entry.file), name)
-    })
-    onBatch?.(names.filter((n) => n !== undefined).length)
+    chunks.push(missing.slice(i, i + AI_BATCH_SIZE))
   }
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < chunks.length) {
+      const chunk = chunks[cursor]
+      cursor += 1
+      const response = await fetchWithRetry(
+        chatCompletionsUrl(baseUrl),
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://github.com/king-joker-z/media-scraper-desktop',
+            'X-Title': 'Media Scraper'
+          },
+          body: JSON.stringify({
+            model,
+            messages: buildAiMessages(
+              template,
+              chunk.map((entry) => entry.file)
+            ),
+            temperature: 0.2
+          })
+        },
+        { fetchImpl, retryDelayMs }
+      )
+      if (!response.ok) {
+        throw await toFriendlyHttpError(response)
+      }
+      const data = await response.json()
+      let chunkNames
+      try {
+        chunkNames = extractJsonArray(data?.choices?.[0]?.message?.content)
+      } catch {
+        throw new Error('AI 返回内容无法解析（不是有效的名称列表），可重试或更换模型')
+      }
+      if (chunkNames.length !== chunk.length) {
+        throw new Error(
+          `AI 返回数量（${chunkNames.length}）与请求数量（${chunk.length}）不一致，可重试或更换模型`
+        )
+      }
+      chunk.forEach((entry, chunkIndex) => {
+        const name = String(chunkNames[chunkIndex]).trim()
+        names[entry.index] = name
+        aiCache.set(cacheKeyOf(model, template, entry.file), name)
+      })
+      doneCount += chunk.length
+      onBatch?.(doneCount)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(AI_BATCH_CONCURRENCY, chunks.length) }, worker))
   return names
 }

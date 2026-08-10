@@ -36,11 +36,13 @@ const mediaOf = (mediaMap, relativePath) => mediaMap.get(relativePath) ?? null
  * @param {number} [options.concurrency]
  * @param {string} [options.ffprobePath]
  * @param {(path: string) => Promise<object>} [options.probeFn] 测试注入用
+ * @param {boolean} [options.includeSimilar] 是否检测相似重复（默认 true）；
+ *   false 时跳过全量 ffprobe 与相似聚类——完全重复只需大小+采样哈希，大工作区首扫从分钟级降到秒级
  * @returns {Promise<{exact: Array, similar: Array}>}
  */
 export async function findDuplicates(
   root,
-  { taskCenter, taskId, concurrency = 5, ffprobePath, probeFn } = {}
+  { taskCenter, taskId, concurrency = 5, ffprobePath, probeFn, includeSimilar = true } = {}
 ) {
   const plan = await createScanPlan(root)
   const videos = plan.keep.filter((item) => item.kind === 'video')
@@ -77,34 +79,37 @@ export async function findDuplicates(
   const hashByPath = new Map(hashed.map(({ video, hash }) => [video.relativePath, hash]))
 
   // ---- 3. 探测全部视频的媒体信息（带缓存，二次扫描秒回）----
-  const probe = probeFn ?? ((path) => probeMediaCached(path, ffprobePath))
+  // 快速模式跳过：完全重复判定不依赖媒体参数（质量排序退化为路径序）
   const mediaMap = new Map()
-  const probeOne = async (video) => {
-    let media = null
-    try {
-      media = await probe(video.path)
-    } catch {
-      media = null
+  if (includeSimilar) {
+    const probe = probeFn ?? ((path) => probeMediaCached(path, ffprobePath))
+    const probeOne = async (video) => {
+      let media = null
+      try {
+        media = await probe(video.path)
+      } catch {
+        media = null
+      }
+      return { video, media }
     }
-    return { video, media }
+    let probed
+    if (taskCenter) {
+      const result = await taskCenter.run({
+        taskId: `${taskId}-probe`,
+        label: '读取媒体信息',
+        items: videos,
+        concurrency,
+        worker: probeOne
+      })
+      probed = result.results.map((entry, index) =>
+        entry.ok ? entry.value : { video: videos[index], media: null }
+      )
+    } else {
+      probed = []
+      for (const video of videos) probed.push(await probeOne(video))
+    }
+    for (const { video, media } of probed) mediaMap.set(video.relativePath, media)
   }
-  let probed
-  if (taskCenter) {
-    const result = await taskCenter.run({
-      taskId: `${taskId}-probe`,
-      label: '读取媒体信息',
-      items: videos,
-      concurrency,
-      worker: probeOne
-    })
-    probed = result.results.map((entry, index) =>
-      entry.ok ? entry.value : { video: videos[index], media: null }
-    )
-  } else {
-    probed = []
-    for (const video of videos) probed.push(await probeOne(video))
-  }
-  for (const { video, media } of probed) mediaMap.set(video.relativePath, media)
 
   // ---- 4. 完全重复组（质量降序，首个为建议保留）----
   const byHash = new Map()
@@ -128,15 +133,17 @@ export async function findDuplicates(
     })
 
   // ---- 5. 相似重复组：同分辨率 + 时长相近，但内容指纹不同 ----
-  const byResolution = new Map()
-  for (const video of videos) {
-    const media = mediaMap.get(video.relativePath)
-    if (!media || !media.durationMs || !media.width || !media.height) continue
-    const key = `${media.width}x${media.height}`
-    if (!byResolution.has(key)) byResolution.set(key, [])
-    byResolution.get(key).push({ video, media })
-  }
   const similar = []
+  const byResolution = new Map()
+  if (includeSimilar) {
+    for (const video of videos) {
+      const media = mediaMap.get(video.relativePath)
+      if (!media || !media.durationMs || !media.width || !media.height) continue
+      const key = `${media.width}x${media.height}`
+      if (!byResolution.has(key)) byResolution.set(key, [])
+      byResolution.get(key).push({ video, media })
+    }
+  }
   for (const [resolution, bucket] of byResolution) {
     if (bucket.length < 2) continue
     bucket.sort((a, b) => a.media.durationMs - b.media.durationMs)

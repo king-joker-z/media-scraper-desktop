@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, Notification, protocol } from 'electron'
-import { extname, join, resolve } from 'path'
+import { extname, join } from 'path'
 import { tmpdir } from 'os'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -34,6 +34,7 @@ import { killAllActiveProcesses, activeProcessCount } from './core/process-regis
 import { setPoolSize } from './core/ffmpeg-pool.mjs'
 import { listOpLogs, writeOpLog } from './core/op-log.mjs'
 import { watchDirectory } from './core/dir-watch.mjs'
+import { isMediaPathAllowed, mediaUrlPathToLocal } from './core/media-path.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
 import {
   captureAt,
@@ -119,19 +120,9 @@ const setWorkspaceRoot = (root: string): void => {
  * Windows 上工作区根来自系统对话框（反斜杠），而 media:// URL 解码后是正斜杠，
  * 不归一化会导致白名单全部误判 403（封面/视频全挂）。
  */
-const normalizeMediaPath = (p: string): string => {
-  let n = p.replaceAll('\\', '/').replace(/\/+$/, '')
-  if (/^[a-z]:\//.test(n)) n = n[0].toUpperCase() + n.slice(1)
-  return n
-}
 const isMediaAllowed = (filePath: string): boolean => {
-  const target = normalizeMediaPath(filePath)
   const roots = workspaceRoot ? [framesRoot, workspaceRoot] : [framesRoot]
-  for (const root of roots) {
-    const normalizedRoot = normalizeMediaPath(root)
-    if (target === normalizedRoot || target.startsWith(normalizedRoot + '/')) return true
-  }
-  return false
+  return isMediaPathAllowed(filePath, roots)
 }
 
 protocol.registerSchemesAsPrivileged([
@@ -488,7 +479,8 @@ function createWindow(theme: string): void {
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 } }
       : {}),
-    ...(process.platform === 'linux' ? { icon } : {}),
+    // Windows/Linux 窗口与任务栏图标（PNG 即可；exe 图标由 electron-builder 的 win.icon 注入 .ico）
+    ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -820,13 +812,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle('merge:cancel', async () => abortSlot('merge'))
 
   // ---------- 视频去重 ----------
-  ipcMain.handle('dedupe:scan', async (_event, root: string) => {
+  ipcMain.handle('dedupe:scan', async (_event, root: string, includeSimilar = true) => {
     const settings = await settingsStore.get()
     return findDuplicates(root, {
       taskCenter,
       taskId: newTaskId('dedupe'),
       concurrency: settings.concurrency,
-      ffprobePath: resolveFfprobePath()
+      ffprobePath: resolveFfprobePath(),
+      includeSimilar: includeSimilar !== false
     })
   })
   ipcMain.handle('dedupe:delete', async (_event, root: string, relativePaths: string[]) => {
@@ -837,7 +830,8 @@ function registerIpcHandlers(): void {
       label: '删除重复视频',
       items: relativePaths,
       concurrency: settings.concurrency,
-      worker: async (relativePath) => {
+      worker: async (relativePath, signal) => {
+        if (signal?.aborted) throw new Error('已取消')
         await doDelete(join(root, relativePath))
       }
     })
@@ -982,9 +976,8 @@ app.whenReady().then(async () => {
   protocol.handle('media', async (request) => {
     // 渲染端格式：media://local<逐段 encodeURIComponent(正斜杠绝对路径)>
     const decoded = decodeURIComponent(new URL(request.url).pathname)
-    const rawPath = /^\/[A-Za-z]:/.test(decoded) ? decoded.slice(1) : decoded
-    // resolve 归一化 .. 与分隔符，防路径穿越绕过白名单（如 C:/ws/../elsewhere）
-    const filePath = resolve(rawPath)
+    // 盘符去前导斜杠、UNC 保留双斜杠、resolve 归一化 .. 防路径穿越（如 C:/ws/../elsewhere）
+    const filePath = mediaUrlPathToLocal(decoded)
     if (!isMediaAllowed(filePath)) {
       return new Response('Forbidden', { status: 403 })
     }
@@ -1036,11 +1029,16 @@ app.on('before-quit', (event) => {
       taskCenter.cancelAll()
       for (const controller of abortSlots.values()) controller.abort()
     }
-    // 兜底强杀所有活跃子进程（ffmpeg/ffprobe），防退出后孤儿进程死占用 CPU/内存
-    if (activeProcessCount() > 0) killAllActiveProcesses()
-    if (taskCenter.hasActive() || abortSlots.size > 0) {
-      // 给 AbortSignal 传递与在途进程退出留出收尾窗口
-      await new Promise((resolve) => setTimeout(resolve, 600))
+    // 先给在途进程优雅收尾的机会（POSIX SIGTERM / Windows stdin 'q'），轮询等待归零
+    // （上限 3s，快则立即继续、慢则兜底强杀，替代原先固定 600ms + 立即强杀——
+    // 立即强杀会让 ffmpeg 来不及写 mp4 moov，且固定等待对无任务场景也白等）
+    if (activeProcessCount() > 0) {
+      const deadline = Date.now() + 3000
+      while (activeProcessCount() > 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      // 兜底强杀残留子进程（ffmpeg/ffprobe），防退出后孤儿进程死占用 CPU/内存
+      if (activeProcessCount() > 0) killAllActiveProcesses()
     }
     await Promise.all([cleanFramesCache(), cleanMergeTempDirs()])
     app.quit()

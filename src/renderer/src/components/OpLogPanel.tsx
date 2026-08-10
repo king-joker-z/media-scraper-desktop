@@ -62,7 +62,7 @@ function OpLogPanel(): React.JSX.Element {
     <section className="settings-card">
       <h2>操作日志</h2>
       <p className="muted">
-        每次执行的删除/改名/移动/归档都会留档（本地 JSON），点击行在访达中查看； 重命名与 NFO
+        每次执行的删除/改名/移动/归档都会留档（本地 JSON），点击行在文件管理器中定位； 重命名与 NFO
         归档支持一键撤销（删除类请从系统回收站恢复）。
       </p>
       {notice && <p className="notice-inline">{notice}</p>}

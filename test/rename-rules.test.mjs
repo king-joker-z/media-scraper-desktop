@@ -141,3 +141,26 @@ test('validateStems catches illegal, empty, long and duplicate names', () => {
   assert.ok(errors['e.mp4'].includes('重名'))
   assert.equal(errors['f.mp4'], undefined)
 })
+
+test('validateStems rejects Windows reserved names, trailing dot/space and control chars', () => {
+  const errors = validateStems([
+    { videoRel: 'a.mp4', newStem: 'CON' },
+    { videoRel: 'b.mp4', newStem: 'nul' },
+    { videoRel: 'c.mp4', newStem: 'COM1' },
+    { videoRel: 'd.mp4', newStem: 'lpt9.txt' },
+    { videoRel: 'e.mp4', newStem: '视频.' },
+    { videoRel: 'f.mp4', newStem: '视频 ' },
+    { videoRel: 'g.mp4', newStem: 'ab\tc' }, // TAB control char },
+    { videoRel: 'h.mp4', newStem: 'console' }, // 前缀相同但非保留名，放行
+    { videoRel: 'i.mp4', newStem: '视频.演唱会' } // 点号在中间，合法
+  ])
+  assert.ok(errors['a.mp4'].includes('保留设备名'))
+  assert.ok(errors['b.mp4'].includes('保留设备名'))
+  assert.ok(errors['c.mp4'].includes('保留设备名'))
+  assert.ok(errors['d.mp4'].includes('保留设备名'))
+  assert.ok(errors['e.mp4'].includes('末尾'))
+  assert.ok(errors['f.mp4'].includes('末尾'))
+  assert.ok(errors['g.mp4'].includes('非法字符'))
+  assert.equal(errors['h.mp4'], undefined)
+  assert.equal(errors['i.mp4'], undefined)
+})

@@ -3,9 +3,19 @@
  * 规则以冻结稿 §5 为准。
  */
 
-/** Windows/macOS 均不允许的文件名字符 */
-export const ILLEGAL_NAME_RE = /[\\/:*?"<>|]/
+/** Windows/macOS 均不允许的文件名字符（含 ASCII 控制字符 \x00-\x1f） */
+// eslint-disable-next-line no-control-regex
+export const ILLEGAL_NAME_RE = /[\x00-\x1f\\/:*?"<>|]/
 export const MAX_STEM_LENGTH = 200
+
+/**
+ * Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9，含带扩展名形式如 CON.txt）。
+ * Windows 上这些名字 rename 会报 EINVAL/EPERM，且 NUL 等可能触发设备重定向。
+ */
+export const WINDOWS_RESERVED_NAME_RE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i
+
+/** 名称末尾的点号或空格：Windows 会自动截断导致实际文件名与预期不一致 */
+export const TRAILING_DOT_SPACE_RE = /[.\s]$/
 
 export const stemOfName = (name) => name.replace(/\.[^.]+$/, '')
 export const extOfName = (name) => name.slice(name.lastIndexOf('.'))
@@ -101,7 +111,15 @@ export function validateStems(pairs) {
       continue
     }
     if (ILLEGAL_NAME_RE.test(stem)) {
-      errors[pair.videoRel] = '包含非法字符 \\ / : * ? " < > |'
+      errors[pair.videoRel] = '包含非法字符 \\ / : * ? " < > | 或控制字符'
+      continue
+    }
+    if (WINDOWS_RESERVED_NAME_RE.test(stem)) {
+      errors[pair.videoRel] = 'Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9），不可用作文件名'
+      continue
+    }
+    if (TRAILING_DOT_SPACE_RE.test(stem)) {
+      errors[pair.videoRel] = '名称末尾不能是点号或空格（Windows 会自动截断）'
       continue
     }
     if (stem.length > MAX_STEM_LENGTH) {

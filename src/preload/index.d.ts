@@ -84,7 +84,7 @@ declare global {
         failed: { target: string; error: string }[]
       }>
       cancelMerge: () => Promise<void>
-      scanDuplicates: (root: string) => Promise<DedupeScanResult>
+      scanDuplicates: (root: string, includeSimilar?: boolean) => Promise<DedupeScanResult>
       deleteDuplicates: (
         root: string,
         relativePaths: string[]

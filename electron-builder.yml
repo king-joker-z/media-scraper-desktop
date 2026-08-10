@@ -13,8 +13,14 @@ asarUnpack:
   - resources/**
   - node_modules/ffprobe-static/**
   - node_modules/ffmpeg-static/**
+  # sharp 为原生 C++ 模块：.node 二进制无法从 asar 内 dlopen，必须解包；
+  # sharp 0.35+ 的平台二进制在可选依赖 @img/* 中，一并解包
+  - node_modules/sharp/**
+  - node_modules/@img/**
 win:
   executableName: MediaScraper
+  # exe/安装向导/快捷方式图标（build/icon.ico 已存在）
+  icon: build/icon.ico
 nsis:
   # 辅助安装模式：用户可选择安装路径、阅读许可，而非一键静默安装
   oneClick: false

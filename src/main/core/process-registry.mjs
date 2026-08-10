@@ -23,10 +23,26 @@ export function trackChild(child, { signal, killGraceMs = KILL_GRACE_MS } = {}) 
   activeChildren.add(child)
   let killTimer = null
   const onAbort = () => {
-    try {
-      child.kill('SIGTERM')
-    } catch {
-      // 进程已退出
+    let gracefulGraceMs = killGraceMs
+    if (process.platform === 'win32') {
+      // Windows 上 POSIX 信号全部退化为 TerminateProcess 强杀，ffmpeg 没有收尾机会
+      // （mp4 moov atom 写不出 → 输出文件损坏）。ffmpeg 唯一跨平台优雅退出途径是
+      // 监听 stdin 的 'q' 命令，写出尾部索引后自行正常退出；写失败（非 ffmpeg 进程）无碍，
+      // 由下方强杀定时器兜底。优雅路径需要更长的收尾窗口（写 moov 可能数百 ms）。
+      try {
+        if (child.stdin && !child.stdin.destroyed && child.stdin.writable) {
+          child.stdin.write('q')
+          gracefulGraceMs = Math.max(killGraceMs, 3000)
+        }
+      } catch {
+        // stdin 不可用则直接走强杀兜底
+      }
+    } else {
+      try {
+        child.kill('SIGTERM')
+      } catch {
+        // 进程已退出
+      }
     }
     killTimer = setTimeout(() => {
       if (activeChildren.has(child) && child.exitCode === null && child.signalCode === null) {
@@ -36,7 +52,7 @@ export function trackChild(child, { signal, killGraceMs = KILL_GRACE_MS } = {}) 
           // 进程已退出
         }
       }
-    }, killGraceMs)
+    }, gracefulGraceMs)
     killTimer.unref?.()
   }
   if (signal) {

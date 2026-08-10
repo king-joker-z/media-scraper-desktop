@@ -87,8 +87,8 @@ const api = {
     failed: { target: string; error: string }[]
   }> => ipcRenderer.invoke('merge:delete-sources', root, items),
   cancelMerge: (): Promise<void> => ipcRenderer.invoke('merge:cancel'),
-  scanDuplicates: (root: string): Promise<DedupeScanResult> =>
-    ipcRenderer.invoke('dedupe:scan', root),
+  scanDuplicates: (root: string, includeSimilar = true): Promise<DedupeScanResult> =>
+    ipcRenderer.invoke('dedupe:scan', root, includeSimilar),
   deleteDuplicates: (
     root: string,
     relativePaths: string[]

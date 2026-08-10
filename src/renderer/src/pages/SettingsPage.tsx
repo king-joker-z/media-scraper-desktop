@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   AiProviderConfig,
   AppSettings,
@@ -35,6 +35,8 @@ function SettingsPage(): React.JSX.Element {
   const [newProvider, setNewProvider] = useState({ name: '', baseUrl: '' })
   const [addingProvider, setAddingProvider] = useState(false)
   const [saved, setSaved] = useState(false)
+  // 「已保存」提示的定时器句柄（persist 内 clearTimeout 复用，防快速连续操作堆叠定时器）
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // 文本输入本地草稿，失焦才写盘，避免每击键一次 settings.json 写入
   const [drafts, setDrafts] = useState<Record<string, { baseUrl?: string; token?: string }>>({})
   const [promptDraft, setPromptDraft] = useState<string | null>(null)
@@ -100,7 +102,9 @@ function SettingsPage(): React.JSX.Element {
     const next = await window.api.updateSettings(patch)
     setSettings(next)
     setSaved(true)
-    setTimeout(() => setSaved(false), 1500)
+    // 连续快速操作（如拖滑杆）时清除上一个定时器，提示停留时间从最后一次操作起算
+    clearTimeout(savedTimerRef.current)
+    savedTimerRef.current = setTimeout(() => setSaved(false), 1500)
   }
 
   const editing: AiProviderConfig =
@@ -139,7 +143,7 @@ function SettingsPage(): React.JSX.Element {
     const baseUrl = newProvider.baseUrl.trim().replace(/\/+$/, '')
     if (!name || !baseUrl) return
     const provider: AiProviderConfig = {
-      id: `custom-${Date.now()}`,
+      id: `custom-${crypto.randomUUID()}`,
       name,
       baseUrl,
       token: '',

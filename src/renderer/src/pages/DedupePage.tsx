@@ -3,7 +3,7 @@ import type { DedupeScanResult, DupItem, MediaInfo, SimilarDupItem } from '../..
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
 import VideoModal from '../components/VideoModal'
-import { formatBytes, formatDuration } from '../utils/format'
+import { formatBytes, formatDuration, joinPath } from '../utils/format'
 
 /** 质量徽标：分辨率 · 时长 · 平均码率 */
 const mediaBadge = (media: MediaInfo | null, size: number): string => {
@@ -34,6 +34,8 @@ function DedupePage({
   const [error, setError] = useState('')
   // 对比预览（F5）：试看的视频相对路径
   const [previewRel, setPreviewRel] = useState<string | null>(null)
+  // 快速模式：仅完全重复（跳过全量 ffprobe 与相似聚类，大工作区首扫从分钟级降到秒级）
+  const [fastMode, setFastMode] = useState(false)
 
   // 注意：去重扫描要逐文件算哈希 + 探测，成本高，刻意不接自动重扫，由用户手动触发
   const scan = async (): Promise<void> => {
@@ -42,7 +44,7 @@ function DedupePage({
     setError('')
     setNotice('')
     try {
-      const next = await window.api.scanDuplicates(workspace)
+      const next = await window.api.scanDuplicates(workspace, !fastMode)
       setResult(next)
       // 默认勾选：完全重复组中除「建议保留」（质量最高）外的所有副本
       setChecked(
@@ -146,6 +148,18 @@ function DedupePage({
           <button className="secondary" onClick={onChooseWorkspace} disabled={deleting}>
             选择工作区
           </button>
+          <label
+            className="confirm-check"
+            title="仅检测完全重复，跳过相似重复聚类（大目录显著提速）"
+          >
+            <input
+              type="checkbox"
+              checked={fastMode}
+              onChange={(event) => setFastMode(event.target.checked)}
+              disabled={loading || deleting}
+            />
+            <span className="muted">快速模式</span>
+          </label>
           <button className="secondary" onClick={scan} disabled={!workspace || loading || deleting}>
             {loading ? '检测中…' : '开始检测'}
           </button>
@@ -245,7 +259,7 @@ function DedupePage({
 
       {previewRel && workspace && (
         <VideoModal
-          path={`${workspace}/${previewRel}`}
+          path={joinPath(workspace, previewRel)}
           title={previewRel}
           onClose={() => setPreviewRel(null)}
         />

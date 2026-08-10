@@ -82,7 +82,8 @@ export async function executeNfoPlan(
     label: 'NFO 归档',
     items,
     concurrency,
-    worker: async (item) => {
+    worker: async (item, signal) => {
+      if (signal?.aborted) throw new Error('已取消')
       const targetDir = join(root, item.targetDir)
       // 移入视频与 poster（重名自动 (n)）
       const videoFinal = await moveWithCollision(join(root, item.videoRel), targetDir)

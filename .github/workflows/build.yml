@@ -36,9 +36,14 @@ jobs:
       - run: npm test
 
   build-windows:
-    name: Windows installer
+    name: Windows installer (${{ matrix.arch }})
     needs: quality
     runs-on: windows-latest
+    # x64 + arm64 双架构：WoA 设备（Surface Pro 等）原生性能，ffmpeg 转码不再走模拟层
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,17 +61,17 @@ jobs:
       # GH_TOKEN：electron-builder publish(github) 需要。
       # 仅 tag 构建发布到 Release（--publish always）；分支/PR 构建显式 never，
       # 防止 onTagOrDraft 撞上同名草稿 Release 的资产导致 422 already_exists
-      - run: npm run build:win -- --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
+      - run: npm run build:win -- --${{ matrix.arch }} --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: media-scraper-desktop-win-x64
+          name: media-scraper-desktop-win-${{ matrix.arch }}
           path: dist/*.exe
           if-no-files-found: error
           # 安装包体积大，7 天过期防止 artifact 存储配额被打满
           retention-days: 7
-      # 配额保护：全仓只保留最新 2 个 artifact，其余即删（私有仓 Actions 存储配额有限）
+      # 配额保护：全仓只保留最新 4 个 artifact，其余即删（私有仓 Actions 存储配额有限）
       - name: Prune old artifacts
         if: success()
         shell: bash
@@ -75,7 +80,7 @@ jobs:
         run: |
           gh api repos/${{ github.repository }}/actions/artifacts --paginate \
             --jq '.artifacts[] | select(.expired==false) | "\(.created_at)\t\(.id)"' \
-            | sort -r | tail -n +3 | cut -f2 \
+            | sort -r | tail -n +5 | cut -f2 \
             | while read -r id; do
                 gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/${id}" || true
               done
@@ -115,7 +120,7 @@ jobs:
         run: |
           gh api repos/${{ github.repository }}/actions/artifacts --paginate \
             --jq '.artifacts[] | select(.expired==false) | "\(.created_at)\t\(.id)"' \
-            | sort -r | tail -n +3 | cut -f2 \
+            | sort -r | tail -n +5 | cut -f2 \
             | while read -r id; do
                 gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/${id}" || true
               done

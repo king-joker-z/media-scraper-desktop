@@ -4,13 +4,17 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  applyScanMutations,
   assessRisk,
   classifyPath,
   computeFingerprint,
   createScanPlan,
+  invalidateScanCache,
   isHiddenName,
   normalizedName,
-  predictMoves
+  pinScanRecords,
+  predictMoves,
+  unpinScanRecords
 } from '../src/main/core/scanner.mjs'
 
 test('classifies mainstream media extensions', () => {
@@ -285,4 +289,63 @@ test('scan plan is read-only and never touches the filesystem', async () => {
       await access(join(root, 'sub', 'Movie C.mp4'))
     }
   )
+})
+
+test('pipeline pin mode: 钉住记录 + 增量合并免重复遍历', async () => {
+  await withFixture(
+    {
+      'A.mp4': 'v',
+      'A.jpg': 'i',
+      'B.mp4': 'v',
+      'orphan.jpg': 'i'
+    },
+    async (root) => {
+      try {
+        // 首次扫描建立基线（视频 2 + 匹配图 1 + 孤儿图 1）
+        const plan1 = await createScanPlan(root)
+        assert.equal(plan1.summary.videos, 2)
+        assert.equal(plan1.summary.permanentDelete, 1) // orphan.jpg
+
+        // 钉住：模拟流水线——删除孤儿图后，不重扫，直接基于钉住记录重建
+        pinScanRecords(root)
+        await applyScanMutations(root, { deleted: ['orphan.jpg'] })
+
+        // 钉住期间的 createScanPlan 应反映已删除项（无需遍历磁盘）
+        const plan2 = await createScanPlan(root)
+        assert.equal(plan2.summary.permanentDelete, 0)
+        assert.equal(plan2.summary.videos, 2)
+
+        // 再合并一次移动：A.mp4 → moved/A.mp4
+        await applyScanMutations(root, {
+          moved: [{ from: 'A.mp4', to: join('moved', 'A.mp4') }]
+        })
+        const plan3 = await createScanPlan(root)
+        const videoRels = plan3.keep
+          .filter((item) => item.kind === 'video')
+          .map((item) => item.relativePath)
+          .sort()
+        assert.deepEqual(videoRels, [join('moved', 'A.mp4'), 'B.mp4'].sort())
+
+        // 解除钉住后恢复遍历语义：磁盘上 orphan.jpg 仍在（我们只改了记录未真删）
+        unpinScanRecords()
+        const plan4 = await createScanPlan(root)
+        assert.equal(plan4.summary.permanentDelete, 1)
+      } finally {
+        invalidateScanCache()
+      }
+    }
+  )
+})
+
+test('applyScanMutations without pin is a no-op', async () => {
+  await withFixture({ 'A.mp4': 'v' }, async (root) => {
+    try {
+      await createScanPlan(root)
+      await applyScanMutations(root, { deleted: ['A.mp4'] })
+      const plan = await createScanPlan(root)
+      assert.equal(plan.summary.videos, 1) // 未钉住，不生效
+    } finally {
+      invalidateScanCache()
+    }
+  })
 })

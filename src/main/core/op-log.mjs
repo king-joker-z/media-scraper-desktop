@@ -68,10 +68,23 @@ export async function listOpLogs(dir, limit = 50) {
     .sort()
     .reverse()
     .slice(0, limit)
+  // 分批并行读取（串行 readFile 在日志多/机械盘上会阻塞 IPC 数秒）
   const logs = []
-  for (const file of sorted) {
-    try {
-      const raw = JSON.parse(await readFile(join(dir, file), 'utf8'))
+  const READ_BATCH = 8
+  for (let i = 0; i < sorted.length; i += READ_BATCH) {
+    const batch = sorted.slice(i, i + READ_BATCH)
+    const parsed = await Promise.all(
+      batch.map(async (file) => {
+        try {
+          return { file, raw: JSON.parse(await readFile(join(dir, file), 'utf8')) }
+        } catch {
+          return null // 损坏日志跳过
+        }
+      })
+    )
+    for (const entry of parsed) {
+      if (!entry) continue
+      const { file, raw } = entry
       logs.push({
         file: join(dir, file),
         module: raw.module ?? '?',
@@ -86,8 +99,6 @@ export async function listOpLogs(dir, limit = 50) {
               ? (raw.report?.archived?.length ?? 0) > 0
               : false)
       })
-    } catch {
-      // 损坏日志跳过
     }
   }
   return logs

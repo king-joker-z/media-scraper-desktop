@@ -10,9 +10,13 @@
  * 每个步骤的执行结果汇总为 PipelineReport，步骤失败不阻断后续步骤。
  */
 
-import { basename } from 'node:path'
-import { join } from 'node:path'
-import { createScanPlan } from '../../core/scanner.mjs'
+import { basename, dirname, join } from 'node:path'
+import {
+  applyScanMutations,
+  createScanPlan,
+  pinScanRecords,
+  unpinScanRecords
+} from '../../core/scanner.mjs'
 import { executeCleanPlan } from '../clean/execute.mjs'
 import { createNfoPlan, executeNfoPlan } from '../nfo/nfo.mjs'
 import { findDuplicates } from '../dedupe/dedupe.mjs'
@@ -30,7 +34,8 @@ const stepTaskId = (prefix) => `${prefix}-${Date.now()}-${(stepSeq += 1)}`
  * @param {string} root 工作区根目录
  * @param {string} module 模块 ID
  * @param {object} opts { taskCenter, concurrency, signal, deleteFn }
- * @returns {Promise<{ summary: string }>}
+ * @returns {Promise<{ summary: string, mutations?: object }>}
+ *   mutations 为本步骤对文件系统的已知变更（相对路径），供流水线增量合并扫描记录
  */
 async function runStep(root, module, { taskCenter, concurrency, deleteFn = permanentDelete }) {
   const taskId = stepTaskId(`pipeline-${module}`)
@@ -50,8 +55,17 @@ async function runStep(root, module, { taskCenter, concurrency, deleteFn = perma
         picks: {},
         deleteFn
       })
+      // renamed/converted 的 to 是同目录新基名；moved 的 to 是根目录新基名
+      const moved = [
+        ...report.renamed.map((x) => ({ from: x.from, to: join(dirname(x.from), x.to) })),
+        ...report.converted.map((x) => ({ from: x.from, to: join(dirname(x.from), x.to) })),
+        ...report.moved.map((x) => ({ from: x.from, to: x.to }))
+      ]
+      // 转码会删除原图（converted 的 from 已不在磁盘）
+      const deleted = [...report.deleted, ...report.converted.map((x) => x.from)]
       return {
-        summary: `删除 ${report.deletedCount} 项，上移 ${report.moved.length} 项，转码 ${report.converted.length} 项`
+        summary: `删除 ${report.deletedCount} 项，上移 ${report.moved.length} 项，转码 ${report.converted.length} 项`,
+        mutations: { deleted, moved }
       }
     }
 
@@ -66,7 +80,20 @@ async function runStep(root, module, { taskCenter, concurrency, deleteFn = perma
         taskId,
         concurrency
       })
-      return { summary: `归档 ${report.archivedCount} 个视频，失败 ${report.failed.length} 个` }
+      // 归档 = 视频/poster 移入子目录 + 新建 .nfo
+      const moved = []
+      const created = []
+      for (const item of report.archived) {
+        moved.push({ from: item.videoRel, to: join(item.targetDir, item.videoName) })
+        if (item.posterRel && item.posterName) {
+          moved.push({ from: item.posterRel, to: join(item.targetDir, item.posterName) })
+        }
+        created.push(join(item.targetDir, item.nfoName))
+      }
+      return {
+        summary: `归档 ${report.archivedCount} 个视频，失败 ${report.failed.length} 个`,
+        mutations: { moved, created }
+      }
     }
 
     case 'dedupe': {
@@ -97,14 +124,18 @@ async function runStep(root, module, { taskCenter, concurrency, deleteFn = perma
         label: '删除重复视频',
         items: toDelete,
         concurrency,
-        worker: async (relativePath) => {
+        worker: async (relativePath, signal) => {
+          if (signal?.aborted) throw new Error('已取消')
           await deleteFn(join(root, relativePath))
         }
       })
       const deleted = deleteResult.completed
       const failed = deleteResult.results.filter((e) => !e.ok && !e.cancelled).length
+      // 仅收集实际删除成功的路径
+      const deletedPaths = toDelete.filter((_, index) => deleteResult.results[index]?.ok)
       return {
-        summary: `发现 ${result.exact.length} 组重复，删除 ${deleted} 个${failed > 0 ? `，失败 ${failed} 个` : ''}`
+        summary: `发现 ${result.exact.length} 组重复，删除 ${deleted} 个${failed > 0 ? `，失败 ${failed} 个` : ''}`,
+        mutations: { deleted: deletedPaths }
       }
     }
 
@@ -144,39 +175,53 @@ export async function runPipeline(
   const results = []
   const activeSteps = steps.filter((s) => s.enabled)
 
-  for (const step of activeSteps) {
-    if (signal?.aborted) {
-      return {
-        cancelled: true,
-        results,
-        totalDurationMs: Date.now() - startedAt
+  // 预扫描一次并钉住记录：各步骤的 createScanPlan 命中钉住记录零遍历重建；
+  // 步骤的已知文件变更（删除/移动/新建）经 applyScanMutations 增量合并，
+  // 四步流水线只付出一次全量遍历（原先逐步各一次）。
+  await createScanPlan(root)
+  pinScanRecords(root)
+  try {
+    for (const step of activeSteps) {
+      if (signal?.aborted) {
+        return {
+          cancelled: true,
+          results,
+          totalDurationMs: Date.now() - startedAt
+        }
       }
-    }
 
-    onStepStart?.(step)
-    const stepStart = Date.now()
-    try {
-      const { summary } = await runStep(root, step.module, { taskCenter, concurrency, deleteFn })
-      const result = {
-        module: step.module,
-        success: true,
-        durationMs: Date.now() - stepStart,
-        summary
+      onStepStart?.(step)
+      const stepStart = Date.now()
+      try {
+        const { summary, mutations } = await runStep(root, step.module, {
+          taskCenter,
+          concurrency,
+          deleteFn
+        })
+        if (mutations) await applyScanMutations(root, mutations)
+        const result = {
+          module: step.module,
+          success: true,
+          durationMs: Date.now() - stepStart,
+          summary
+        }
+        results.push(result)
+        onStepDone?.(result)
+      } catch (error) {
+        const result = {
+          module: step.module,
+          success: false,
+          durationMs: Date.now() - stepStart,
+          summary: '执行失败',
+          error: error instanceof Error ? error.message : String(error)
+        }
+        results.push(result)
+        onStepDone?.(result)
+        // 步骤失败不阻断后续步骤
       }
-      results.push(result)
-      onStepDone?.(result)
-    } catch (error) {
-      const result = {
-        module: step.module,
-        success: false,
-        durationMs: Date.now() - stepStart,
-        summary: '执行失败',
-        error: error instanceof Error ? error.message : String(error)
-      }
-      results.push(result)
-      onStepDone?.(result)
-      // 步骤失败不阻断后续步骤
     }
+  } finally {
+    unpinScanRecords()
   }
 
   return {

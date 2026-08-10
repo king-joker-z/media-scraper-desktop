@@ -51,6 +51,12 @@ export function createTaskCenter({ emit } = {}) {
         const index = cursor
         cursor += 1
         const item = items[index]
+        // 取项后再检一次：覆盖「条件检查通过 → 取消恰好到达 → worker 已启动」的竞态窗口，
+        // 删除类破坏性 worker 因此不会多删一项
+        if (controller.signal.aborted) {
+          results[index] = { ok: false, cancelled: true }
+          return
+        }
         const current = describeItem(item)
         emit?.({ type: 'progress', current, ...snapshot() })
         try {

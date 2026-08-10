@@ -183,9 +183,11 @@ function RenamePage({
       }),
     [pairs, videoByRel]
   )
-  const riskyExtCount = pairs.filter(
-    (p) => p.newExt && probes[p.videoRel] && !probes[p.videoRel].isMp4
-  ).length
+  // memo 化：大目录下每次击键都重渲染，避免每次都全量 filter
+  const riskyExtCount = useMemo(
+    () => pairs.filter((p) => p.newExt && probes[p.videoRel] && !probes[p.videoRel].isMp4).length,
+    [pairs, probes]
+  )
 
   const runAi = async (): Promise<void> => {
     setAiLoading(true)

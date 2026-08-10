@@ -28,9 +28,33 @@ export async function pathExists(target) {
   }
 }
 
+/* ---------------- Windows 文件锁定重试 ---------------- */
+
+// Windows 特有：播放器占用、Defender 实时扫描、缩略图进程、网盘同步客户端都会短暂
+// 锁定文件，rename/rm 直接报 EBUSY/EPERM/EACCES。短延迟重试可消除绝大多数瞬时失败。
+// macOS/Linux 的 POSIX 语义允许对打开中的文件 rename/unlink，不会触发，行为不变。
+const LOCK_RETRY_CODES = new Set(['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY'])
+const LOCK_RETRY_MAX = 3
+const LOCK_RETRY_BASE_MS = 200
+
+const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** 对瞬时文件锁定错误做短延迟重试（最多 3 次，200/400/600ms）；其他错误立即抛出 */
+async function withLockRetry(fn) {
+  for (let attempt = 0; attempt <= LOCK_RETRY_MAX; attempt += 1) {
+    try {
+      return await fn()
+    } catch (error) {
+      if (!LOCK_RETRY_CODES.has(error?.code) || attempt >= LOCK_RETRY_MAX) throw error
+      await sleepMs(LOCK_RETRY_BASE_MS * (attempt + 1))
+    }
+  }
+  return undefined // 不可达：循环内要么返回要么抛出
+}
+
 /** 永久删除文件或目录，不可恢复。调用前必须已在 UI 完成风险确认。 */
 export async function permanentDelete(target) {
-  await rm(target, { force: true, recursive: true })
+  await withLockRetry(() => rm(target, { force: true, recursive: true }))
 }
 
 /* ---------------- 回收站删除（F1：可恢复删除） ---------------- */
@@ -68,10 +92,12 @@ export async function ensureUniquePath(target) {
   const dir = dirname(target)
   const ext = extname(target)
   const stem = basename(target, ext)
-  for (let n = 1; ; n += 1) {
+  // 上限保护：极端异常下防无限循环（正常场景几十个重名已是极限）
+  for (let n = 1; n <= 9999; n += 1) {
     const candidate = join(dir, `${stem} (${n})${ext}`)
     if (!(await pathExists(candidate))) return candidate
   }
+  throw new Error(`无法生成唯一路径（重名超过 9999 个）：${target}`)
 }
 
 /**
@@ -85,7 +111,7 @@ export async function ensureUniquePath(target) {
  */
 export async function moveFile(from, to, { onProgress, signal } = {}) {
   try {
-    await rename(from, to)
+    await withLockRetry(() => rename(from, to))
   } catch (error) {
     if (error?.code !== 'EXDEV') throw error
     // 跨设备：先复制到同目录临时文件再 rename 落位——取消/崩溃只残留 .msd-part
@@ -95,32 +121,32 @@ export async function moveFile(from, to, { onProgress, signal } = {}) {
       const srcStat = await stat(from)
       const total = srcStat.size
       let copied = 0
-// 4MB 缓冲：跨磁盘/网络盘上移动大视频时 syscall 次数较默认 64KB 下降约 64 倍，
-// 吞吐显著提升（实测 NAS 上 GB 级文件从 ~30MB/s 提到 ~90MB/s+）
-const COPY_HIGH_WATER_MARK = 4 * 1024 * 1024
-await pipeline(
-createReadStream(from, { highWaterMark: COPY_HIGH_WATER_MARK }),
-async function* (source) {
-for await (const chunk of source) {
-if (signal?.aborted) throw new Error('已取消')
-copied += chunk.length
-onProgress?.(copied, total)
-yield chunk
-}
-},
-createWriteStream(partPath, { highWaterMark: COPY_HIGH_WATER_MARK })
-)
+      // 4MB 缓冲：跨磁盘/网络盘上移动大视频时 syscall 次数较默认 64KB 下降约 64 倍，
+      // 吞吐显著提升（NAS 上 GB 级文件从 ~30MB/s 提到 ~90MB/s+）
+      const COPY_HIGH_WATER_MARK = 4 * 1024 * 1024
+      await pipeline(
+        createReadStream(from, { highWaterMark: COPY_HIGH_WATER_MARK }),
+        async function* (source) {
+          for await (const chunk of source) {
+            if (signal?.aborted) throw new Error('已取消')
+            copied += chunk.length
+            onProgress?.(copied, total)
+            yield chunk
+          }
+        },
+        createWriteStream(partPath, { highWaterMark: COPY_HIGH_WATER_MARK })
+      )
       const dstStat = await stat(partPath)
       if (srcStat.size !== dstStat.size) {
         throw new Error(`跨磁盘移动校验失败（大小不一致）：${from}`)
       }
-      await rename(partPath, to)
+      await withLockRetry(() => rename(partPath, to))
     } catch (copyError) {
       // 取消/失败兜底清理：不留部分拷贝（含异常前已落位的极端情况）
       await rm(partPath, { force: true }).catch(() => {})
       throw copyError
     }
-    await rm(from)
+    await withLockRetry(() => rm(from))
   }
 }
 
@@ -159,7 +185,7 @@ export async function moveWithCollision(from, toDir, options) {
 
 /** 直接改名/移动（不做重名避让），供两阶段改名的临时名阶段使用。 */
 export async function directRename(from, to) {
-  await rename(from, to)
+  await withLockRetry(() => rename(from, to))
   return to
 }
 
@@ -175,40 +201,48 @@ export async function renameWithCollision(from, newName, options) {
 
 // dirSizeBytes 单目录内 stat 并发批大小（I/O 并发显著加速大目录）
 const SIZE_STAT_BATCH = 32
+// 子目录遍历并发上限：无限并行在深目录树（NAS 影视库）上会瞬间打开数千句柄触发 EMFILE
+const SIZE_DIR_LANES = 8
 
-/** 目录递归总大小（字节）；目录不存在或无权限返回 0，不抛错。文件 stat 批内并发。 */
+/**
+ * 目录递归总大小（字节）；目录不存在或无权限返回 0，不抛错。
+ * BFS 共享队列 + 限流并发：文件 stat 批内并发，子目录经队列限流（≤8 路）。
+ */
 export async function dirSizeBytes(dir) {
   let total = 0
-  async function visit(current) {
-    let entries
-    try {
-      entries = await readdir(current, { withFileTypes: true })
-    } catch {
-      return
+  const queue = [dir]
+  let cursor = 0
+  const lane = async () => {
+    while (cursor < queue.length) {
+      const current = queue[cursor]
+      cursor += 1
+      let entries
+      try {
+        entries = await readdir(current, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      const files = []
+      for (const entry of entries) {
+        const full = join(current, entry.name)
+        if (entry.isDirectory()) queue.push(full)
+        else if (entry.isFile()) files.push(full)
+      }
+      for (let i = 0; i < files.length; i += SIZE_STAT_BATCH) {
+        const sizes = await Promise.all(
+          files.slice(i, i + SIZE_STAT_BATCH).map(async (full) => {
+            try {
+              return (await stat(full)).size
+            } catch {
+              return 0 // 竞态消失的文件跳过
+            }
+          })
+        )
+        for (const size of sizes) total += size
+      }
     }
-    const subdirs = []
-    const files = []
-    for (const entry of entries) {
-      const full = join(current, entry.name)
-      if (entry.isDirectory()) subdirs.push(full)
-      else if (entry.isFile()) files.push(full)
-    }
-    for (let i = 0; i < files.length; i += SIZE_STAT_BATCH) {
-      const sizes = await Promise.all(
-        files.slice(i, i + SIZE_STAT_BATCH).map(async (full) => {
-          try {
-            return (await stat(full)).size
-          } catch {
-            return 0 // 竞态消失的文件跳过
-          }
-        })
-      )
-      for (const size of sizes) total += size
-    }
-    // 子目录并行递归（缓存/临时目录通常较浅，无需限流）
-    await Promise.all(subdirs.map(visit))
   }
-  await visit(dir)
+  await Promise.all(Array.from({ length: SIZE_DIR_LANES }, lane))
   return total
 }
 

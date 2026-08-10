@@ -62,13 +62,15 @@ export function mergeWorkDir(items, target) {
 }
 
 /**
- * 中间段是否已就绪：存在、可读、且时长与源片段一致（±1s）。
- * 时长校验是关键——上次取消留下的截断段必须重转，否则输出时长校验会失败。
+ * 中间段是否已就绪：存在、体积正常（≥1KB，排除取消残留的近乎空壳）、
+ * 可被 ffprobe 解析、且时长与源片段一致（±1s）。
+ * 时长+可解析校验是关键——取消（尤其 Windows 强杀）留下的截断/无 moov 段必须重转，
+ * 否则输出时长校验会失败。
  */
 async function segmentReady(segment, ffprobePath, expectedMs) {
-  if (!(await pathExists(segment))) return false
   try {
     const info = await probeMedia(segment, ffprobePath)
+    if ((info.sizeBytes ?? 0) < 1024) return false
     if (expectedMs > 0 && Math.abs(info.durationMs - expectedMs) > 1000) return false
     return true
   } catch {
@@ -217,7 +219,8 @@ export async function deleteMergeSources(
     label: '删除源片段',
     items: files,
     concurrency,
-    worker: async (file) => {
+    worker: async (file, signal) => {
+      if (signal?.aborted) throw new Error('已取消')
       await deleteFn(join(root, file.rel))
     }
   })

@@ -98,7 +98,12 @@ export function buildMultiCaptureArgs(videoPath, jobs) {
  * 单进程批量截帧：返回成功生成的帧路径（越过末尾/损坏时点产生的缺帧被容忍剔除）；
  * 一帧都没产出才抛错。支持 AbortSignal 取消。
  */
-export async function captureFrames(videoPath, jobs, ffmpegPath = resolveFfmpegPath(), { signal } = {}) {
+export async function captureFrames(
+  videoPath,
+  jobs,
+  ffmpegPath = resolveFfmpegPath(),
+  { signal } = {}
+) {
   if (jobs.length === 0) return []
   await mkdir(dirname(jobs[0].target), { recursive: true })
   await runPooled(ffmpegPath, buildMultiCaptureArgs(videoPath, jobs), { signal })

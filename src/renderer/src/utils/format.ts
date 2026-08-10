@@ -15,3 +15,14 @@ export function formatDuration(ms: number): string {
 export function basenameOf(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }
+
+/**
+ * 跨平台拼接「绝对根路径 + 相对路径」（渲染端无 Node path 模块）。
+ * 统一用正斜杠拼接：主进程 media:// 与 fs 均接受正斜杠（Windows 亦兼容），
+ * 避免硬编码 `${root}/${rel}` 在反斜杠根路径下拼出混合格式。
+ */
+export function joinPath(root: string, rel: string): string {
+  const cleanRoot = root.replace(/[\\/]+$/, '')
+  const cleanRel = rel.replace(/^[\\/]+/, '')
+  return `${cleanRoot}/${cleanRel}`
+}

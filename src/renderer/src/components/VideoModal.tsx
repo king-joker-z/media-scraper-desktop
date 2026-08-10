@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { mediaUrl, touchPlayPosition } from '../utils/media'
 
 /** 通用视频试看弹窗（合并页预览 / 媒体库点播共用）；传 rememberKey 时记忆播放进度 */
@@ -16,6 +16,18 @@ function VideoModal({
 }): React.JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const storageKey = rememberKey ? `msd-play-${rememberKey}` : null
+
+  // 卸载时显式释放视频资源：停止解码、断开 media:// 连接。
+  // 连续试看多个视频时（去重对比/合并预览）避免解码实例与缓冲区堆积
+  useEffect(() => {
+    const video = videoRef.current
+    return () => {
+      if (!video) return
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
+    }
+  }, [])
 
   const savePosition = (): void => {
     if (!storageKey || !videoRef.current) return

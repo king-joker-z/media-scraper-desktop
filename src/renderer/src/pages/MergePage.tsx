@@ -95,7 +95,10 @@ function MergePage({
     () => estimateOutputBytes(items, compatibility.compatible),
     [items, compatibility]
   )
-  const totalDurationMs = items.reduce((sum, item) => sum + (item.media?.durationMs ?? 0), 0)
+  const totalDurationMs = useMemo(
+    () => items.reduce((sum, item) => sum + (item.media?.durationMs ?? 0), 0),
+    [items]
+  )
   const notEnoughSpace = freeBytes > 0 && estimated > freeBytes
 
   const execute = async (): Promise<void> => {

@@ -33,6 +33,8 @@ export async function executeCleanPlan(
     cancelled: false,
     deletedCount: 0,
     deletedBytes: 0,
+    // 已删除项的相对路径（流水线增量合并扫描记录用）
+    deleted: [],
     converted: [],
     renamed: [],
     moved: [],
@@ -67,10 +69,12 @@ export async function executeCleanPlan(
     taskCenter.run({ taskId, label, items, worker, concurrency })
 
   // ---- 1. 删除清理项（默认进回收站，可在设置改永久删除；最先执行，释放根目录占位名） ----
-  const deleteResult = await runPhase('删除清理项', deleteItems, async (item) => {
+  const deleteResult = await runPhase('删除清理项', deleteItems, async (item, signal) => {
+    if (signal?.aborted) throw new Error('已取消')
     await doDelete(item.path)
     report.deletedCount += 1
     report.deletedBytes += item.size
+    report.deleted.push(item.relativePath)
   })
   collectFailures(report, deleteResult, deleteItems, 'relativePath')
   if (deleteResult.cancelled) return finishReport(report, startedAt, true)
