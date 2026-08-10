@@ -8,6 +8,7 @@ import {
   detectSceneCuts
 } from '../../core/frames.mjs'
 import { probeMediaCached } from '../../core/probe.mjs'
+import sharp from 'sharp'
 import { convertToJpg } from '../../core/image.mjs'
 import {
   commitStagedFile,
@@ -63,6 +64,71 @@ export function framesDirFor(framesRoot, videoPath) {
 // 长视频不做场景切换检测：全片解码成本高（30 分钟视频几十秒），
 // 直接用固定百分比时点；短视频才值得跑场景检测找内容突变帧
 const SCENE_DETECT_MAX_DURATION_MS = 2 * 60 * 1000
+const SCORE_WIDTH = 320
+
+/**
+ * 轻量候选帧质量评分：只解码 320px 灰度缩略图，不引入模型推理。
+ * 清晰度使用相邻像素边缘能量；黑屏比例、亮度和对比度用于淘汰暗场/过曝画面。
+ */
+export async function scoreCandidateFrame(framePath) {
+  const { data, info } = await sharp(framePath)
+    .resize({ width: SCORE_WIDTH, withoutEnlargement: true })
+    .grayscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  const pixels = data.length
+  if (!pixels) throw new Error('候选帧为空')
+  let sum = 0
+  let sumSquares = 0
+  let dark = 0
+  let edge = 0
+  let edgeCount = 0
+  for (let index = 0; index < pixels; index += 1) {
+    const value = data[index]
+    sum += value
+    sumSquares += value * value
+    if (value < 20) dark += 1
+    if (index % info.width !== 0) {
+      edge += Math.abs(value - data[index - 1])
+      edgeCount += 1
+    }
+    if (index >= info.width) {
+      edge += Math.abs(value - data[index - info.width])
+      edgeCount += 1
+    }
+  }
+  const brightness = sum / pixels
+  const contrast = Math.sqrt(Math.max(0, sumSquares / pixels - brightness * brightness))
+  const blackRatio = dark / pixels
+  const clarity = edgeCount ? edge / edgeCount : 0
+  // 亮度接近 128 更自然，黑屏直接施加高惩罚；系数仅用于候选间排序。
+  const exposure = Math.max(0, 1 - Math.abs(brightness - 128) / 128)
+  const score = clarity * 0.55 + contrast * 0.25 + exposure * 25 - blackRatio * 100
+  return { path: framePath, score, brightness, contrast, clarity, blackRatio }
+}
+
+/** 对一批候选帧评分，返回稳定排序（同分按原始路径保证结果可复现）。 */
+export async function rankCandidateFrames(framePaths) {
+  const scored = await Promise.all(
+    framePaths.map(async (path) => {
+      try {
+        return await scoreCandidateFrame(path)
+      } catch {
+        return {
+          path,
+          score: Number.NEGATIVE_INFINITY,
+          brightness: 0,
+          contrast: 0,
+          clarity: 0,
+          blackRatio: 1
+        }
+      }
+    })
+  )
+  return scored.sort(
+    (left, right) => right.score - left.score || left.path.localeCompare(right.path)
+  )
+}
 
 export async function captureCandidates(
   videoPath,
@@ -100,7 +166,8 @@ export async function captureCandidates(
     seconds,
     target: join(outDir, `candidate-${String(i + 1).padStart(2, '0')}.jpg`)
   }))
-  return captureFrames(videoPath, jobs, ffmpegPath, { signal })
+  const frames = await captureFrames(videoPath, jobs, ffmpegPath, { signal })
+  return (await rankCandidateFrames(frames)).map((entry) => entry.path)
 }
 
 /** 在指定时间点精确截帧（用户在详情页拖动时间轴后手动选帧）。 */

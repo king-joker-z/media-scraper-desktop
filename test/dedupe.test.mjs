@@ -63,7 +63,7 @@ test('findDuplicates groups identical videos into exact and ignores uniques', as
     assert.equal(result.similar.length, 0)
     assert.deepEqual(
       result.exact[0].items.map((i) => i.relativePath).sort(),
-      ['sub/另一个名字.mkv', '电影A.mp4'].sort()
+      [join('sub', '另一个名字.mkv'), '电影A.mp4'].sort()
     )
     assert.equal(result.exact[0].sizeBytes, 150_000)
     // 建议保留项指向第一个（按质量排序）

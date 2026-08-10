@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import sharp from 'sharp'
 import { createScanPlan } from '../src/main/core/scanner.mjs'
 import { pathExists } from '../src/main/core/fs-ops.mjs'
 import { convertToJpg } from '../src/main/core/image.mjs'
@@ -12,6 +13,8 @@ import {
   listPosterVideos,
   mapPosterVideos,
   savePoster,
+  scoreCandidateFrame,
+  rankCandidateFrames,
   videoStem
 } from '../src/main/modules/poster/poster.mjs'
 
@@ -101,6 +104,36 @@ test('savePoster is a no-op when choosing the current poster itself', async () =
     assert.equal(result.saved, poster)
     // 内容未被重写
     assert.equal(await readFile(poster, 'utf8'), 'original-bytes')
+  })
+})
+
+test('候选帧质量评分会降低黑屏优先级并保留清晰画面', async () => {
+  await withTempDir(async (root) => {
+    const black = join(root, 'black.jpg')
+    const sharpFrame = join(root, 'sharp.jpg')
+    await sharp({ create: { width: 160, height: 90, channels: 3, background: '#000000' } })
+      .jpeg()
+      .toFile(black)
+    // 黑白棋盘产生稳定边缘，代表清晰且非黑屏的候选画面。
+    const raw = Buffer.alloc(160 * 90 * 3)
+    for (let y = 0; y < 90; y += 1) {
+      for (let x = 0; x < 160; x += 1) {
+        const value = (Math.floor(x / 8) + Math.floor(y / 8)) % 2 ? 235 : 25
+        const index = (y * 160 + x) * 3
+        raw[index] = value
+        raw[index + 1] = value
+        raw[index + 2] = value
+      }
+    }
+    await sharp(raw, { raw: { width: 160, height: 90, channels: 3 } })
+      .jpeg()
+      .toFile(sharpFrame)
+
+    const blackScore = await scoreCandidateFrame(black)
+    assert.ok(blackScore.blackRatio > 0.99)
+    const ranked = await rankCandidateFrames([black, sharpFrame])
+    assert.equal(ranked[0].path, sharpFrame)
+    assert.equal(ranked[1].path, black)
   })
 })
 

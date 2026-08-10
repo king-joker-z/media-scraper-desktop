@@ -6,6 +6,17 @@ declare module './poster.mjs' {
     root: string,
     options?: { onProgress?: (scanned: number) => void; concurrency?: number }
   ): Promise<PosterVideoItem[]>
+  export interface CandidateFrameScore {
+    path: string
+    score: number
+    brightness: number
+    contrast: number
+    clarity: number
+    blackRatio: number
+  }
+  /** 轻量质量评分：灰度缩略图的清晰度、黑屏比例、亮度与对比度 */
+  export function scoreCandidateFrame(framePath: string): Promise<CandidateFrameScore>
+  export function rankCandidateFrames(framePaths: string[]): Promise<CandidateFrameScore[]>
   export function framesDirFor(framesRoot: string, videoPath: string): string
   export function captureCandidates(
     videoPath: string,

@@ -45,6 +45,7 @@ function PosterDetail({
       .then((frames) => {
         if (!alive) return
         onCandidates(frames)
+        // capturePosters 返回质量评分最高的帧在首位，默认选择推荐项。
         if (frames[0]) onSelect(frames[0])
       })
       .catch((err) => alive && setError(err instanceof Error ? err.message : String(err)))
@@ -142,7 +143,11 @@ function PosterDetail({
               onClick={() => onSelect(frame)}
             >
               <img src={`${mediaUrl(frame)}?v=${version}`} alt="候选帧" loading="lazy" />
-              {frame === video.posterPath && <span className="candidate-tag">当前封面</span>}
+              {frame === video.posterPath ? (
+                <span className="candidate-tag">当前封面</span>
+              ) : (
+                frame === candidates[0] && <span className="candidate-tag">推荐</span>
+              )}
             </button>
           ))}
         </div>

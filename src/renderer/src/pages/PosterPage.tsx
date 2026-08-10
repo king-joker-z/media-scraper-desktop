@@ -93,7 +93,7 @@ function PosterPage({
           continue
         }
         nextCandidates[outcome.relativePath] = outcome.frames
-        // 无封面视频默认选中第一张候选 → 卡片立即渲染首帧
+        // 主进程已按轻量质量评分降序排序：无封面时默认采用最佳候选。
         const video = videos.find((v) => v.relativePath === outcome.relativePath)
         if (video && !video.posterPath && !selections[video.relativePath]) {
           nextSelections[outcome.relativePath] = outcome.frames[0]
@@ -105,7 +105,7 @@ function PosterPage({
       setNotice(
         failed.length
           ? `已生成 ${ok} 个视频的候选帧，${failed.length} 个失败`
-          : `已生成 ${ok} 个视频的候选帧，默认选中第一张，可直接一键确认`
+          : `已生成 ${ok} 个视频的候选帧，已按画面质量推荐最佳帧，可直接一键确认`
       )
       if (failed.length) setError(`截帧失败示例：${failed[0]}`)
     } catch (err) {
@@ -159,7 +159,7 @@ function PosterPage({
           <p className="eyebrow">模块四 · 封面管理</p>
           <h1>Poster 封面</h1>
           <p className="muted">
-            为全部视频生成候选帧并默认选中第一张；不满意的进详情换帧，最后一键批量确认。
+            候选帧会按清晰度、黑屏比例、亮度与对比度自动推荐最佳画面；不满意可进详情手动换帧。
           </p>
         </div>
         <div className="actions">
