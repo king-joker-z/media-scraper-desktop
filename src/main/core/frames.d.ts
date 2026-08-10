@@ -2,6 +2,12 @@ declare module './frames.mjs' {
   export function resolveFfmpegPath(): string
   export function buildFrameTimestamps(durationMs: number, count?: number): number[]
   export function buildCaptureArgs(videoPath: string, seconds: number, targetPath: string): string[]
+  /** 快速截帧参数：仅输入侧 -ss，候选封面等精度不敏感场景用 */
+  export function buildFastCaptureArgs(
+    videoPath: string,
+    seconds: number,
+    targetPath: string
+  ): string[]
   export function detectSceneCuts(
     videoPath: string,
     options?: { ffmpegPath?: string; threshold?: number; limit?: number; signal?: AbortSignal }
@@ -11,6 +17,6 @@ declare module './frames.mjs' {
     seconds: number,
     targetPath: string,
     ffmpegPath?: string,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; fast?: boolean }
   ): Promise<string>
 }

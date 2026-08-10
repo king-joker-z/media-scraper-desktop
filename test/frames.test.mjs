@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
   buildCaptureArgs,
+  buildFastCaptureArgs,
   buildFrameTimestamps,
   captureFrame,
   detectSceneCuts,
@@ -66,6 +67,16 @@ test('detectSceneCuts finds the color switch point', async () => {
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('buildFastCaptureArgs uses input-side seek only', () => {
+  const args = buildFastCaptureArgs('v.mp4', 500, 'out.jpg')
+  // -ss 在 -i 之前（输入侧快速 seek），无第二段精确 seek
+  const ssIndex = args.indexOf('-ss')
+  const inputIndex = args.indexOf('-i')
+  assert.ok(ssIndex >= 0 && ssIndex < inputIndex)
+  assert.equal(args.filter((a) => a === '-ss').length, 1)
+  assert.equal(args[ssIndex + 1], '500')
 })
 
 test('captureFrame extracts real jpegs via both seek paths', async () => {

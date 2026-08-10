@@ -50,6 +50,10 @@ export function framesDirFor(framesRoot, videoPath) {
  * 优先用场景切换检测找内容突变帧（更可能是有信息的画面）；
  * 检测不足 3 个或失败时回退到固定百分比（10/30/50/70/90%）。
  */
+// 长视频不做场景切换检测：全片解码成本高（30 分钟视频几十秒），
+// 直接用固定百分比时点；短视频才值得跑场景检测找内容突变帧
+const SCENE_DETECT_MAX_DURATION_MS = 2 * 60 * 1000
+
 export async function captureCandidates(
   videoPath,
   framesRoot,
@@ -66,7 +70,9 @@ export async function captureCandidates(
   }
 
   let timestamps = []
-  if (durationMs > 1000) {
+  if (durationMs > SCENE_DETECT_MAX_DURATION_MS) {
+    timestamps = buildFrameTimestamps(durationMs)
+  } else if (durationMs > 1000) {
     try {
       timestamps = (await detectSceneCuts(videoPath, { ffmpegPath, limit: 5, signal })).filter(
         (t) => t * 1000 < durationMs - 200
@@ -91,7 +97,8 @@ export async function captureCandidates(
       const index = cursor
       cursor += 1
       const job = jobs[index]
-      await captureFrame(videoPath, job.seconds, job.target, ffmpegPath, { signal })
+      // 候选帧一律快速 seek：关键帧级精度足够选封面，长视频从几十秒降到亚秒级
+      await captureFrame(videoPath, job.seconds, job.target, ffmpegPath, { signal, fast: true })
       frames[index] = job.target
     }
   }

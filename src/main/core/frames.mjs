@@ -16,6 +16,29 @@ export function buildFrameTimestamps(durationMs, count = 5) {
 }
 
 /**
+ * 快速截帧参数：仅输入侧 -ss（关键帧级定位，几乎零解码）。
+ * 用于候选封面等对帧精度不敏感的场景——几十分钟的长视频也能亚秒出图。
+ */
+export function buildFastCaptureArgs(videoPath, seconds, targetPath) {
+  return [
+    '-v',
+    'error',
+    '-ss',
+    String(Math.max(0, seconds)),
+    '-i',
+    videoPath,
+    '-frames:v',
+    '1',
+    '-q:v',
+    '2',
+    '-vf',
+    "scale='min(1920,iw)':-2",
+    '-y',
+    targetPath
+  ]
+}
+
+/**
  * 构造截帧参数：两段式 seek——先快速跳到目标前 10 秒再精确解码，
  * 兼顾长视频速度与帧精确度；输出限宽 1920 防止超大帧撑爆内存。
  */
@@ -78,16 +101,22 @@ export async function detectSceneCuts(
   return times.slice(0, limit)
 }
 
-/** 截取单帧为 JPG；失败（无输出文件）抛错。支持 AbortSignal 取消。 */
+/**
+ * 截取单帧为 JPG；失败（无输出文件）抛错。支持 AbortSignal 取消。
+ * fast=true 用快速 seek（候选封面批量生成）；默认两段式精确 seek（用户手动选帧）。
+ */
 export async function captureFrame(
   videoPath,
   seconds,
   targetPath,
   ffmpegPath = resolveFfmpegPath(),
-  { signal } = {}
+  { signal, fast = false } = {}
 ) {
   await mkdir(dirname(targetPath), { recursive: true })
-  await runPooled(ffmpegPath, buildCaptureArgs(videoPath, seconds, targetPath), { signal })
+  const args = fast
+    ? buildFastCaptureArgs(videoPath, seconds, targetPath)
+    : buildCaptureArgs(videoPath, seconds, targetPath)
+  await runPooled(ffmpegPath, args, { signal })
   if (!(await pathExists(targetPath))) {
     throw new Error(`截帧未生成图片（${seconds}s）：${videoPath}`)
   }
