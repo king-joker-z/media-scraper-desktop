@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, Notification, protocol } from 'electron'
-import { extname, join } from 'path'
+import { extname, join, resolve } from 'path'
 import { tmpdir } from 'os'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -982,7 +982,9 @@ app.whenReady().then(async () => {
   protocol.handle('media', async (request) => {
     // 渲染端格式：media://local<逐段 encodeURIComponent(正斜杠绝对路径)>
     const decoded = decodeURIComponent(new URL(request.url).pathname)
-    const filePath = /^\/[A-Za-z]:/.test(decoded) ? decoded.slice(1) : decoded
+    const rawPath = /^\/[A-Za-z]:/.test(decoded) ? decoded.slice(1) : decoded
+    // resolve 归一化 .. 与分隔符，防路径穿越绕过白名单（如 C:/ws/../elsewhere）
+    const filePath = resolve(rawPath)
     if (!isMediaAllowed(filePath)) {
       return new Response('Forbidden', { status: 403 })
     }

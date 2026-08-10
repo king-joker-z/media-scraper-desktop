@@ -77,6 +77,14 @@ test('buildConcatList escapes single quotes', () => {
   assert.ok(list.includes("file '/a/c'\\''d.mp4'"))
 })
 
+test('buildConcatList converts Windows backslashes to forward slashes', () => {
+  // ffmpeg concat demuxer 把 \ 视为转义符，Windows 路径必须转正斜杠
+  const list = buildConcatList(['C:\\ws\\sub\\a.mp4', 'D:\\media\\b.mp4'])
+  assert.ok(list.includes("file 'C:/ws/sub/a.mp4'"))
+  assert.ok(list.includes("file 'D:/media/b.mp4'"))
+  assert.ok(!list.includes('\\\\'))
+})
+
 test('buildTranscodeArgs targets unified params', () => {
   const args = buildTranscodeArgs(
     'in.mkv',

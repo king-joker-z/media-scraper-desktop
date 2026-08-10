@@ -85,9 +85,18 @@ export function mergeOutputName(workspaceName, mode) {
 export const isMergeOutputName = (name) =>
   /-(landscape-|portrait-|custom-)?merged( \(\d+\))?\.mp4$/i.test(name)
 
-/** concat 清单文件内容（转义单引号） */
+/** concat 清单文件内容（转义单引号；反斜杠统一为正斜杠） */
 export function buildConcatList(paths) {
-  return paths.map((p) => `file '${String(p).replace(/'/g, "'\\''")}'`).join('\n') + '\n'
+  return (
+    paths
+      .map((p) => {
+        // ffmpeg concat demuxer 把 \ 视为转义符：Windows 路径必须改用正斜杠，
+        // 否则 C:\ws\a.mp4 被解析成 C:wsa.mp4 导致合并失败（官方 FAQ 建议正斜杠）
+        const safe = String(p).replaceAll('\\', '/').replace(/'/g, "'\\''")
+        return `file '${safe}'`
+      })
+      .join('\n') + '\n'
+  )
 }
 
 /** 无重编码拼接参数 */
