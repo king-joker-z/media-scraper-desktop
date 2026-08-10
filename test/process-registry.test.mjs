@@ -1,23 +1,25 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  execManaged,
   spawnManaged,
   activeProcessCount,
   killAllActiveProcesses
 } from '../src/main/core/process-registry.mjs'
+import { runPooled, setPoolSize } from '../src/main/core/ffmpeg-pool.mjs'
 import { resolveFfmpegPath } from '../src/main/core/frames.mjs'
 
 const node = process.execPath
 
-test('execManaged 正常执行并收集 stdout/stderr', async () => {
-  const { stdout } = await execManaged(node, ['-e', "process.stdout.write('hi')"])
+test('runPooled 正常执行并收集 stdout/stderr', async () => {
+  setPoolSize(4)
+  const { stdout } = await runPooled(node, ['-e', "process.stdout.write('hi')"])
   assert.equal(stdout, 'hi')
 })
 
-test('execManaged 命令失败时 reject 且带 stderrTail', async () => {
+test('runPooled 命令失败时 reject 且带 stderrTail', async () => {
+  setPoolSize(4)
   await assert.rejects(
-    () => execManaged(node, ['--bad-flag']),
+    () => runPooled(node, ['--bad-flag']),
     (error) => {
       assert.ok(error.code !== 0 || error.exitCode !== 0)
       assert.equal(typeof error.stderrTail, 'string')
@@ -26,9 +28,10 @@ test('execManaged 命令失败时 reject 且带 stderrTail', async () => {
   )
 })
 
-test('execManaged abort 后进程被终止且 reject AbortError', async () => {
+test('runPooled abort 后进程被终止且 reject AbortError', async () => {
+  setPoolSize(4)
   const controller = new AbortController()
-  const promise = execManaged(node, ['-e', 'setTimeout(() => {}, 60000)'], {
+  const promise = runPooled(node, ['-e', 'setTimeout(() => {}, 60000)'], {
     signal: controller.signal
   })
   setTimeout(() => controller.abort(), 50)
@@ -66,9 +69,10 @@ test('killAllActiveProcesses 强杀顽固进程', async () => {
 })
 
 test('ffmpeg 真实进程经注册表管理：截帧成功后注册表清空', async () => {
+  setPoolSize(4)
   const ffmpeg = resolveFfmpegPath()
   const before = activeProcessCount()
   // 调一个极简 ffmpeg 命令（版本查询）
-  await execManaged(ffmpeg, ['-version'])
+  await runPooled(ffmpeg, ['-version'])
   assert.equal(activeProcessCount(), before)
 })

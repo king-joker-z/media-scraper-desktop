@@ -1,7 +1,7 @@
 import { basename, extname } from 'node:path'
 import { createScanPlan } from '../../core/scanner.mjs'
 import { resolveFfmpegPath } from '../../core/frames.mjs'
-import { spawnManaged } from '../../core/process-registry.mjs'
+import { spawnPooled } from '../../core/ffmpeg-pool.mjs'
 
 /**
  * 视频完整性体检（冻结稿外新增模块）：
@@ -13,7 +13,7 @@ import { spawnManaged } from '../../core/process-registry.mjs'
 /** 单文件全量解码校验；stderr 截断保留尾部（最相关的错误在末尾） */
 export async function checkVideoIntegrity(filePath, ffmpegPath, signal) {
   let stderrTail = ''
-  const { code, cancelled } = await spawnManaged(
+  const { code, cancelled } = await spawnPooled(
     ffmpegPath,
     ['-v', 'error', '-xerror', '-i', filePath, '-f', 'null', '-'],
     {

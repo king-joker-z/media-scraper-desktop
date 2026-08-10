@@ -1,5 +1,6 @@
 import { basename, extname, join } from 'node:path'
 import { listDirNames, moveWithCollision, pathExists, writeTextFile } from '../../core/fs-ops.mjs'
+import { collectFailures, finishReport } from '../../core/task-report.mjs'
 import { listPosterVideos } from '../poster/poster.mjs'
 
 /** XML 特殊字符转义 */
@@ -66,7 +67,15 @@ export async function executeNfoPlan(
   { taskCenter, taskId, concurrency = 5 }
 ) {
   const startedAt = Date.now()
-  const report = { taskId, cancelled: false, archivedCount: 0, failed: [], durationMs: 0 }
+  // archived 记录每个视频的落位明细（视频/poster/NFO 文件名），供「一键撤销」反向移动
+  const report = {
+    taskId,
+    cancelled: false,
+    archivedCount: 0,
+    archived: [],
+    failed: [],
+    durationMs: 0
+  }
 
   const result = await taskCenter.run({
     taskId,
@@ -84,21 +93,25 @@ export async function executeNfoPlan(
       }
       // 生成 NFO
       const videoName = basename(videoFinal, extname(videoFinal))
-      const nfoPath = join(targetDir, `${videoName}.nfo`)
+      const nfoName = `${videoName}.nfo`
+      const nfoPath = join(targetDir, nfoName)
       await writeTextFile(nfoPath, renderNfoXml({ title: videoName, posterName, actorName }))
       // 校验：三个文件关系
       if (!(await pathExists(nfoPath))) throw new Error('NFO 写入失败')
       if (!(await pathExists(videoFinal))) throw new Error('视频移动校验失败')
       report.archivedCount += 1
+      report.archived.push({
+        // 原始相对路径（撤销时恢复原位与原名的依据）
+        videoRel: item.videoRel,
+        posterRel: item.posterRel,
+        targetDir: item.targetDir,
+        videoName: basename(videoFinal),
+        posterName,
+        nfoName
+      })
     }
   })
 
-  result.results.forEach((entry, index) => {
-    if (!entry.ok && !entry.cancelled) {
-      report.failed.push({ target: items[index].videoRel, error: entry.error ?? '未知错误' })
-    }
-  })
-  report.cancelled = result.cancelled
-  report.durationMs = Date.now() - startedAt
-  return report
+  collectFailures(report, result, items, 'videoRel')
+  return finishReport(report, startedAt, result.cancelled)
 }

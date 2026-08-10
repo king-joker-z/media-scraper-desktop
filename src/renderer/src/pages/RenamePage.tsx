@@ -102,6 +102,13 @@ function RenamePage({
   // 页面可见时对比工作区指纹：有变化自动重扫
   useWorkspaceSync(workspace, active, refresh)
 
+  // relativePath → 视频索引：computedPairs/changedPairs/行渲染都是 O(1) 查表，
+  // 替代原先每对 pair 一次 videos.find（渲染期 O(n²)）
+  const videoByRel = useMemo(
+    () => new Map(videos.map((video) => [video.relativePath, video])),
+    [videos]
+  )
+
   /** 各模式生成目标词干 */
   const computedPairs = useMemo((): RenamePairInput[] => {
     const withPoster = (
@@ -131,7 +138,7 @@ function RenamePage({
         })),
         seq
       ).map((p) => {
-        const video = videos.find((v) => v.relativePath === p.videoRel)
+        const video = videoByRel.get(p.videoRel)
         return withPoster(video!, p.newStem)
       })
     }
@@ -145,16 +152,16 @@ function RenamePage({
         name: `${applyRegexRules(stemOfName(v.name), rules)}${extOfName(v.name)}`
       }))
       return buildSequenceStems(cleaned, seq).map((p) => {
-        const video = videos.find((v) => v.relativePath === p.videoRel)
+        const video = videoByRel.get(p.videoRel)
         return withPoster(video!, p.newStem)
       })
     }
     // seq 模式
     return buildSequenceStems(videos, seq).map((p) => {
-      const video = videos.find((v) => v.relativePath === p.videoRel)
+      const video = videoByRel.get(p.videoRel)
       return withPoster(video!, p.newStem)
     })
-  }, [videos, mode, seq, templates, activeRules, customRule, useCustom, aiNamesMap])
+  }, [videos, videoByRel, mode, seq, templates, activeRules, customRule, useCustom, aiNamesMap])
 
   /** 用户手动编辑覆盖 */
   const pairs = useMemo(
@@ -169,12 +176,12 @@ function RenamePage({
   const changedPairs = useMemo(
     () =>
       pairs.filter((pair) => {
-        const video = videos.find((v) => v.relativePath === pair.videoRel)
+        const video = videoByRel.get(pair.videoRel)
         if (!video) return false
         const finalName = `${pair.newStem}${pair.newExt ?? extOfName(video.name)}`
         return finalName !== video.name
       }),
-    [pairs, videos]
+    [pairs, videoByRel]
   )
   const riskyExtCount = pairs.filter(
     (p) => p.newExt && probes[p.videoRel] && !probes[p.videoRel].isMp4
@@ -199,7 +206,9 @@ function RenamePage({
         )
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(
+        `AI 命名失败：${err instanceof Error ? err.message : String(err)}（可在设置页检查 Token/模型或切换平台）`
+      )
     } finally {
       setAiLoading(false)
     }
@@ -220,7 +229,7 @@ function RenamePage({
         setAiNamesMap((prev) => ({ ...prev, [video.relativePath]: names[0] }))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(`AI 命名失败：${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -419,7 +428,7 @@ function RenamePage({
                 <span>状态</span>
               </div>
               {pairs.map((pair) => {
-                const video = videos.find((v) => v.relativePath === pair.videoRel)
+                const video = videoByRel.get(pair.videoRel)
                 const probe = probes[pair.videoRel]
                 const rowError = errors[pair.videoRel]
                 return (
@@ -504,6 +513,9 @@ function RenamePage({
                   {item.target}：{item.error}
                 </p>
               ))}
+              {report.failed.length > 20 && (
+                <p className="muted">仅显示前 20 条，共 {report.failed.length} 条失败记录</p>
+              )}
             </div>
           )}
         </section>

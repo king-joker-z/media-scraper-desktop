@@ -7,6 +7,12 @@ declare module './fs-ops.mjs' {
   }
   export function pathExists(target: string): Promise<boolean>
   export function permanentDelete(target: string): Promise<void>
+  /** 注入回收站实现（主进程启动时调用） */
+  export function setTrashImpl(fn: ((target: string) => Promise<void>) | null): void
+  /** 删除到系统回收站；未注入或回收站不可用时回退永久删除 */
+  export function deleteToTrash(target: string): Promise<void>
+  /** 清理跨设备移动残留的 .msd-part 临时件，返回清理路径列表 */
+  export function cleanMovePartials(dir: string): Promise<string[]>
   export function ensureUniquePath(target: string): Promise<string>
   export function moveFile(from: string, to: string, options?: MoveOptions): Promise<void>
   export function moveWithCollision(
@@ -21,6 +27,8 @@ declare module './fs-ops.mjs' {
     options?: MoveOptions
   ): Promise<string>
   export function writeTextFile(target: string, content: string): Promise<string>
+  /** 读文本文件（utf8） */
+  export function readTextFile(target: string): Promise<string>
   export function removeEmptyDirs(root: string): Promise<string[]>
   export function isJunkFileName(name: string): boolean
   export function listDirNames(dir: string): Promise<string[]>

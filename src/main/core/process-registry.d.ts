@@ -16,23 +16,6 @@ declare module './process-registry.mjs' {
   /** 兜底强杀全部活跃子进程（应用退出前调用） */
   export function killAllActiveProcesses(): void
 
-  export interface ExecOptions extends TrackOptions {
-    /** stdout/stderr 收集上限，默认 16MB */
-    maxBuffer?: number
-  }
-
-  export interface ExecResult {
-    stdout: string
-    stderr: string
-  }
-
-  /** execFile 托管版：收集 stdout/stderr，进程自动注册管理 */
-  export function execManaged(
-    cmd: string,
-    args: string[],
-    options?: ExecOptions
-  ): Promise<ExecResult>
-
   export interface SpawnOptions extends TrackOptions {
     onStdout?: (text: string) => void
     onStderr?: (text: string) => void

@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 
 /**
  * 子进程注册表：所有 ffmpeg/ffprobe 进程必须经此模块创建并注册。
@@ -68,37 +68,6 @@ export function killAllActiveProcesses() {
     }
     activeChildren.delete(child)
   }
-}
-
-/**
- * execFile 托管版：收集 stdout/stderr（maxBuffer 保护），进程自动注册管理。
- * @returns {Promise<{stdout: string, stderr: string}>}
- */
-export function execManaged(cmd, args, { signal, maxBuffer = 16 * 1024 * 1024, killGraceMs } = {}) {
-  return new Promise((resolve, reject) => {
-    let child
-    try {
-      child = execFile(cmd, args, { maxBuffer, windowsHide: true }, (error, stdout, stderr) => {
-        if (error) {
-          if (signal?.aborted) {
-            const abortError = new Error('已取消')
-            abortError.name = 'AbortError'
-            reject(abortError)
-            return
-          }
-          // stderr 可能很长（ffmpeg 进度），仅保留尾部随错误上抛
-          error.stderrTail = typeof stderr === 'string' ? stderr.slice(-2000) : ''
-          reject(error)
-          return
-        }
-        resolve({ stdout: String(stdout), stderr: String(stderr) })
-      })
-    } catch (error) {
-      reject(error)
-      return
-    }
-    trackChild(child, { signal, killGraceMs })
-  })
 }
 
 /**

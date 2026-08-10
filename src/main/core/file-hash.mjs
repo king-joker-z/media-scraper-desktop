@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { open } from 'node:fs/promises'
+import { open, stat } from 'node:fs/promises'
+import { createLruCache } from './lru-cache.mjs'
 
 /**
  * 文件内容指纹：大小 + 头部样本 + 中部样本 + 尾部样本 的 MD5。
@@ -28,4 +29,27 @@ export async function hashFileSample(filePath, sampleSize = 65536) {
   } finally {
     await handle.close()
   }
+}
+
+/* ---------------- 哈希缓存：按 path+mtime+size 命中，LRU 淘汰 ---------------- */
+
+const HASH_CACHE_MAX = 2000
+const hashCache = createLruCache(HASH_CACHE_MAX)
+
+/**
+ * 带缓存的采样哈希：文件未变化（mtime/size 相同）直接返回缓存，
+ * 去重模块二次扫描时免重复读盘。hashFn 可注入便于测试。
+ */
+export async function hashFileSampleCached(filePath, sampleSize = 65536, hashFn = hashFileSample) {
+  const info = await stat(filePath)
+  const key = `${filePath}:${info.mtimeMs}:${info.size}`
+  const cached = hashCache.get(key)
+  if (cached) return cached
+  const hash = await hashFn(filePath, sampleSize)
+  hashCache.set(key, hash)
+  return hash
+}
+
+export function clearHashCache() {
+  hashCache.clear()
 }

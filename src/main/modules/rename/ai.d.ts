@@ -27,6 +27,11 @@ declare module './ai.mjs' {
     retryDelayMs?: number
   }): Promise<string[]>
   export function clearAiCache(): void
+  /** 把 AI 平台失败响应转成可读中文错误（附平台返回摘要） */
+  export function toFriendlyHttpError(response: {
+    status: number
+    text: () => Promise<string>
+  }): Promise<Error>
   export function fetchWithRetry(
     url: string,
     init: RequestInit,

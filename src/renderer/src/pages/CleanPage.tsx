@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CleanReport, PosterPicks, ScanPlan } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
@@ -32,6 +32,15 @@ function CleanPage({
   const [confirming, setConfirming] = useState(false)
   const [report, setReport] = useState<CleanReport | null>(null)
   const [error, setError] = useState('')
+  // 删除方式（回收站/永久删除），仅用于文案提示
+  const [toTrash, setToTrash] = useState(true)
+
+  useEffect(() => {
+    window.api
+      .getSettings()
+      .then((settings) => setToTrash(settings.deleteToTrash))
+      .catch(() => {})
+  }, [])
 
   const scan = async (): Promise<void> => {
     if (!workspace) return
@@ -93,7 +102,10 @@ function CleanPage({
           <p className="eyebrow">模块一 · 目录清理</p>
           <h1>工作区清理</h1>
           <p className="muted">
-            扫描 → 预览 → 确认 → 执行 → 报告。删除为永久删除，执行前请仔细核对清单。
+            扫描 → 预览 → 确认 → 执行 → 报告。
+            {toTrash
+              ? '删除默认移入系统回收站（可恢复，可在设置改为永久删除）。'
+              : '当前为永久删除模式，执行前请仔细核对清单。'}
           </p>
         </div>
         <div className="actions">
@@ -186,7 +198,11 @@ function CleanPage({
 
           <section className="grid">
             <PlanList title="保留项" items={plan.keep} tone="keep" />
-            <PlanList title="永久删除候选" items={plan.deleteItems} tone="delete" />
+            <PlanList
+              title={toTrash ? '删除候选（进回收站）' : '永久删除候选'}
+              items={plan.deleteItems}
+              tone="delete"
+            />
             <PlanList
               title="上移预览"
               items={plan.moves.map((item) => ({
@@ -226,6 +242,8 @@ function CleanPage({
           deleteCount={plan.deleteItems.length + unpickedCount(plan, picks)}
           deleteBytes={plan.deleteBytes}
           danger={plan.risk === 'danger'}
+          recoverable={toTrash}
+          confirmWord={toTrash ? '确认删除' : '永久删除'}
           extra={`同时将上移 ${plan.moves.length} 个文件到工作区根目录，并把保留 poster 标准化为「视频名-poster.jpg」。`}
           onConfirm={execute}
           onCancel={() => setConfirming(false)}
@@ -254,7 +272,7 @@ function ReportView({
       <h2>{report.cancelled ? '已取消（以下为已完成部分）' : '执行报告'}</h2>
       <div className="report-grid">
         <div>
-          <span>永久删除</span>
+          <span>删除</span>
           <b>
             {report.deletedCount} 个 / {formatBytes(report.deletedBytes)}
           </b>
@@ -291,6 +309,9 @@ function ReportView({
               {item.target}：{item.error}
             </p>
           ))}
+          {report.failed.length > 20 && (
+            <p className="muted">仅显示前 20 条，共 {report.failed.length} 条失败记录</p>
+          )}
         </div>
       )}
       <div className="actions">
@@ -302,6 +323,9 @@ function ReportView({
   )
 }
 
+// 清单默认只渲染前 80 条防大目录卡顿；截断时明示总数并可展开（原先静默截断）
+const PLAN_LIST_PREVIEW = 80
+
 function PlanList({
   title,
   items,
@@ -311,6 +335,8 @@ function PlanList({
   items: { relativePath: string; kind: string; reason?: string; posterFor?: string }[]
   tone: string
 }): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? items : items.slice(0, PLAN_LIST_PREVIEW)
   return (
     <section className={`plan ${tone}`}>
       <h2>
@@ -319,14 +345,23 @@ function PlanList({
       </h2>
       <div>
         {items.length ? (
-          items.slice(0, 80).map((item) => (
-            <article key={item.relativePath}>
-              <b>{item.relativePath}</b>
-              <span>
-                {item.posterFor ? `poster → ${item.posterFor}` : item.reason || item.kind}
-              </span>
-            </article>
-          ))
+          <>
+            {visible.map((item) => (
+              <article key={item.relativePath}>
+                <b>{item.relativePath}</b>
+                <span>
+                  {item.posterFor ? `poster → ${item.posterFor}` : item.reason || item.kind}
+                </span>
+              </article>
+            ))}
+            {items.length > PLAN_LIST_PREVIEW && (
+              <button className="secondary" onClick={() => setExpanded((value) => !value)}>
+                {expanded
+                  ? '收起'
+                  : `显示全部 ${items.length} 条（当前仅前 ${PLAN_LIST_PREVIEW} 条）`}
+              </button>
+            )}
+          </>
         ) : (
           <p>无项目</p>
         )}

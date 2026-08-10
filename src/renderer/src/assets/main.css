@@ -529,8 +529,19 @@ h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--separator);
+}
+.task-filter {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--separator);
+  background: var(--bg-card);
+  color: var(--label-primary);
+  font-size: 12px;
 }
 .task-list {
   overflow-y: auto;
@@ -1205,6 +1216,15 @@ h2 {
   display: grid;
   max-height: 220px;
   overflow-y: auto;
+}
+.op-log-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.op-log-row-wrap .op-log-row {
+  flex: 1;
+  min-width: 0;
 }
 .op-log-row {
   display: grid;

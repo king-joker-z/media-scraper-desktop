@@ -22,8 +22,8 @@ declare module './ffmpeg-pool.mjs' {
   /** 当前排队等待数 */
   export function getPendingCount(): number
 
-  /** 获取一个执行许可（池未满时立即返回，否则排队等待） */
-  export function acquire(): Promise<void>
+  /** 获取一个执行许可（池未满时立即返回，否则排队等待；signal 取消即时出队） */
+  export function acquire(options?: { signal?: AbortSignal }): Promise<void>
 
   /** 释放许可并唤醒队首等待者 */
   export function release(): void
@@ -34,4 +34,24 @@ declare module './ffmpeg-pool.mjs' {
     args: string[],
     options?: PoolExecOptions
   ): Promise<ExecResult>
+
+  export interface PoolSpawnOptions {
+    signal?: AbortSignal
+    onStdout?: (text: string) => void
+    onStderr?: (text: string) => void
+    killGraceMs?: number
+  }
+
+  export interface SpawnResult {
+    code: number | null
+    signal: string | null
+    cancelled: boolean
+  }
+
+  /** 池限流的 spawn：长进程/流式输出与 runPooled 共用同一许可池 */
+  export function spawnPooled(
+    cmd: string,
+    args: string[],
+    options?: PoolSpawnOptions
+  ): Promise<SpawnResult>
 }

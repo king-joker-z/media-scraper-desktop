@@ -2,12 +2,8 @@ import { useMemo, useState } from 'react'
 import type { DedupeScanResult, DupItem, MediaInfo, SimilarDupItem } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
-import { formatBytes } from '../utils/format'
-
-const formatDuration = (ms: number): string => {
-  const total = Math.round(ms / 1000)
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
-}
+import VideoModal from '../components/VideoModal'
+import { formatBytes, formatDuration } from '../utils/format'
 
 /** 质量徽标：分辨率 · 时长 · 平均码率 */
 const mediaBadge = (media: MediaInfo | null, size: number): string => {
@@ -36,6 +32,8 @@ function DedupePage({
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  // 对比预览（F5）：试看的视频相对路径
+  const [previewRel, setPreviewRel] = useState<string | null>(null)
 
   // 注意：去重扫描要逐文件算哈希 + 探测，成本高，刻意不接自动重扫，由用户手动触发
   const scan = async (): Promise<void> => {
@@ -119,6 +117,16 @@ function DedupePage({
         <span className="muted dup-media">{mediaBadge(item.media, item.size)}</span>
         {showCopies && copies > 1 && <span className="dup-badge">完全相同 ×{copies}</span>}
         <span className={isKeep ? 'ok-text' : 'muted'}>{isKeep ? '建议保留' : '重复'}</span>
+        <button
+          className="chip-remove"
+          title="试看对比"
+          onClick={(event) => {
+            event.preventDefault()
+            setPreviewRel(item.relativePath)
+          }}
+        >
+          ▶ 试看
+        </button>
       </label>
     )
   }
@@ -159,7 +167,14 @@ function DedupePage({
       </section>
 
       {error && <ErrorBanner message={error} />}
-      {notice && <section className="notice-banner">{notice}</section>}
+      {notice && (
+        <section className="notice-banner">
+          {notice}
+          <button className="error-copy" title="关闭" onClick={() => setNotice('')}>
+            ✕
+          </button>
+        </section>
+      )}
 
       {result && result.exact.length === 0 && result.similar.length === 0 && (
         <section className="empty">
@@ -220,9 +235,19 @@ function DedupePage({
           deleteCount={checked.size}
           deleteBytes={checkedBytes}
           danger={checked.size > 50}
-          extra="将永久删除选中的重复文件，每组未被勾选的文件保留。"
+          recoverable
+          confirmWord="确认删除"
+          extra="删除选中的重复文件（默认进系统回收站，可在设置改永久删除），每组未被勾选的文件保留。"
           onConfirm={execute}
           onCancel={() => setConfirming(false)}
+        />
+      )}
+
+      {previewRel && workspace && (
+        <VideoModal
+          path={`${workspace}/${previewRel}`}
+          title={previewRel}
+          onClose={() => setPreviewRel(null)}
         />
       )}
     </div>

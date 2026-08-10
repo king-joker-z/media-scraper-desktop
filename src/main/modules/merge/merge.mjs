@@ -9,7 +9,8 @@ import {
   writeTextFile
 } from '../../core/fs-ops.mjs'
 import { probeMedia } from '../../core/probe.mjs'
-import { spawnManaged } from '../../core/process-registry.mjs'
+import { spawnPooled } from '../../core/ffmpeg-pool.mjs'
+import { collectFailures } from '../../core/task-report.mjs'
 import {
   buildConcatCopyArgs,
   buildConcatList,
@@ -21,13 +22,13 @@ import {
 
 /**
  * 运行 ffmpeg 子进程，解析 -progress 输出上报百分比，支持 AbortSignal 取消。
- * spawnManaged 托管：进程注册管理（退出即释放句柄），取消时 SIGTERM→SIGKILL 兜底；
- * stderr 只留尾部 2000 字符，防长视频转码的错误输出无限累积占内存。
+ * spawnPooled 托管：进程注册管理（退出即释放句柄）+ 进程池限流，
+ * 取消时 SIGTERM→SIGKILL 兜底；stderr 只留尾部 2000 字符，防长视频转码的错误输出无限累积。
  */
 function runFfmpeg(ffmpegPath, args, { signal, onProgress, totalMs }) {
   let stderrTail = ''
   let buffer = ''
-  return spawnManaged(ffmpegPath, ['-progress', 'pipe:1', '-nostats', ...args], {
+  return spawnPooled(ffmpegPath, ['-progress', 'pipe:1', '-nostats', ...args], {
     signal,
     onStdout: (text) => {
       buffer += text
@@ -202,7 +203,11 @@ export async function mergeVideos({
 }
 
 /** 校验通过后删除参与合并的源视频与关联 poster（冻结稿 §4：单独确认后执行） */
-export async function deleteMergeSources(root, items, { taskCenter, taskId, concurrency = 5 }) {
+export async function deleteMergeSources(
+  root,
+  items,
+  { taskCenter, taskId, concurrency = 5, deleteFn = permanentDelete }
+) {
   const files = items.flatMap((item) => [
     { rel: item.videoRel, kind: '视频' },
     ...(item.posterRel ? [{ rel: item.posterRel, kind: 'poster' }] : [])
@@ -213,18 +218,14 @@ export async function deleteMergeSources(root, items, { taskCenter, taskId, conc
     items: files,
     concurrency,
     worker: async (file) => {
-      await permanentDelete(join(root, file.rel))
+      await deleteFn(join(root, file.rel))
     }
   })
-  const failed = []
-  result.results.forEach((entry, index) => {
-    if (!entry.ok && !entry.cancelled) {
-      failed.push({ target: files[index].rel, error: entry.error ?? '未知错误' })
-    }
-  })
+  const report = { failed: [] }
+  collectFailures(report, result, files, 'rel')
   return {
     cancelled: result.cancelled,
     deletedCount: result.completed,
-    failed
+    failed: report.failed
   }
 }

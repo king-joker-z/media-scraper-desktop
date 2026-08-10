@@ -14,6 +14,7 @@ import TaskProgress from './components/TaskProgress'
 import ErrorBoundary from './components/ErrorBoundary'
 import { prunePlayPositions } from './utils/media'
 import { applyTheme } from './utils/theme'
+import { basenameOf } from './utils/format'
 
 export type PageKey =
   | 'clean'
@@ -39,8 +40,6 @@ const NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
   { key: 'library', icon: '📺', label: '媒体库' },
   { key: 'settings', icon: '⚙️', label: '设置' }
 ]
-
-const basenameOf = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
 function App(): React.JSX.Element {
   const [page, setPage] = useState<PageKey>('clean')

@@ -33,6 +33,23 @@ test('returns defaults when the settings file does not exist', async () => {
   })
 })
 
+test('并发 update 串行落盘不丢数据', async () => {
+  await withTempDir(async (dir) => {
+    const store = createSettingsStore(join(dir, 'settings.json'))
+    await store.get()
+    // 并发发起多个 update（模拟 StrictMode 双调用/多页面同时写设置）
+    await Promise.all([
+      store.update({ concurrency: 9 }),
+      store.update({ deleteToTrash: false }),
+      store.update({ theme: 'dark' })
+    ])
+    const settings = await store.get()
+    assert.equal(settings.concurrency, 9)
+    assert.equal(settings.deleteToTrash, false)
+    assert.equal(settings.theme, 'dark')
+  })
+})
+
 test('migrates legacy openRouter settings into providers', () => {
   const migrated = normalizeSettings({
     openRouter: { token: 'sk-or-old', models: ['a/b'], selectedModel: 'a/b' }

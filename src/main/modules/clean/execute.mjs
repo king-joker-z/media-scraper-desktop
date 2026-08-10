@@ -8,6 +8,7 @@ import {
 } from '../../core/fs-ops.mjs'
 import { convertToJpg, isJpegName } from '../../core/image.mjs'
 import { posterFinalName } from '../../core/scanner.mjs'
+import { collectFailures, finishReport } from '../../core/task-report.mjs'
 
 /**
  * 执行清理计划（冻结稿 §3 执行顺序）：
@@ -19,11 +20,13 @@ import { posterFinalName } from '../../core/scanner.mjs'
  * @param {object} options.taskCenter 任务中心实例
  * @param {string} options.taskId 任务 id（取消用）
  * @param {number} [options.concurrency] 并发数
+ * @param {(target: string) => Promise<void>} [options.deleteFn] 删除实现（默认永久删除；可按设置注入回收站删除）
  */
 export async function executeCleanPlan(
   plan,
-  { picks = {}, taskCenter, taskId, concurrency = 5, onMoveProgress } = {}
+  { picks = {}, taskCenter, taskId, concurrency = 5, onMoveProgress, deleteFn } = {}
 ) {
+  const doDelete = deleteFn ?? permanentDelete
   const startedAt = Date.now()
   const report = {
     taskId,
@@ -63,14 +66,14 @@ export async function executeCleanPlan(
   const runPhase = (label, items, worker) =>
     taskCenter.run({ taskId, label, items, worker, concurrency })
 
-  // ---- 1. 永久删除（最先执行，释放根目录占位名） ----
-  const deleteResult = await runPhase('永久删除清理项', deleteItems, async (item) => {
-    await permanentDelete(item.path)
+  // ---- 1. 删除清理项（默认进回收站，可在设置改永久删除；最先执行，释放根目录占位名） ----
+  const deleteResult = await runPhase('删除清理项', deleteItems, async (item) => {
+    await doDelete(item.path)
     report.deletedCount += 1
     report.deletedBytes += item.size
   })
-  collectFailures(report, deleteResult, deleteItems)
-  if (deleteResult.cancelled) return finish(report, startedAt, true)
+  collectFailures(report, deleteResult, deleteItems, 'relativePath')
+  if (deleteResult.cancelled) return finishReport(report, startedAt, true)
 
   // ---- 2. poster 标准化：jpg 直接改名，其余格式转 JPG 后删原图 ----
   const posters = keep.filter((item) => item.posterFor && item.finalName)
@@ -94,8 +97,8 @@ export async function executeCleanPlan(
       item.name = basename(target)
     }
   })
-  collectFailures(report, standardizeResult, posters)
-  if (standardizeResult.cancelled) return finish(report, startedAt, true)
+  collectFailures(report, standardizeResult, posters, 'relativePath')
+  if (standardizeResult.cancelled) return finishReport(report, startedAt, true)
 
   // ---- 3. 上移子目录保留项到工作区根（重名自动 (n)） ----
   const toMove = keep.filter((item) => item.dir !== '.')
@@ -110,13 +113,13 @@ export async function executeCleanPlan(
     })
     report.moved.push({ from: item.relativePath, to: basename(finalPath) })
   })
-  collectFailures(report, moveResult, toMove)
-  if (moveResult.cancelled) return finish(report, startedAt, true)
+  collectFailures(report, moveResult, toMove, 'relativePath')
+  if (moveResult.cancelled) return finishReport(report, startedAt, true)
 
   // ---- 4. 删除已清空且不含隐藏内容的子目录 ----
   report.removedDirs = await removeEmptyDirs(plan.root)
 
-  return finish(report, startedAt, false)
+  return finishReport(report, startedAt, false)
 }
 
 function findRecord(plan, relativePath) {
@@ -129,18 +132,4 @@ function findRecord(plan, relativePath) {
     kind: 'image',
     size: 0
   }
-}
-
-function collectFailures(report, result, items) {
-  result.results.forEach((entry, index) => {
-    if (!entry.ok && !entry.cancelled) {
-      report.failed.push({ target: items[index].relativePath, error: entry.error ?? '未知错误' })
-    }
-  })
-}
-
-function finish(report, startedAt, cancelled) {
-  report.cancelled = cancelled
-  report.durationMs = Date.now() - startedAt
-  return report
 }

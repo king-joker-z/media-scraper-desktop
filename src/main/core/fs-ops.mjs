@@ -2,6 +2,7 @@ import {
   access,
   mkdir,
   readdir,
+  readFile,
   rename,
   rm,
   rmdir,
@@ -30,6 +31,32 @@ export async function pathExists(target) {
 /** 永久删除文件或目录，不可恢复。调用前必须已在 UI 完成风险确认。 */
 export async function permanentDelete(target) {
   await rm(target, { force: true, recursive: true })
+}
+
+/* ---------------- 回收站删除（F1：可恢复删除） ---------------- */
+
+// 由主进程注入 Electron shell.trashItem；未注入时（纯 Node 测试环境）回退永久删除
+let trashImpl = null
+
+/** 注入回收站实现（主进程启动时调用）：(target: string) => Promise<void> */
+export function setTrashImpl(fn) {
+  trashImpl = typeof fn === 'function' ? fn : null
+}
+
+/**
+ * 删除到系统回收站（可从回收站恢复）。
+ * 未注入实现或回收站不可用（部分 Linux 环境）时回退为永久删除——与旧行为一致。
+ */
+export async function deleteToTrash(target) {
+  if (!trashImpl) {
+    await permanentDelete(target)
+    return
+  }
+  try {
+    await trashImpl(target)
+  } catch {
+    await permanentDelete(target)
+  }
 }
 
 /**
@@ -61,29 +88,62 @@ export async function moveFile(from, to, { onProgress, signal } = {}) {
     await rename(from, to)
   } catch (error) {
     if (error?.code !== 'EXDEV') throw error
-    // 跨设备：流式复制 + 实时进度 + 大小校验 + 删源
-    const srcStat = await stat(from)
-    const total = srcStat.size
-    let copied = 0
-    await pipeline(
-      createReadStream(from),
-      async function* (source) {
-        for await (const chunk of source) {
-          if (signal?.aborted) throw new Error('已取消')
-          copied += chunk.length
-          onProgress?.(copied, total)
-          yield chunk
-        }
-      },
-      createWriteStream(to)
-    )
-    const dstStat = await stat(to)
-    if (srcStat.size !== dstStat.size) {
-      await rm(to, { force: true })
-      throw new Error(`跨磁盘移动校验失败（大小不一致）：${from}`)
+    // 跨设备：先复制到同目录临时文件再 rename 落位——取消/崩溃只残留 .msd-part
+    // 临时件（可安全重试或清理），绝不会留下名为目标文件的不完整副本。
+    const partPath = `${to}.msd-part`
+    try {
+      const srcStat = await stat(from)
+      const total = srcStat.size
+      let copied = 0
+      await pipeline(
+        createReadStream(from),
+        async function* (source) {
+          for await (const chunk of source) {
+            if (signal?.aborted) throw new Error('已取消')
+            copied += chunk.length
+            onProgress?.(copied, total)
+            yield chunk
+          }
+        },
+        createWriteStream(partPath)
+      )
+      const dstStat = await stat(partPath)
+      if (srcStat.size !== dstStat.size) {
+        throw new Error(`跨磁盘移动校验失败（大小不一致）：${from}`)
+      }
+      await rename(partPath, to)
+    } catch (copyError) {
+      // 取消/失败兜底清理：不留部分拷贝（含异常前已落位的极端情况）
+      await rm(partPath, { force: true }).catch(() => {})
+      throw copyError
     }
     await rm(from)
   }
+}
+
+/**
+ * 清理目录下跨设备移动残留的临时件（*.msd-part）。
+ * 取消已被 moveFile 兜底清理，这里兜底的是进程崩溃等极端场景。
+ * 返回清理的路径列表。
+ */
+export async function cleanMovePartials(dir) {
+  const cleaned = []
+  let entries
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return cleaned
+  }
+  for (const entry of entries) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      cleaned.push(...(await cleanMovePartials(full)))
+    } else if (entry.isFile() && entry.name.endsWith('.msd-part')) {
+      await rm(full, { force: true }).catch(() => {})
+      cleaned.push(full)
+    }
+  }
+  return cleaned
 }
 
 /** 移动到目标目录；重名自动加 (n)。返回最终路径。 */
@@ -110,7 +170,10 @@ export async function renameWithCollision(from, newName, options) {
   return target
 }
 
-/** 目录递归总大小（字节）；目录不存在或无权限返回 0，不抛错。 */
+// dirSizeBytes 单目录内 stat 并发批大小（I/O 并发显著加速大目录）
+const SIZE_STAT_BATCH = 32
+
+/** 目录递归总大小（字节）；目录不存在或无权限返回 0，不抛错。文件 stat 批内并发。 */
 export async function dirSizeBytes(dir) {
   let total = 0
   async function visit(current) {
@@ -120,18 +183,27 @@ export async function dirSizeBytes(dir) {
     } catch {
       return
     }
+    const subdirs = []
+    const files = []
     for (const entry of entries) {
       const full = join(current, entry.name)
-      if (entry.isDirectory()) {
-        await visit(full)
-      } else if (entry.isFile()) {
-        try {
-          total += (await stat(full)).size
-        } catch {
-          // 竞态消失的文件跳过
-        }
-      }
+      if (entry.isDirectory()) subdirs.push(full)
+      else if (entry.isFile()) files.push(full)
     }
+    for (let i = 0; i < files.length; i += SIZE_STAT_BATCH) {
+      const sizes = await Promise.all(
+        files.slice(i, i + SIZE_STAT_BATCH).map(async (full) => {
+          try {
+            return (await stat(full)).size
+          } catch {
+            return 0 // 竞态消失的文件跳过
+          }
+        })
+      )
+      for (const size of sizes) total += size
+    }
+    // 子目录并行递归（缓存/临时目录通常较浅，无需限流）
+    await Promise.all(subdirs.map(visit))
   }
   await visit(dir)
   return total
@@ -163,6 +235,11 @@ export async function writeTextFile(target, content) {
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, content, 'utf8')
   return target
+}
+
+/** 读文本文件（utf8）；供 modules 读取 journal/日志等，与写入口同文件便于审计。 */
+export async function readTextFile(target) {
+  return readFile(target, 'utf8')
 }
 
 /**

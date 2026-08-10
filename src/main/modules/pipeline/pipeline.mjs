@@ -21,15 +21,19 @@ import { resolveFfmpegPath } from '../../core/frames.mjs'
 import { resolveFfprobePath } from '../../core/probe.mjs'
 import { permanentDelete } from '../../core/fs-ops.mjs'
 
+// 流水线内部任务 ID：毫秒 + 自增序号防同毫秒碰撞
+let stepSeq = 0
+const stepTaskId = (prefix) => `${prefix}-${Date.now()}-${(stepSeq += 1)}`
+
 /**
  * 执行单个流水线步骤。
  * @param {string} root 工作区根目录
  * @param {string} module 模块 ID
- * @param {object} opts { taskCenter, concurrency, signal }
+ * @param {object} opts { taskCenter, concurrency, signal, deleteFn }
  * @returns {Promise<{ summary: string }>}
  */
-async function runStep(root, module, { taskCenter, concurrency }) {
-  const taskId = `pipeline-${module}-${Date.now()}`
+async function runStep(root, module, { taskCenter, concurrency, deleteFn = permanentDelete }) {
+  const taskId = stepTaskId(`pipeline-${module}`)
 
   switch (module) {
     case 'clean': {
@@ -43,7 +47,8 @@ async function runStep(root, module, { taskCenter, concurrency }) {
         taskCenter,
         taskId,
         concurrency,
-        picks: {}
+        picks: {},
+        deleteFn
       })
       return {
         summary: `删除 ${report.deletedCount} 项，上移 ${report.moved.length} 项，转码 ${report.converted.length} 项`
@@ -86,14 +91,14 @@ async function runStep(root, module, { taskCenter, concurrency }) {
       if (toDelete.length === 0) {
         return { summary: '未发现需要删除的重复项' }
       }
-      const deleteTaskId = `pipeline-dedupe-del-${Date.now()}`
+      const deleteTaskId = stepTaskId('pipeline-dedupe-del')
       const deleteResult = await taskCenter.run({
         taskId: deleteTaskId,
         label: '删除重复视频',
         items: toDelete,
         concurrency,
         worker: async (relativePath) => {
-          await permanentDelete(join(root, relativePath))
+          await deleteFn(join(root, relativePath))
         }
       })
       const deleted = deleteResult.completed
@@ -133,7 +138,7 @@ async function runStep(root, module, { taskCenter, concurrency }) {
 export async function runPipeline(
   root,
   steps,
-  { taskCenter, concurrency = 5, onStepStart, onStepDone, signal }
+  { taskCenter, concurrency = 5, onStepStart, onStepDone, signal, deleteFn }
 ) {
   const startedAt = Date.now()
   const results = []
@@ -151,7 +156,7 @@ export async function runPipeline(
     onStepStart?.(step)
     const stepStart = Date.now()
     try {
-      const { summary } = await runStep(root, step.module, { taskCenter, concurrency })
+      const { summary } = await runStep(root, step.module, { taskCenter, concurrency, deleteFn })
       const result = {
         module: step.module,
         success: true,

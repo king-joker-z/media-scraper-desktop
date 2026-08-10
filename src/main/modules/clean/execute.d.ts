@@ -11,6 +11,8 @@ declare module './execute.mjs' {
       concurrency?: number
       /** 上移阶段跨磁盘拷贝进度文案回调，用于更新 TaskEvent.current */
       onMoveProgress?: (text: string) => void
+      /** 删除实现（默认永久删除；主进程按设置注入回收站删除） */
+      deleteFn?: (target: string) => Promise<void>
     }
   ): Promise<CleanReport>
 }

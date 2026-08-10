@@ -1,5 +1,5 @@
 import { createScanPlan } from '../../core/scanner.mjs'
-import { hashFileSample } from '../../core/file-hash.mjs'
+import { hashFileSampleCached } from '../../core/file-hash.mjs'
 import { probeMediaCached } from '../../core/probe.mjs'
 
 /** 相似重复判定：时长容差 ±0.5s（同片不同压制的时长几乎一致，容差收紧防误判） */
@@ -55,7 +55,7 @@ export async function findDuplicates(
 
   const hashOne = async (video) => ({
     video,
-    hash: await hashFileSample(video.path)
+    hash: await hashFileSampleCached(video.path)
   })
 
   let hashed

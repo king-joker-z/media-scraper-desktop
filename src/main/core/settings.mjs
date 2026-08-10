@@ -86,7 +86,28 @@ export const DEFAULT_SETTINGS = {
         { id: 's3', module: 'health', enabled: true }
       ]
     }
-  ]
+  ],
+  deleteToTrash: true,
+  watch: { enabled: false, presetId: 'default', debounceMinutes: 2 }
+}
+
+/** 目录监控防抖分钟数范围 */
+export const MIN_WATCH_DEBOUNCE_MINUTES = 1
+export const MAX_WATCH_DEBOUNCE_MINUTES = 60
+
+function normalizeWatch(raw) {
+  const input = raw && typeof raw === 'object' ? raw : {}
+  const minutes = Number(input.debounceMinutes)
+  return {
+    enabled: input.enabled === true,
+    presetId: typeof input.presetId === 'string' && input.presetId ? input.presetId : 'default',
+    debounceMinutes: Number.isFinite(minutes)
+      ? Math.min(
+          MAX_WATCH_DEBOUNCE_MINUTES,
+          Math.max(MIN_WATCH_DEBOUNCE_MINUTES, Math.round(minutes))
+        )
+      : 2
+  }
 }
 
 /** 把新工作区提到最近列表首位（去重、截断） */
@@ -170,7 +191,9 @@ export function normalizeSettings(raw) {
           .filter((p) => typeof p === 'string' && p.trim())
           .slice(0, MAX_RECENT_WORKSPACES)
       : [],
-    pipelinePresets: normalizePipelinePresets(input.pipelinePresets)
+    pipelinePresets: normalizePipelinePresets(input.pipelinePresets),
+    deleteToTrash: input.deleteToTrash !== false,
+    watch: normalizeWatch(input.watch)
   }
 }
 
@@ -207,6 +230,9 @@ export class SettingsStore {
   constructor(filePath) {
     this.filePath = filePath
     this.cache = null
+    // update 串行化队列：并发 update（如 StrictMode 双调用恢复工作区）共享同一
+    // .tmp 路径会互相踩踏（rename 时 tmp 已消失），排队后逐一落盘
+    this.writeQueue = Promise.resolve()
   }
 
   async load() {
@@ -230,7 +256,13 @@ export class SettingsStore {
   }
 
   /** patch 为部分设置（aiProviders 整体替换），返回归一化后的完整设置。 */
-  async update(patch) {
+  update(patch) {
+    const next = this.writeQueue.then(() => this.doUpdate(patch))
+    this.writeQueue = next.catch(() => {})
+    return next
+  }
+
+  async doUpdate(patch) {
     const current = await this.get()
     this.cache = normalizeSettings({ ...current, ...patch })
     await mkdir(dirname(this.filePath), { recursive: true })

@@ -102,7 +102,8 @@ export async function captureCandidates(
 /** 在指定时间点精确截帧（用户在详情页拖动时间轴后手动选帧）。 */
 export async function captureAt(videoPath, seconds, framesRoot, { ffmpegPath, signal } = {}) {
   const outDir = framesDirFor(framesRoot, videoPath)
-  const target = join(outDir, `manual-${Date.now()}.jpg`)
+  // 毫秒 + 随机后缀，避免同一毫秒内连续手动截帧互相覆盖
+  const target = join(outDir, `manual-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`)
   return captureFrame(videoPath, Math.max(0, seconds), target, ffmpegPath, { signal })
 }
 

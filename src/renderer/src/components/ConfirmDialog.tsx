@@ -17,6 +17,8 @@ function ConfirmDialog({
   extra,
   confirmWord = CONFIRM_WORD,
   toggle,
+  recoverable = false,
+  ackLabel,
   onConfirm,
   onCancel
 }: {
@@ -29,6 +31,10 @@ function ConfirmDialog({
   confirmWord?: string
   /** 可选附加开关（如“同时删除关联 poster”） */
   toggle?: { label: string; checked: boolean; onChange: (checked: boolean) => void }
+  /** 删除进回收站（可恢复）时为 true，文案相应调整 */
+  recoverable?: boolean
+  /** 非危险模式下的勾选确认语文案 */
+  ackLabel?: string
   onConfirm: () => void
   onCancel: () => void
 }): React.JSX.Element {
@@ -43,8 +49,9 @@ function ConfirmDialog({
         <div className="dialog-body">
           {deleteCount > 0 && (
             <p>
-              即将<b className="danger-text">永久删除 {deleteCount} 个文件</b>
-              {deleteBytes > 0 && <>（共 {formatBytes(deleteBytes)}）</>}，删除后不可恢复。
+              即将<b className="danger-text">删除 {deleteCount} 个文件</b>
+              {deleteBytes > 0 && <>（共 {formatBytes(deleteBytes)}）</>}
+              {recoverable ? '，将移入系统回收站（可从回收站恢复）。' : '，删除后不可恢复。'}
             </p>
           )}
           {extra && <p className="muted">{extra}</p>}
@@ -79,7 +86,7 @@ function ConfirmDialog({
               checked={checked}
               onChange={(event) => setChecked(event.target.checked)}
             />
-            我已了解删除不可恢复，确认执行
+            {ackLabel ?? (recoverable ? '我已了解，确认执行' : '我已了解删除不可恢复，确认执行')}
           </label>
         )}
         <div className="dialog-actions">

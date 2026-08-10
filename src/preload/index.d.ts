@@ -26,7 +26,9 @@ import type {
   StorageCleanResult,
   StorageStats,
   TaskEvent,
-  UpdateStatus
+  UndoReport,
+  UpdateStatus,
+  WatchStatus
 } from '../shared/types'
 
 declare global {
@@ -106,9 +108,18 @@ declare global {
       getSettings: () => Promise<AppSettings>
       updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>
       listOpLogs: () => Promise<
-        { file: string; module: string; finishedAt: string; summary: string }[]
+        {
+          file: string
+          module: string
+          finishedAt: string
+          summary: string
+          undone: boolean
+          undoable: boolean
+        }[]
       >
       revealOpLog: (file: string) => Promise<void>
+      undoOpLog: (file: string) => Promise<UndoReport>
+      getWatchStatus: () => Promise<WatchStatus>
       onTaskEvent: (callback: (event: TaskEvent) => void) => () => void
     }
   }

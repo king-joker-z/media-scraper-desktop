@@ -194,3 +194,54 @@ test('ensureDir creates nested directories', async () => {
     assert.equal(await pathExists(target), true)
   })
 })
+
+test('deleteToTrash 未注入实现时回退永久删除；注入后走回收站实现', async () => {
+  const { deleteToTrash, setTrashImpl } = await import('../src/main/core/fs-ops.mjs')
+  await withTempDir(async (root) => {
+    // 未注入：回退永久删除
+    setTrashImpl(null)
+    await writeFile(join(root, 'a.txt'), 'x')
+    await deleteToTrash(join(root, 'a.txt'))
+    assert.equal(await pathExists(join(root, 'a.txt')), false)
+
+    // 注入：走回收站实现（测试里用直接删除模拟 shell.trashItem）
+    const trashed = []
+    setTrashImpl(async (target) => {
+      trashed.push(target)
+      await rm(target, { force: true })
+    })
+    await writeFile(join(root, 'b.txt'), 'x')
+    await deleteToTrash(join(root, 'b.txt'))
+    assert.equal(trashed.length, 1)
+    assert.equal(await pathExists(join(root, 'b.txt')), false)
+    setTrashImpl(null)
+  })
+})
+
+test('deleteToTrash 回收站实现抛错时回退永久删除', async () => {
+  const { deleteToTrash, setTrashImpl } = await import('../src/main/core/fs-ops.mjs')
+  await withTempDir(async (root) => {
+    setTrashImpl(async () => {
+      throw new Error('trash unsupported')
+    })
+    await writeFile(join(root, 'c.txt'), 'x')
+    await deleteToTrash(join(root, 'c.txt'))
+    assert.equal(await pathExists(join(root, 'c.txt')), false)
+    setTrashImpl(null)
+  })
+})
+
+test('cleanMovePartials 清理 .msd-part 残留临时件', async () => {
+  const { cleanMovePartials } = await import('../src/main/core/fs-ops.mjs')
+  await withTempDir(async (root) => {
+    await writeFile(join(root, 'video.mp4.msd-part'), 'partial')
+    await mkdir(join(root, 'sub'))
+    await writeFile(join(root, 'sub', 'x.mkv.msd-part'), 'partial')
+    await writeFile(join(root, 'ok.mp4'), 'real')
+    const cleaned = await cleanMovePartials(root)
+    assert.equal(cleaned.length, 2)
+    assert.equal(await pathExists(join(root, 'video.mp4.msd-part')), false)
+    assert.equal(await pathExists(join(root, 'sub', 'x.mkv.msd-part')), false)
+    assert.equal(await pathExists(join(root, 'ok.mp4')), true)
+  })
+})

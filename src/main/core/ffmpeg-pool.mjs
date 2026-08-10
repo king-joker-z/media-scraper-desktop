@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { trackChild } from './process-registry.mjs'
+import { spawnManaged, trackChild } from './process-registry.mjs'
 
 /**
  * FFmpeg/FFprobe 进程池：
@@ -21,7 +21,15 @@ const DEFAULT_POOL_SIZE = 4
 
 let poolSize = DEFAULT_POOL_SIZE
 let activeCount = 0
+// 等待者：{ wake, onAbort }——onAbort 挂到调用方 AbortSignal 上，取消即时出队，
+// 避免任务取消后排队的 ffmpeg 仍被逐个唤醒执行（取消传播不到池等待者的问题）
 const waitQueue = []
+
+const newAbortError = () => {
+  const error = new Error('已取消')
+  error.name = 'AbortError'
+  return error
+}
 
 /**
  * 设置池大小（运行时动态调整）。
@@ -45,14 +53,31 @@ export function getPendingCount() {
   return waitQueue.length
 }
 
-/** 获取一个执行许可（池未满时立即返回，否则排队等待） */
-export function acquire() {
+/**
+ * 获取一个执行许可（池未满时立即返回，否则排队等待）。
+ * 传入 signal 时：已取消立即 reject AbortError；排队期间取消即时出队并 reject。
+ */
+export function acquire({ signal } = {}) {
+  if (signal?.aborted) return Promise.reject(newAbortError())
   if (activeCount < poolSize) {
     activeCount += 1
     return Promise.resolve()
   }
-  return new Promise((resolve) => {
-    waitQueue.push(resolve)
+  return new Promise((resolve, reject) => {
+    const waiter = { wake: null, onAbort: null }
+    waiter.wake = () => {
+      if (waiter.onAbort) signal.removeEventListener('abort', waiter.onAbort)
+      resolve()
+    }
+    if (signal) {
+      waiter.onAbort = () => {
+        const index = waitQueue.indexOf(waiter)
+        if (index >= 0) waitQueue.splice(index, 1)
+        reject(newAbortError())
+      }
+      signal.addEventListener('abort', waiter.onAbort, { once: true })
+    }
+    waitQueue.push(waiter)
   })
 }
 
@@ -60,7 +85,7 @@ export function acquire() {
 export function release() {
   if (waitQueue.length > 0) {
     const next = waitQueue.shift()
-    next()
+    next.wake()
     // 不增不减：许可从释放者传递给等待者
     return
   }
@@ -72,7 +97,7 @@ function drainQueue() {
   while (activeCount < poolSize && waitQueue.length > 0) {
     const next = waitQueue.shift()
     activeCount += 1
-    next()
+    next.wake()
   }
 }
 
@@ -81,7 +106,7 @@ function drainQueue() {
  * 与 execManaged 接口一致（收集 stdout/stderr、signal 可取消、进程注册管理）。
  */
 export function runPooled(cmd, args, { signal, maxBuffer = 16 * 1024 * 1024, killGraceMs } = {}) {
-  return acquire().then(() => {
+  return acquire({ signal }).then(() => {
     return new Promise((resolve, reject) => {
       let child
       try {
@@ -108,4 +133,18 @@ export function runPooled(cmd, args, { signal, maxBuffer = 16 * 1024 * 1024, kil
       trackChild(child, { signal, killGraceMs })
     })
   })
+}
+
+/**
+ * 池限流的 spawn（流式输出场景：合并转码 / 体检全量解码）。
+ * 与 runPooled 共用同一许可池，保证「同时运行的 ffmpeg 进程数 ≤ 池大小」
+ * 对所有执行路径一致成立；排队等待同样响应 signal 取消。
+ */
+export async function spawnPooled(cmd, args, { signal, onStdout, onStderr, killGraceMs } = {}) {
+  await acquire({ signal })
+  try {
+    return await spawnManaged(cmd, args, { signal, onStdout, onStderr, killGraceMs })
+  } finally {
+    release()
+  }
 }

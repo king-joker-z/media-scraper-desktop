@@ -20,7 +20,13 @@ declare module './merge.mjs' {
   export function deleteMergeSources(
     root: string,
     items: MergeSourceItem[],
-    options: { taskCenter: TaskCenter; taskId: string; concurrency?: number }
+    options: {
+      taskCenter: TaskCenter
+      taskId: string
+      concurrency?: number
+      /** 删除实现（默认永久删除；主进程按设置注入回收站删除） */
+      deleteFn?: (target: string) => Promise<void>
+    }
   ): Promise<{
     cancelled: boolean
     deletedCount: number

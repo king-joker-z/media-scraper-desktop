@@ -139,6 +139,35 @@ export interface AppSettings {
   recentWorkspaces: string[]
   /** 流水线预设列表 */
   pipelinePresets: PipelinePreset[]
+  /** 删除时优先移入系统回收站（可恢复）；关闭后为永久删除 */
+  deleteToTrash: boolean
+  /** 目录监控自动流水线（F4） */
+  watch: WatchSettings
+}
+
+/** 目录监控设置：工作区文件变化后防抖触发指定流水线预设 */
+export interface WatchSettings {
+  /** 是否启用监控 */
+  enabled: boolean
+  /** 触发时执行的流水线预设 ID */
+  presetId: string
+  /** 防抖分钟数（变化静默多久后才触发） */
+  debounceMinutes: number
+}
+
+/** 目录监控运行状态（watch:status） */
+export interface WatchStatus {
+  enabled: boolean
+  /** 监控器是否正在监听 */
+  watching: boolean
+  /** 被监控的工作区根目录 */
+  root: string | null
+  /** 最后一次自动流水线的完成时间（ISO） */
+  lastRunAt: string | null
+  /** 最后一次自动流水线摘要 */
+  lastSummary: string | null
+  /** 监控不可用的原因（如平台不支持递归监控） */
+  error: string | null
 }
 
 /* ------------------------- 模块四：封面管理 ------------------------- */
@@ -227,12 +256,39 @@ export interface NfoPlan {
   actorDefault: string
 }
 
+export interface NfoArchivedItem {
+  /** 视频的原始相对路径（撤销恢复依据） */
+  videoRel: string
+  /** poster 的原始相对路径（无为 null） */
+  posterRel: string | null
+  /** 目标目录名（相对工作区根） */
+  targetDir: string
+  /** 视频落位后的文件名 */
+  videoName: string
+  /** poster 落位后的文件名（无为 null） */
+  posterName: string | null
+  /** 生成的 NFO 文件名 */
+  nfoName: string
+}
+
 export interface NfoReport {
   taskId: string
   cancelled: boolean
   archivedCount: number
+  /** 归档落位明细（一键撤销依据） */
+  archived: NfoArchivedItem[]
   failed: { target: string; error: string }[]
   durationMs: number
+}
+
+/** 一键撤销（F2）执行报告 */
+export interface UndoReport {
+  module: string
+  /** 成功回退的条目数 */
+  undone: number
+  /** 已不存在而跳过的条目数 */
+  skipped: number
+  failed: { target: string; error: string }[]
 }
 
 /* ---------------------------- 任务中心 ---------------------------- */

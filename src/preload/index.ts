@@ -27,7 +27,9 @@ import type {
   StorageCleanResult,
   StorageStats,
   TaskEvent,
-  UpdateStatus
+  UndoReport,
+  UpdateStatus,
+  WatchStatus
 } from '../shared/types'
 
 const api = {
@@ -117,9 +119,20 @@ const api = {
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:update', patch),
   listOpLogs: (): Promise<
-    { file: string; module: string; finishedAt: string; summary: string }[]
+    {
+      file: string
+      module: string
+      finishedAt: string
+      summary: string
+      undone: boolean
+      undoable: boolean
+    }[]
   > => ipcRenderer.invoke('op-logs:list'),
   revealOpLog: (file: string): Promise<void> => ipcRenderer.invoke('op-logs:reveal', file),
+  /** 一键撤销（F2）：按日志反向恢复重命名/NFO 归档 */
+  undoOpLog: (file: string): Promise<UndoReport> => ipcRenderer.invoke('op-logs:undo', file),
+  /** 目录监控（F4）运行状态 */
+  getWatchStatus: (): Promise<WatchStatus> => ipcRenderer.invoke('watch:status'),
   onTaskEvent: (callback: (event: TaskEvent) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, payload: TaskEvent): void => callback(payload)
     ipcRenderer.on('tasks:event', listener)

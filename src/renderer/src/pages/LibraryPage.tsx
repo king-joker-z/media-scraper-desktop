@@ -3,17 +3,12 @@ import type { MergeVideoItem, Orientation } from '../../../shared/types'
 import ErrorBanner from '../components/ErrorBanner'
 import VideoModal from '../components/VideoModal'
 import VirtualGrid from '../components/VirtualGrid'
-import { formatBytes } from '../utils/format'
+import { formatBytes, formatDuration } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 type SortKey = 'name' | 'size' | 'duration'
 type OrientationFilter = 'all' | Orientation
-
-const formatDuration = (ms: number): string => {
-  const total = Math.round(ms / 1000)
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
-}
 
 /** 媒体库：海报墙 + 排序/筛选/搜索 + 点播（播放进度记忆）。只读视图。 */
 function LibraryPage({

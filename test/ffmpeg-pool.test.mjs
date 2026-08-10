@@ -83,6 +83,32 @@ test('setPoolSize expand wakes waiting tasks', async () => {
   assert.equal(getActiveCount(), 0)
 })
 
+test('acquire 排队等待者响应 signal 取消（取消传播到池等待者）', async () => {
+  setPoolSize(1)
+  await acquire() // 占满池
+  const controller = new AbortController()
+  let rejected = null
+  const pending = acquire({ signal: controller.signal }).catch((error) => {
+    rejected = error
+  })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(getPendingCount(), 1)
+  controller.abort()
+  await pending
+  assert.equal(rejected?.name, 'AbortError')
+  assert.equal(getPendingCount(), 0) // 等待者已出队
+  release()
+  setPoolSize(4)
+  assert.equal(getActiveCount(), 0)
+})
+
+test('acquire 传入已取消的 signal 立即 reject', async () => {
+  setPoolSize(4)
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(acquire({ signal: controller.signal }), /已取消/)
+})
+
 test('runPooled executes a command and returns stdout', async () => {
   setPoolSize(4)
   // 用 node --version 作为简单命令（跨平台可用）

@@ -32,6 +32,31 @@ export function buildPrompt(template, { parentFolder, fileName, extension }) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** HTTP 状态码 → 用户可懂的中文提示（U4：AI 命名失败提示友好化） */
+const HTTP_HINTS = {
+  400: '请求被平台拒绝（模型 ID 或参数可能不受支持）',
+  401: 'Token 无效或已过期，请到设置页检查',
+  402: '平台余额不足，请充值后重试',
+  403: 'Token 权限不足或已被封禁',
+  404: '接口地址或模型不存在，请检查设置页的 baseUrl 与模型 ID',
+  429: '触发平台限流，请稍后重试或降低请求频率'
+}
+
+/** 把 AI 平台失败响应转成可读错误（附平台返回摘要，便于排查） */
+export async function toFriendlyHttpError(response) {
+  const hint =
+    HTTP_HINTS[response.status] ??
+    (response.status >= 500 ? '平台服务故障，请稍后重试' : '请求失败')
+  let detail = ''
+  try {
+    detail = (await response.text()).slice(0, 200).trim()
+  } catch {
+    detail = ''
+  }
+  const head = `${hint}（HTTP ${response.status}）`
+  return new Error(detail ? `${head}。平台返回：${detail}` : head)
+}
+
 /**
  * 带超时与指数退避重试的 fetch：
  * 网络错误/超时/5xx/429 重试（默认 2 次，1s → 2s），4xx 业务错误不重试。
@@ -60,7 +85,9 @@ export async function fetchWithRetry(
       await sleep(retryDelayMs * 2 ** attempt)
     }
   }
-  throw new Error(`网络请求失败（已重试 ${retries} 次）：${lastError?.message ?? lastError}`)
+  throw new Error(
+    `无法连接 AI 平台（已重试 ${retries} 次），请检查网络与设置页的 baseUrl：${lastError?.message ?? lastError}`
+  )
 }
 
 /** 从模型输出中提取 JSON 数组（容忍 markdown 代码块与前后杂文本） */
@@ -154,12 +181,19 @@ export async function requestAiNames({
       { fetchImpl, retryDelayMs }
     )
     if (!response.ok) {
-      throw new Error(`AI 平台请求失败 ${response.status}：${await response.text()}`)
+      throw await toFriendlyHttpError(response)
     }
     const data = await response.json()
-    const chunkNames = extractJsonArray(data?.choices?.[0]?.message?.content)
+    let chunkNames
+    try {
+      chunkNames = extractJsonArray(data?.choices?.[0]?.message?.content)
+    } catch {
+      throw new Error('AI 返回内容无法解析（不是有效的名称列表），可重试或更换模型')
+    }
     if (chunkNames.length !== chunk.length) {
-      throw new Error(`AI 返回数量（${chunkNames.length}）与请求数量（${chunk.length}）不一致`)
+      throw new Error(
+        `AI 返回数量（${chunkNames.length}）与请求数量（${chunk.length}）不一致，可重试或更换模型`
+      )
     }
     chunk.forEach((entry, chunkIndex) => {
       const name = String(chunkNames[chunkIndex]).trim()

@@ -5,7 +5,8 @@ import type {
   StorageCategory,
   StorageStats,
   ThemeMode,
-  UpdateStatus
+  UpdateStatus,
+  WatchStatus
 } from '../../../shared/types'
 import OpLogPanel from '../components/OpLogPanel'
 import { formatBytes } from '../utils/format'
@@ -43,6 +44,7 @@ function SettingsPage(): React.JSX.Element {
   const [storageNotice, setStorageNotice] = useState('')
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' })
   const [appVersion, setAppVersion] = useState('')
+  const [watchStatus, setWatchStatus] = useState<WatchStatus | null>(null)
 
   const refreshStorage = (): void => {
     window.api
@@ -64,6 +66,10 @@ function SettingsPage(): React.JSX.Element {
     window.api
       .getAppVersion()
       .then(setAppVersion)
+      .catch(() => {})
+    window.api
+      .getWatchStatus()
+      .then(setWatchStatus)
       .catch(() => {})
     return window.api.onUpdateStatus(setUpdateStatus)
   }, [])
@@ -234,6 +240,93 @@ function SettingsPage(): React.JSX.Element {
           />
           <b>{settings.ffmpegPoolSize}</b>
         </div>
+      </section>
+
+      <section className="settings-card">
+        <h2>删除方式</h2>
+        <p className="muted">
+          清理/去重/合并删源等用户数据删除默认移入系统回收站（误删可恢复）；关闭后为永久删除。
+        </p>
+        <div className="mode-tabs">
+          <button
+            className={`mode-tab ${settings.deleteToTrash ? 'active' : ''}`}
+            onClick={() => persist({ deleteToTrash: true })}
+          >
+            移入回收站（推荐）
+          </button>
+          <button
+            className={`mode-tab ${settings.deleteToTrash ? '' : 'active'}`}
+            onClick={() => persist({ deleteToTrash: false })}
+          >
+            永久删除
+          </button>
+        </div>
+      </section>
+
+      <section className="settings-card">
+        <h2>目录监控自动流水线</h2>
+        <p className="muted">
+          监控当前工作区：文件变化静默一段时间后，自动执行选定的流水线预设（如丢入新片自动清理+
+          归档）。运行期间自身的写入不会重复触发。
+        </p>
+        <div className="mode-tabs">
+          <button
+            className={`mode-tab ${settings.watch.enabled ? 'active' : ''}`}
+            onClick={() => persist({ watch: { ...settings.watch, enabled: true } })}
+          >
+            启用
+          </button>
+          <button
+            className={`mode-tab ${settings.watch.enabled ? '' : 'active'}`}
+            onClick={() => persist({ watch: { ...settings.watch, enabled: false } })}
+          >
+            关闭
+          </button>
+        </div>
+        {settings.watch.enabled && (
+          <>
+            <label className="field">
+              <span>触发时执行的流水线预设</span>
+              <select
+                value={settings.watch.presetId}
+                onChange={(event) =>
+                  persist({ watch: { ...settings.watch, presetId: event.target.value } })
+                }
+              >
+                {settings.pipelinePresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>防抖时间（分钟，1–60）：变化静默这么久后才触发</span>
+              <input
+                type="number"
+                min={1}
+                max={60}
+                value={settings.watch.debounceMinutes}
+                onChange={(event) =>
+                  persist({
+                    watch: { ...settings.watch, debounceMinutes: Number(event.target.value) }
+                  })
+                }
+              />
+            </label>
+            <p className="muted">
+              {watchStatus?.error
+                ? `⚠️ ${watchStatus.error}`
+                : watchStatus?.watching
+                  ? `正在监控：${watchStatus.root}`
+                  : '未在监控（选择工作区后生效）'}
+              {watchStatus?.lastRunAt &&
+                ` · 上次自动执行：${watchStatus.lastRunAt.replace('T', ' ').slice(0, 19)}${
+                  watchStatus.lastSummary ? `（${watchStatus.lastSummary}）` : ''
+                }`}
+            </p>
+          </>
+        )}
       </section>
 
       <section className="settings-card">

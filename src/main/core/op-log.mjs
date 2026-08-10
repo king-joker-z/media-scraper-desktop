@@ -41,6 +41,20 @@ export async function writeOpLog(dir, module, payload) {
   return file
 }
 
+/** 读取单份日志的完整内容；不存在/损坏返回 null。 */
+export async function readOpLog(file) {
+  try {
+    return JSON.parse(await readFile(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** 回写 undoneAt 标记（一键撤销成功后防重复撤销）。 */
+export async function markOpLogUndone(file, log) {
+  await writeTextFile(file, JSON.stringify({ ...log, undoneAt: new Date().toISOString() }, null, 2))
+}
+
 /** 最近的日志摘要（新到旧）。 */
 export async function listOpLogs(dir, limit = 50) {
   let files = []
@@ -62,7 +76,15 @@ export async function listOpLogs(dir, limit = 50) {
         file: join(dir, file),
         module: raw.module ?? '?',
         finishedAt: raw.finishedAt ?? '',
-        summary: raw.summary ?? ''
+        summary: raw.summary ?? '',
+        undone: Boolean(raw.undoneAt),
+        undoable:
+          !raw.undoneAt &&
+          (raw.module === 'rename'
+            ? (raw.report?.items?.length ?? 0) > 0
+            : raw.module === 'nfo'
+              ? (raw.report?.archived?.length ?? 0) > 0
+              : false)
       })
     } catch {
       // 损坏日志跳过

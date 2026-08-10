@@ -8,15 +8,8 @@ import {
 import { useMemo } from 'react'
 import { CSS } from '@dnd-kit/utilities'
 import type { MergeVideoItem } from '../../../shared/types'
-import { formatBytes } from '../utils/format'
+import { formatBytes, formatDuration } from '../utils/format'
 import { mediaUrl } from '../utils/media'
-
-function formatDuration(ms: number): string {
-  const total = Math.round(ms / 1000)
-  const m = Math.floor(total / 60)
-  const s = total % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
 
 /**
  * 合并片段列表：拖动 ⠿ 排序；点击右侧开关可将单个视频置灰排除（不参与本次合并），

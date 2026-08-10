@@ -1,6 +1,7 @@
 import { stat } from 'node:fs/promises'
 import ffprobeStatic from 'ffprobe-static'
 import { runPooled } from './ffmpeg-pool.mjs'
+import { createLruCache } from './lru-cache.mjs'
 
 /**
  * ffprobe 二进制路径：开发时来自 node_modules；
@@ -83,7 +84,9 @@ export async function probeMedia(filePath, ffprobePath = resolveFfprobePath()) {
 
 /* ---------------- 探测缓存：按 path+mtime+size 命中，避免重复探测 ---------------- */
 
-const probeCache = new Map()
+// LRU 淘汰（最多 2000 条）：只淘汰最久未用条目，替代原先超限全清（热点条目被误清）
+const PROBE_CACHE_MAX = 2000
+const probeCache = createLruCache(PROBE_CACHE_MAX)
 
 /**
  * 带缓存的探测：文件未变化（mtime/size 相同）直接返回缓存。
@@ -99,7 +102,6 @@ export async function probeMediaCached(
   const cached = probeCache.get(key)
   if (cached) return cached
   const result = await probeFn(filePath, ffprobePath)
-  if (probeCache.size > 2000) probeCache.clear() // 防无界增长
   probeCache.set(key, result)
   return result
 }

@@ -280,11 +280,16 @@ export async function createScanPlan(root, { onProgress, concurrency } = {}) {
     for (const other of others) deleteItems.push({ ...other, reason: '非视频/图片文件' })
 
     // 视频 -> 同层归一化同名图片候选
+    // 先按归一化名建索引：图片匹配 O(1) 查表（原先每张图 filter 全部视频，O(V×I)）
+    const videoByNorm = new Map()
+    for (const video of videos) {
+      const key = normalizedName(video.name)
+      if (!videoByNorm.has(key)) videoByNorm.set(key, [])
+      videoByNorm.get(key).push(video)
+    }
     const videoCandidates = new Map()
     for (const image of images) {
-      const candidates = videos.filter(
-        (video) => normalizedName(video.name) === normalizedName(image.name)
-      )
+      const candidates = videoByNorm.get(normalizedName(image.name)) ?? []
       if (candidates.length === 0) {
         deleteItems.push({ ...image, reason: '未匹配同层视频' })
         continue
@@ -371,7 +376,10 @@ export async function createScanPlan(root, { onProgress, concurrency } = {}) {
     }
   }
   // 各消费方（clean/poster/merge/nfo/dedupe/health）只读计划，可安全共享同一对象
-  if (planCache.size >= PLAN_CACHE_MAX) planCache.clear()
+  // 超限只淘汰最旧的一条（LRU），而非全清——多工作区来回切换时旧计划仍可命中
+  while (planCache.size >= PLAN_CACHE_MAX) {
+    planCache.delete(planCache.keys().next().value)
+  }
   planCache.set(root, { fingerprint, plan })
   return plan
 }
