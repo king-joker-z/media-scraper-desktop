@@ -8,7 +8,7 @@
 **Media Scraper Desktop**：本地视频整理、刮削与漫画打包桌面工具。应用启动时可选择「视频工坊」或「漫画书房」，运行时可随时切换；所有处理在本地完成（除可选的 AI 命名走 OpenAI 兼容 API），无后端服务。
 
 - 技术栈：Electron 39 + React 19 + TypeScript 5.9 + electron-vite 5（Vite 7）
-- 媒体处理：`ffmpeg-static` / `ffprobe-static`（打包时随应用分发）、`sharp`（图片转码）、`fflate`（EPUB ZIP）、`pdf-lib`（PDF）
+- 媒体处理：`ffmpeg-static` / `ffprobe-static`（打包时随应用分发）、`sharp`（图片转码）、`yazl` / `yauzl`（EPUB 流式 ZIP 写入/读取）、`fflate`（小型 EPUB 测试辅助）、`pdf-lib`（PDF）
 - 平台：macOS / Windows（Linux 配置存在但非主目标）
 - 语言：UI 与代码注释均为**中文**，提交信息使用中文
 
@@ -51,7 +51,7 @@ src/renderer/           ← React UI：无 Node 权限，一切经 window.api
 9. **LRU 有界缓存**（`core/lru-cache.mjs`）：probe 缓存、AI 命名缓存、文件哈希缓存统一用 `createLruCache(cap)`，防长期使用后 Map 无界增长。
 10. **扫描钉住（pinning）**（`core/scanner.mjs`）：`pinScanRecords(root)` 后流水线各步经 `applyScanMutations(root, { deleted, moved })` 增量维护记录，`createScanPlan` 直接复用不重复遍历磁盘；流水线结束必须 `unpinScanRecords()`（建议 try/finally）。未钉住时 `applyScanMutations` 是 no-op。
 11. **自动化流水线**（`modules/pipeline/pipeline.mjs`）：clean/nfo/dedupe/health 四模块可编排成有序步骤串行执行，预设持久化在设置（`pipelinePresets`）；配合 `core/dir-watch.mjs` 目录监控（尾随防抖）实现「丢入新片自动执行预设」。
-12. **漫画合并与追更**（`modules/comic/`）：工作区一级目录为漫画、子目录为章节，按数字感知自然顺序打包 EPUB/PDF；`.comic-merge.json` 保存章节快照，只有新增章节时增量追加，已有章节变更或切换格式必须全量重建。默认优化为限宽 1600 + mozjpeg q85；原样模式尽量保留原图。合并完成后可删除已纳入清单的源图，隐藏封面 `.comic-cover.jpg` 与清单保留以支持漫画库和后续追更。
+12. **漫画合并与追更**（`modules/comic/`）：工作区一级目录为漫画、子目录为章节，按数字感知自然顺序打包 EPUB/PDF；`.comic-merge.json` 保存章节快照，只有新增章节时增量追加，已有章节变更或切换格式必须全量重建。EPUB 通过 `yazl` / `yauzl` 按页流式创建、增量时流式复制旧条目，避免数千页图片/整书 ZIP 同时驻留内存；原样 EPUB 直接流式收录源图。产物必须经暂存写入与结构校验后才安全替换，扫描会恢复断电遗留的备份。默认优化为限宽 1600 + mozjpeg q85；PDF 使用 `pdf-lib`，仍为全量加载/保存模型，因此超大 PDF 合并限制为单本并行。合并完成后可删除已纳入清单的源图，隐藏封面 `.comic-cover.jpg` 与清单保留以支持漫画库和后续追更。
 
 ## 目录速查
 
@@ -91,12 +91,12 @@ src/renderer/           ← React UI：无 Node 权限，一切经 window.api
 - **Windows 文件名限制**：`rename-rules.mjs` 的 `validateStems` 已覆盖三类——保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9，rename 报 EINVAL）、末尾点号/空格（Windows 自动截断导致名实不符）、ASCII 控制字符。AI 命名的 system prompt 也内置了这些约束。
 - **ffmpeg concat 清单**：Windows 上 `buildConcatList` 生成的清单必须把 `\` 替换为 `/`，否则 concat demuxer 解析失败。
 - **Windows 杀 ffmpeg**：Windows 无 POSIX 信号，`process.kill()` 等于强杀，mp4 moov 来不及写导致输出损坏。`process-registry.mjs` 已处理（stdin 写 `q` + 延长宽限期），新增子进程类型时注意其优雅退出方式。
-- **Windows 瞬态文件锁**：杀软/索引器会短暂锁住刚写入的文件，`fs-ops.mjs` 的 `withLockRetry` 已对删除/移动做重试，新增写操作复用它。
+- **Windows 瞬态文件锁**：杀软/索引器会短暂锁住刚写入的文件，`fs-ops.mjs` 的 `withLockRetry` 已对删除/移动/安全替换做重试。大 EPUB/PDF 不得直接覆盖目标：必须使用同目录 `.msd-new-*` 暂存、校验后将旧产物移至 `.msd-backup-*`、再落位新产物；失败优先恢复旧产物，扫描时通过 `recoverStagedOutputs()` 处理断电残留。
 - **图片缓存**：封面保存是同路径覆盖写，渲染端 `<img>` 需配合 URL 版本参数 + 协议层 `no-store`，否则显示旧图。漫画删源后依赖 `.comic-cover.jpg` 继续在漫画库显示封面。
 - **macOS 隔离属性**：本机下载的 DMG 首次打开可能报「已损坏」，属 Gatekeeper quarantine（ad-hoc 签名），`xattr -cr` 可解。
 - **合并断点续传**：中间段就绪判定必须校验时长（±1s），否则上次取消留下的截断段会被误判为可复用，导致输出时长校验失败。
 - **合并产物再参与合并**：扫描合并候选时必须用 `isMergeOutputName` 排除 `*-merged.mp4`。
-- **漫画增量边界**：增量仅支持「新增完整章节」。已合并章节增删图片、调整顺序、切换 EPUB/PDF、改变图片优化策略时必须全量重建；删源后新增章节仍可追加，旧章节由现有产物保留。
+- **漫画增量边界**：增量仅支持「新增完整章节」。已合并章节增删图片、调整顺序、切换 EPUB/PDF、改变图片优化策略时必须全量重建；删源后新增章节仍可追加，旧章节由现有产物保留。EPUB 增量是流式重建容器并复制旧条目，不是直接在旧 ZIP 尾部追加；PDF 的 `pdf-lib` 增量会重写整份文档，不适合超大漫画。
 - **CI artifact 配额**：私有仓 Actions 存储有限，workflow 已加「只保留最新 4 个 artifact」修剪步骤 + 7 天过期；新增上传步骤时沿用 `retention-days` 并不要删修剪步骤。
 - **react-hooks/purity**：渲染期间禁止调 `Date.now()` 等 impure 函数（ESLint 报错），生成 ID 用 `crypto.randomUUID()`。
 - **`no-control-regex`**：命名校验正则刻意匹配控制字符（`\x00-\x1f`），用行内 `eslint-disable-next-line` 豁免，不要为过 lint 删掉控制字符段。
