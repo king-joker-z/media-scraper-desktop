@@ -3,20 +3,21 @@
   /* 基础令牌：表面与文字层级参考 Fluent 的中性层级；交互焦点与状态参考 Material 3。 */
   --accent: #1677ff;
   --accent-press: #0958d9;
-  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
-  --focus-ring: color-mix(in srgb, var(--accent) 30%, transparent);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --focus-ring: color-mix(in srgb, var(--accent) 32%, transparent);
+  --control-height: 36px;
   --danger: #d92d20;
   --success: #12805c;
   --warning: #b54708;
   --label-primary: #182230;
   --label-secondary: #475467;
   --label-tertiary: #98a2b3;
-  --bg-window: #f6f8fb;
+  --bg-window: #f4f6fa;
   --bg-card: #ffffff;
-  --bg-sidebar: rgba(249, 250, 251, 0.86);
-  --fill-quaternary: #f2f4f7;
-  --fill-tertiary: #eaecf0;
-  --separator: #e4e7ec;
+  --bg-sidebar: rgba(248, 250, 252, 0.92);
+  --fill-quaternary: #eef2f6;
+  --fill-tertiary: #dfe5ed;
+  --separator: #d0d5dd;
   --radius-card: 16px;
   --radius-control: 10px;
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.08);
@@ -90,7 +91,7 @@ body {
   user-select: none;
 }
 button {
-  min-height: 34px;
+  min-height: var(--control-height);
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   padding: 7px 14px;
@@ -148,8 +149,9 @@ textarea {
   color: var(--label-primary);
   background: var(--bg-card);
   border: 1px solid var(--separator);
+  min-height: var(--control-height);
   border-radius: var(--radius-control);
-  padding: 8px 10px;
+  padding: 7px 10px;
   outline: none;
   transition:
     border-color 0.16s ease,
@@ -264,11 +266,13 @@ h2 {
   gap: 2px;
 }
 .nav-item {
+  min-height: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 7px 10px;
-  border-radius: 8px;
+  padding: 0 10px;
+  border-radius: 9px;
   background: transparent;
   color: var(--label-primary);
   font-size: 13px;
@@ -322,8 +326,12 @@ h2 {
 }
 .actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+.actions > button {
+  height: var(--control-height);
 }
 
 /* ---------- 卡片与列表 ---------- */
@@ -1075,17 +1083,20 @@ h2 {
 /* ---------- 重命名 / NFO ---------- */
 .mode-tabs {
   display: flex;
+  align-items: center;
   gap: 4px;
+  min-height: var(--control-height);
   margin-bottom: 14px;
-  padding: 4px;
+  padding: 3px;
   border: 1px solid var(--separator);
   border-radius: 12px;
   background: var(--fill-quaternary);
   width: fit-content;
 }
 .mode-tab {
-  min-height: 30px;
-  padding: 5px 12px;
+  min-height: 28px;
+  height: 28px;
+  padding: 4px 12px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -1100,9 +1111,22 @@ h2 {
   color: var(--label-primary);
 }
 .mode-tab.active {
-  background: var(--bg-card);
-  box-shadow: var(--shadow-card);
-  color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 30%, transparent);
+  color: #fff;
+}
+.mode-tab.active:hover:not(:disabled) {
+  background: var(--accent-press);
+  color: #fff;
+}
+/* 工具栏内部不应继承分段控件在表单区的底部间距。 */
+.library-toolbar .mode-tabs,
+.comic-toolbar .mode-tabs {
+  margin-bottom: 0;
+}
+.library-toolbar > input,
+.library-toolbar > select {
+  height: var(--control-height);
 }
 .seq-controls {
   display: flex;
