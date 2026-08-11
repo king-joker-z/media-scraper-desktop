@@ -11,6 +11,11 @@ declare module './merge.mjs' {
       raw?: boolean
       rebuild?: boolean
       signal?: AbortSignal
+      onProgress?: (progress: {
+        completedPages: number
+        totalPages: number
+        current?: string
+      }) => void
     }
   ): Promise<ComicMergeItem>
 
@@ -25,6 +30,13 @@ declare module './merge.mjs' {
       taskCenter: TaskCenter
       taskId: string
       concurrency?: number
+      onProgress?: (progress: {
+        completed: number
+        total: number
+        current: string
+        done?: boolean
+        cancelled?: boolean
+      }) => void
     }
   ): Promise<ComicMergeReport>
 

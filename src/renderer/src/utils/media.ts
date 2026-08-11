@@ -1,8 +1,13 @@
 /** 将本地绝对路径转为 media:// 协议 URL（主进程白名单校验） */
 export function mediaUrl(absolutePath: string): string {
   const normalized = absolutePath.replaceAll('\\', '/')
-  // 逐段 encodeURIComponent：encodeURI 不编码 # ?，文件名含这些字符会截断 URL（Windows 高发）
-  return `media://local${normalized.split('/').map(encodeURIComponent).join('/')}`
+  // 逐段 encodeURIComponent：encodeURI 不编码 # ?，文件名含这些字符会截断 URL（Windows 高发）。
+  // 必须在 host（local）后补路径分隔符：Windows 的 C: 若紧跟 host 会被 URL 解析为 host 的一部分，
+  // 导致主进程拿到错误路径，所有视频/图片请求都会失败。UNC 保留双斜杠以便主进程还原网络路径。
+  const encoded = normalized.split('/').map(encodeURIComponent).join('/')
+  return normalized.startsWith('//')
+    ? `media://local${encoded}`
+    : `media://local/${encoded.replace(/^\/+/, '')}`
 }
 
 /* ---------------- 播放进度记忆（localStorage，带 30 天过期清理） ---------------- */

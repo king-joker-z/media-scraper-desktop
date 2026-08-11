@@ -83,13 +83,13 @@ async function preparePage(absPath, { format, raw }) {
  * 合并单部漫画。
  * @param {string} root 工作区
  * @param {string} relDir 漫画相对目录
- * @param {{format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, signal?: AbortSignal}} options
+ * @param {{format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, signal?: AbortSignal, onProgress?: (progress: {completedPages: number, totalPages: number, current?: string}) => void}} options
  * @returns {Promise<import('../../../shared/types').ComicMergeItem>}
  */
 export async function mergeOneComic(
   root,
   relDir,
-  { format, raw = false, rebuild = false, signal }
+  { format, raw = false, rebuild = false, signal, onProgress }
 ) {
   const comic = await scanComic(root, relDir)
   const comicDir = join(root, relDir)
@@ -112,6 +112,18 @@ export async function mergeOneComic(
   const chaptersToProcess = mode === 'full' ? comic.chapters : comic.newChapters
   const outputName = comicOutputName(comic.name, format)
   const outputPath = join(comicDir, outputName)
+  const priorPageCount =
+    mode === 'update' ? state.chapters.reduce((sum, chapter) => sum + chapter.images.length, 0) : 0
+  const processedPageCount = chaptersToProcess.reduce(
+    (sum, chapter) => sum + chapter.images.length,
+    0
+  )
+  const emitPageProgress = (progress) =>
+    onProgress?.({
+      completedPages: Math.max(0, progress.completedPages - priorPageCount),
+      totalPages: processedPageCount,
+      current: comic.name
+    })
 
   // EPUB 采用流式 ZIP：逐页读取/转码/写入，数千页也不会累积整书 Buffer。
   // PDF 受 pdf-lib 限制仍需完整序列化，故仅在 PDF 分支保留逐页预处理数组。
@@ -157,7 +169,8 @@ export async function mergeOneComic(
           })),
           newChapters: streamChapters,
           preparePage: prepareStreamPage,
-          signal
+          signal,
+          onProgress: emitPageProgress
         })
       } else {
         await createEpubFile({
@@ -165,7 +178,8 @@ export async function mergeOneComic(
           title: comic.name,
           chapters: streamChapters,
           preparePage: prepareStreamPage,
-          signal
+          signal,
+          onProgress: emitPageProgress
         })
       }
       if (signal?.aborted) throw new Error('已取消')
@@ -185,6 +199,11 @@ export async function mergeOneComic(
         const page = await preparePage(join(comicDir, image), { format, raw })
         pages.push(page)
         sourceBytes += page.sourceBytes ?? page.data.length
+        onProgress?.({
+          completedPages: pages.length,
+          totalPages: processedPageCount,
+          current: comic.name
+        })
       }
     }
     const expectedPages =
@@ -255,12 +274,12 @@ export async function mergeOneComic(
 /**
  * 批量合并（TaskCenter 并发，一项一部漫画）。
  * @param {string} root
- * @param {{relDirs: string[], format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, taskCenter: object, taskId: string, concurrency?: number}} options
+ * @param {{relDirs: string[], format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, taskCenter: object, taskId: string, concurrency?: number, onProgress?: (progress: {completed: number, total: number, current: string, done?: boolean, cancelled?: boolean}) => void}} options
  * @returns {Promise<import('../../../shared/types').ComicMergeReport>}
  */
 export async function mergeComics(
   root,
-  { relDirs, format, raw = false, rebuild = false, taskCenter, taskId, concurrency = 5 }
+  { relDirs, format, raw = false, rebuild = false, taskCenter, taskId, concurrency = 5, onProgress }
 ) {
   const startedAt = Date.now()
   const report = { taskId, cancelled: false, format, merged: [], failed: [], durationMs: 0 }
@@ -269,6 +288,28 @@ export async function mergeComics(
     report.durationMs = Date.now() - startedAt
     return report
   }
+
+  // 预先扫描一次以获得稳定的页数总量；这让数千页长漫画能显示实际页进度，而非只显示“第几本”。
+  const plans = await Promise.all(
+    relDirs.map(async (relDir) => {
+      const comic = await scanComic(root, relDir)
+      const update = !rebuild && comic.merged?.format === format
+      const chapters = update ? comic.newChapters : comic.chapters
+      return { relDir, total: chapters.reduce((sum, chapter) => sum + chapter.images.length, 0) }
+    })
+  )
+  const totalPages = plans.reduce((sum, plan) => sum + plan.total, 0)
+  const completedByComic = new Map()
+  const reportProgress = (relDir, progress) => {
+    completedByComic.set(relDir, progress.completedPages)
+    const completed = [...completedByComic.values()].reduce((sum, value) => sum + value, 0)
+    onProgress?.({
+      completed,
+      total: totalPages,
+      current: `${progress.current ?? relDir} · ${progress.completedPages}/${progress.totalPages} 页`
+    })
+  }
+  onProgress?.({ completed: 0, total: totalPages, current: '准备合并漫画' })
 
   const result = await taskCenter.run({
     taskId,
@@ -279,11 +320,28 @@ export async function mergeComics(
     concurrency: format === 'pdf' ? 1 : Math.min(2, concurrency),
     worker: async (relDir, signal) => {
       if (signal?.aborted) throw new Error('已取消')
-      const item = await mergeOneComic(root, relDir, { format, raw, rebuild, signal })
+      const item = await mergeOneComic(root, relDir, {
+        format,
+        raw,
+        rebuild,
+        signal,
+        onProgress: (progress) => reportProgress(relDir, progress)
+      })
+      completedByComic.set(
+        relDir,
+        plans.find((plan) => plan.relDir === relDir)?.total ?? item.images
+      )
       report.merged.push(item)
     }
   })
   report.cancelled = result.cancelled
+  onProgress?.({
+    completed: [...completedByComic.values()].reduce((sum, value) => sum + value, 0),
+    total: totalPages,
+    current: result.cancelled ? '漫画合并已取消' : '漫画合并完成',
+    done: !result.cancelled,
+    cancelled: result.cancelled
+  })
   result.results.forEach((entry, index) => {
     if (!entry.ok && !entry.cancelled) {
       report.failed.push({ target: relDirs[index], error: entry.error ?? '未知错误' })

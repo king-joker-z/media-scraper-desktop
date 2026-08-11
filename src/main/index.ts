@@ -1043,7 +1043,15 @@ function registerIpcHandlers(): void {
           rebuild: options.rebuild === true,
           taskCenter,
           taskId,
-          concurrency: settings.concurrency
+          concurrency: settings.concurrency,
+          onProgress: ({ completed, total, current, done, cancelled }) => {
+            emitTask(`${taskId}-pages`, '漫画页处理进度', {
+              type: cancelled ? 'cancelled' : done ? 'done' : 'progress',
+              completed,
+              total,
+              current
+            })
+          }
         })
         logOp('comic-merge', {
           root: safeRoot,
