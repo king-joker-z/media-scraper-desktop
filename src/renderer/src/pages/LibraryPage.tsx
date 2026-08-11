@@ -48,6 +48,14 @@ function LibraryPage({
   // 页面可见时对比工作区指纹：有变化自动重扫
   useWorkspaceSync(workspace, active, refresh)
 
+  const dashboard = useMemo(() => {
+    const totalBytes = videos.reduce((sum, video) => sum + video.size, 0)
+    const totalDuration = videos.reduce((sum, video) => sum + (video.media?.durationMs ?? 0), 0)
+    const missingPoster = videos.filter((video) => !video.posterPath).length
+    const portrait = videos.filter((video) => video.media?.orientation === 'portrait').length
+    return { totalBytes, totalDuration, missingPoster, portrait }
+  }, [videos])
+
   const filtered = useMemo(() => {
     const key = keyword.trim().toLowerCase()
     let list = videos
@@ -65,8 +73,8 @@ function LibraryPage({
       <header className="page-header">
         <div>
           <p className="eyebrow">媒体库</p>
-          <h1>媒体库浏览</h1>
-          <p className="muted">海报墙浏览工作区视频，点击播放（自动记忆播放进度）。只读视图。</p>
+          <h1>媒体库仪表盘</h1>
+          <p className="muted">先掌握容量、时长与整理缺口，再从海报墙浏览并播放视频。只读视图。</p>
         </div>
         <div className="actions">
           <button className="secondary" onClick={onChooseWorkspace}>
@@ -86,35 +94,67 @@ function LibraryPage({
       {error && <ErrorBanner message={error} />}
 
       {loaded && videos.length > 0 && (
-        <div className="library-toolbar">
-          <input
-            placeholder={`搜索 ${videos.length} 个视频…`}
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-          />
-          <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
-            <option value="name">按名称</option>
-            <option value="size">按大小</option>
-            <option value="duration">按时长</option>
-          </select>
-          <div className="mode-tabs">
-            {(
-              [
-                ['all', '全部'],
-                ['landscape', '横屏'],
-                ['portrait', '竖屏']
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                className={`mode-tab ${orientation === key ? 'active' : ''}`}
-                onClick={() => setOrientation(key)}
-              >
-                {label}
-              </button>
-            ))}
+        <>
+          <section className="stats library-dashboard">
+            <div>
+              <span>视频总数</span>
+              <b>{videos.length}</b>
+            </div>
+            <div>
+              <span>媒体容量</span>
+              <b>{formatBytes(dashboard.totalBytes)}</b>
+            </div>
+            <div>
+              <span>总时长</span>
+              <b>{formatDuration(dashboard.totalDuration)}</b>
+            </div>
+            <div>
+              <span>待补封面</span>
+              <b className={dashboard.missingPoster ? 'warning-text' : ''}>
+                {dashboard.missingPoster}
+              </b>
+            </div>
+            <div>
+              <span>竖屏视频</span>
+              <b>{dashboard.portrait}</b>
+            </div>
+          </section>
+          {dashboard.missingPoster > 0 && (
+            <section className="notice-banner">
+              整理提醒：有 {dashboard.missingPoster}{' '}
+              个视频尚无封面，可前往「封面管理」生成候选并按推荐策略批量保存。
+            </section>
+          )}
+          <div className="library-toolbar">
+            <input
+              placeholder={`搜索 ${videos.length} 个视频…`}
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+            />
+            <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+              <option value="name">按名称</option>
+              <option value="size">按大小</option>
+              <option value="duration">按时长</option>
+            </select>
+            <div className="mode-tabs">
+              {(
+                [
+                  ['all', '全部'],
+                  ['landscape', '横屏'],
+                  ['portrait', '竖屏']
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  className={`mode-tab ${orientation === key ? 'active' : ''}`}
+                  onClick={() => setOrientation(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {filtered.length > 0 && (

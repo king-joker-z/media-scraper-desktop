@@ -15,6 +15,7 @@ declare module './merge.mjs' {
         completedPages: number
         totalPages: number
         current?: string
+        phase?: string
       }) => void
     }
   ): Promise<ComicMergeItem>

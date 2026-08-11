@@ -18,6 +18,7 @@ const notifyTaskFinished = (event: TaskEvent): void => {
 
 function TaskProgress(): React.JSX.Element | null {
   const [tasks, setTasks] = useState<Map<string, TaskEvent>>(new Map())
+  const [taskStartedAt, setTaskStartedAt] = useState<Map<string, number>>(new Map())
   const finishedTaskIds = useRef(new Set<string>())
   const dismissTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
 
@@ -25,6 +26,12 @@ function TaskProgress(): React.JSX.Element | null {
     const timers = dismissTimers.current
     const unsubscribe = window.api.onTaskEvent((event) => {
       const finished = event.type === 'done' || event.type === 'cancelled'
+      setTaskStartedAt((prev) => {
+        if (prev.has(event.taskId) && event.type !== 'start') return prev
+        const next = new Map(prev)
+        next.set(event.taskId, event.at)
+        return next
+      })
       // IPC 队列拥堵时，终态后抵达的旧进度事件不得让任务“复活”。
       if (!finished && finishedTaskIds.current.has(event.taskId)) return
       setTasks((prev) => {
@@ -40,6 +47,11 @@ function TaskProgress(): React.JSX.Element | null {
         const timer = setTimeout(() => {
           timers.delete(event.taskId)
           finishedTaskIds.current.delete(event.taskId)
+          setTaskStartedAt((prev) => {
+            const next = new Map(prev)
+            next.delete(event.taskId)
+            return next
+          })
           setTasks((prev) => {
             const next = new Map(prev)
             next.delete(event.taskId)
@@ -65,6 +77,17 @@ function TaskProgress(): React.JSX.Element | null {
         // total 为 0 表示不定量任务（如目录扫描），用不定态进度条
         const indeterminate = task.total === 0 && !finished
         const percent = task.total > 0 ? Math.round((task.completed / task.total) * 100) : 0
+        const elapsedMs = Math.max(0, task.at - (taskStartedAt.get(task.taskId) ?? task.at))
+        const rate = elapsedMs > 0 && task.completed > 0 ? task.completed / (elapsedMs / 1000) : 0
+        const etaSeconds =
+          rate > 0 && task.total > task.completed
+            ? Math.ceil((task.total - task.completed) / rate)
+            : 0
+        const etaText =
+          etaSeconds > 0
+            ? `约剩余 ${Math.floor(etaSeconds / 60)}:${String(etaSeconds % 60).padStart(2, '0')}`
+            : ''
+        const rateText = rate >= 0.1 ? `${rate.toFixed(rate >= 10 ? 0 : 1)} 项/秒` : ''
         return (
           <div key={task.taskId} className={`task-progress-card ${finished ? 'finished' : ''}`}>
             <div className="task-progress-head">
@@ -88,7 +111,14 @@ function TaskProgress(): React.JSX.Element | null {
                 style={{ width: indeterminate ? undefined : `${percent}%` }}
               />
             </div>
-            {!finished && task.current && <p className="task-progress-current">{task.current}</p>}
+            {!finished && (task.current || rateText || etaText) && (
+              <p className="task-progress-current">
+                {task.current}
+                {(rateText || etaText) && (
+                  <span> · {[rateText, etaText].filter(Boolean).join(' · ')}</span>
+                )}
+              </p>
+            )}
           </div>
         )
       })}

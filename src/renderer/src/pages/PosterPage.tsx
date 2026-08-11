@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { PosterVideoItem } from '../../../shared/types'
+import type { CandidateFrameScore, PosterVideoItem } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
 import PosterDetail from '../components/PosterDetail'
@@ -10,6 +10,7 @@ import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 type Selections = Record<string, string>
 type CandidatesMap = Record<string, string[]>
+type ScoresMap = Record<string, CandidateFrameScore[]>
 
 function PosterPage({
   active,
@@ -28,6 +29,7 @@ function PosterPage({
   const [confirmingBatch, setConfirmingBatch] = useState(false)
   const [detail, setDetail] = useState<PosterVideoItem | null>(null)
   const [candidatesMap, setCandidatesMap] = useState<CandidatesMap>({})
+  const [scoresMap, setScoresMap] = useState<ScoresMap>({})
   const [selections, setSelections] = useState<Selections>({})
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -85,6 +87,7 @@ function PosterPage({
         withoutCandidates.map((v) => v.relativePath)
       )
       const nextCandidates: CandidatesMap = {}
+      const nextScores: ScoresMap = {}
       const nextSelections: Selections = {}
       const failed: string[] = []
       for (const outcome of outcomes) {
@@ -93,6 +96,7 @@ function PosterPage({
           continue
         }
         nextCandidates[outcome.relativePath] = outcome.frames
+        nextScores[outcome.relativePath] = outcome.scores
         // 主进程已按轻量质量评分降序排序：无封面时默认采用最佳候选。
         const video = videos.find((v) => v.relativePath === outcome.relativePath)
         if (video && !video.posterPath && !selections[video.relativePath]) {
@@ -100,6 +104,7 @@ function PosterPage({
         }
       }
       setCandidatesMap((prev) => ({ ...prev, ...nextCandidates }))
+      setScoresMap((prev) => ({ ...prev, ...nextScores }))
       setSelections((prev) => ({ ...prev, ...nextSelections }))
       const ok = Object.keys(nextCandidates).length
       setNotice(
@@ -266,12 +271,14 @@ function PosterPage({
           video={detail}
           workspace={workspace}
           candidates={candidatesMap[detail.relativePath] ?? []}
+          scores={scoresMap[detail.relativePath] ?? []}
           selection={selections[detail.relativePath] ?? detail.posterPath}
           version={coverEpoch}
           onSelect={(frame) => setSelections((prev) => ({ ...prev, [detail.relativePath]: frame }))}
-          onCandidates={(frames) =>
+          onCandidates={(frames, scores) => {
             setCandidatesMap((prev) => ({ ...prev, [detail.relativePath]: frames }))
-          }
+            if (scores) setScoresMap((prev) => ({ ...prev, [detail.relativePath]: scores }))
+          }}
           onSaved={(savedPath) => {
             const rel = detail.relativePath
             setCoverEpoch((epoch) => epoch + 1)

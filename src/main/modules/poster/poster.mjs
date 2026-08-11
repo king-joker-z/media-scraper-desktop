@@ -167,7 +167,19 @@ export async function captureCandidates(
     target: join(outDir, `candidate-${String(i + 1).padStart(2, '0')}.jpg`)
   }))
   const frames = await captureFrames(videoPath, jobs, ffmpegPath, { signal })
-  return (await rankCandidateFrames(frames)).map((entry) => entry.path)
+  const ranked = await rankCandidateFrames(frames)
+  const maxScore = ranked[0]?.score
+  const minScore = ranked.at(-1)?.score
+  const range = maxScore - minScore
+  return ranked.map((entry) => ({
+    ...entry,
+    // 将原始质量分映射到 0-100，仅用于同一视频候选间的可视化比较。
+    score: Number.isFinite(entry.score)
+      ? range > 0
+        ? ((entry.score - minScore) / range) * 100
+        : 100
+      : 0
+  }))
 }
 
 /** 在指定时间点精确截帧（用户在详情页拖动时间轴后手动选帧）。 */

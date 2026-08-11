@@ -1,19 +1,11 @@
 declare module './poster.mjs' {
-  import type { PosterVideoItem, ScanPlan } from '../../../shared/types'
+  import type { CandidateFrameScore, PosterVideoItem, ScanPlan } from '../../../shared/types'
 
   export function mapPosterVideos(plan: ScanPlan): PosterVideoItem[]
   export function listPosterVideos(
     root: string,
     options?: { onProgress?: (scanned: number) => void; concurrency?: number }
   ): Promise<PosterVideoItem[]>
-  export interface CandidateFrameScore {
-    path: string
-    score: number
-    brightness: number
-    contrast: number
-    clarity: number
-    blackRatio: number
-  }
   /** 轻量质量评分：灰度缩略图的清晰度、黑屏比例、亮度与对比度 */
   export function scoreCandidateFrame(framePath: string): Promise<CandidateFrameScore>
   export function rankCandidateFrames(framePaths: string[]): Promise<CandidateFrameScore[]>
@@ -22,7 +14,7 @@ declare module './poster.mjs' {
     videoPath: string,
     framesRoot: string,
     options?: { ffmpegPath?: string; ffprobePath?: string; signal?: AbortSignal }
-  ): Promise<string[]>
+  ): Promise<CandidateFrameScore[]>
   export function captureAt(
     videoPath: string,
     seconds: number,

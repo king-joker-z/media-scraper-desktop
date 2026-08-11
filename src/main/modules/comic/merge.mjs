@@ -122,7 +122,8 @@ export async function mergeOneComic(
     onProgress?.({
       completedPages: Math.max(0, progress.completedPages - priorPageCount),
       totalPages: processedPageCount,
-      current: comic.name
+      current: comic.name,
+      phase: format === 'epub' ? '正在写入 EPUB 页面' : '正在处理 PDF 页面'
     })
 
   // EPUB 采用流式 ZIP：逐页读取/转码/写入，数千页也不会累积整书 Buffer。
@@ -183,6 +184,12 @@ export async function mergeOneComic(
         })
       }
       if (signal?.aborted) throw new Error('已取消')
+      onProgress?.({
+        completedPages: processedPageCount,
+        totalPages: processedPageCount,
+        current: comic.name,
+        phase: '正在校验 EPUB 结构并安全替换产物'
+      })
       await verifyEpubFile(stagingPath, expectedPages)
       await commitStagedFile(stagingPath, outputPath)
       outputBytes = await fileSize(outputPath)
@@ -202,7 +209,8 @@ export async function mergeOneComic(
         onProgress?.({
           completedPages: pages.length,
           totalPages: processedPageCount,
-          current: comic.name
+          current: comic.name,
+          phase: '正在处理 PDF 页面'
         })
       }
     }
@@ -217,6 +225,12 @@ export async function mergeOneComic(
           ? await appendPdf(await readBinaryFile(outputPath), { pages })
           : await createPdf({ title: comic.name, pages })
       if (signal?.aborted) throw new Error('已取消')
+      onProgress?.({
+        completedPages: processedPageCount,
+        totalPages: processedPageCount,
+        current: comic.name,
+        phase: '正在生成并校验 PDF 文档'
+      })
       await writeBinaryFile(stagingPath, bytes)
       await verifyPdfFile(stagingPath, expectedPages)
       await commitStagedFile(stagingPath, outputPath)
@@ -306,10 +320,10 @@ export async function mergeComics(
     onProgress?.({
       completed,
       total: totalPages,
-      current: `${progress.current ?? relDir} · ${progress.completedPages}/${progress.totalPages} 页`
+      current: `${progress.phase ?? '处理页面'} · ${progress.current ?? relDir} · ${progress.completedPages}/${progress.totalPages} 页`
     })
   }
-  onProgress?.({ completed: 0, total: totalPages, current: '准备合并漫画' })
+  onProgress?.({ completed: 0, total: totalPages, current: '准备合并漫画：统计章节与页数' })
 
   const result = await taskCenter.run({
     taskId,

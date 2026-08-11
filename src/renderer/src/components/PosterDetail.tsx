@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { PosterVideoItem } from '../../../shared/types'
+import type { CandidateFrameScore, PosterVideoItem } from '../../../shared/types'
 import ConfirmDialog from './ConfirmDialog'
 import { mediaUrl } from '../utils/media'
 
@@ -7,6 +7,7 @@ function PosterDetail({
   video,
   workspace,
   candidates,
+  scores,
   selection,
   version,
   onSelect,
@@ -17,11 +18,12 @@ function PosterDetail({
   video: PosterVideoItem
   workspace: string
   candidates: string[]
+  scores: CandidateFrameScore[]
   selection: string | null
   /** 封面保存版本号，用于破除图片缓存 */
   version: number
   onSelect: (frame: string) => void
-  onCandidates: (frames: string[]) => void
+  onCandidates: (frames: string[], scores?: CandidateFrameScore[]) => void
   onSaved: (savedPath: string) => void
   onClose: () => void
 }): React.JSX.Element {
@@ -31,10 +33,10 @@ function PosterDetail({
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
 
-  const generate = async (): Promise<string[]> => {
+  const generate = async (): Promise<{ frames: string[]; scores: CandidateFrameScore[] }> => {
     const { outcomes } = await window.api.capturePosters(workspace, [video.relativePath])
     if (outcomes[0]?.error) throw new Error(outcomes[0].error)
-    return outcomes[0]?.frames ?? []
+    return { frames: outcomes[0]?.frames ?? [], scores: outcomes[0]?.scores ?? [] }
   }
 
   useEffect(() => {
@@ -42,9 +44,9 @@ function PosterDetail({
     if (video.posterPath || candidates.length > 0) return
     let alive = true
     generate()
-      .then((frames) => {
+      .then(({ frames, scores }) => {
         if (!alive) return
-        onCandidates(frames)
+        onCandidates(frames, scores)
         // capturePosters 返回质量评分最高的帧在首位，默认选择推荐项。
         if (frames[0]) onSelect(frames[0])
       })
@@ -76,8 +78,8 @@ function PosterDetail({
     setBusy(true)
     setError('')
     try {
-      const frames = await generate()
-      onCandidates(frames)
+      const { frames, scores } = await generate()
+      onCandidates(frames, scores)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -106,6 +108,8 @@ function PosterDetail({
   }
 
   const allFrames = video.posterPath ? [video.posterPath, ...candidates] : candidates
+  const scoreFor = (frame: string): CandidateFrameScore | undefined =>
+    scores.find((entry) => entry.path === frame)
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
@@ -136,20 +140,32 @@ function PosterDetail({
         {error && <p className="danger-text">{error}</p>}
         <div className="candidate-strip">
           {busy && allFrames.length === 0 && <p className="muted">正在截取候选帧…</p>}
-          {allFrames.map((frame) => (
-            <button
-              key={frame}
-              className={`candidate ${selection === frame ? 'selected' : ''}`}
-              onClick={() => onSelect(frame)}
-            >
-              <img src={`${mediaUrl(frame)}?v=${version}`} alt="候选帧" loading="lazy" />
-              {frame === video.posterPath ? (
-                <span className="candidate-tag">当前封面</span>
-              ) : (
-                frame === candidates[0] && <span className="candidate-tag">推荐</span>
-              )}
-            </button>
-          ))}
+          {allFrames.map((frame) => {
+            const score = scoreFor(frame)
+            return (
+              <button
+                key={frame}
+                className={`candidate ${selection === frame ? 'selected' : ''}`}
+                onClick={() => onSelect(frame)}
+              >
+                <img src={`${mediaUrl(frame)}?v=${version}`} alt="候选帧" loading="lazy" />
+                {frame === video.posterPath ? (
+                  <span className="candidate-tag">当前封面</span>
+                ) : (
+                  frame === candidates[0] && <span className="candidate-tag">推荐</span>
+                )}
+                {score && (
+                  <span className="candidate-score">
+                    <b>{Math.round(score.score)} 分</b>
+                    <small>
+                      清晰 {Math.round(score.clarity)} · 黑场 {Math.round(score.blackRatio * 100)}%
+                      · 亮度 {Math.round(score.brightness)}
+                    </small>
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
         {confirming && (
           <ConfirmDialog

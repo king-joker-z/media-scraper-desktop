@@ -190,9 +190,21 @@ export interface PosterVideoItem {
   posterRelativePath: string | null
 }
 
+/** 候选封面帧的轻量画面质量评分（0-100 为同一视频内的相对评分） */
+export interface CandidateFrameScore {
+  path: string
+  score: number
+  clarity: number
+  brightness: number
+  contrast: number
+  blackRatio: number
+}
+
 export interface CaptureOutcome {
   relativePath: string
+  /** 已按综合评分从高到低排序的候选帧 */
   frames: string[]
+  scores: CandidateFrameScore[]
   error?: string
 }
 

@@ -645,7 +645,7 @@ function registerIpcHandlers(): void {
         items: relativePaths,
         concurrency: settings.concurrency,
         worker: async (relativePath, signal) => {
-          const frames = await captureCandidates(
+          const scores = await captureCandidates(
             requireRelPath(safeRoot, relativePath),
             framesRoot,
             {
@@ -654,7 +654,7 @@ function registerIpcHandlers(): void {
               signal
             }
           )
-          return { relativePath, frames }
+          return { relativePath, frames: scores.map((entry) => entry.path), scores }
         }
       })
       return {
@@ -666,6 +666,7 @@ function registerIpcHandlers(): void {
               : {
                   relativePath: relativePaths[index],
                   frames: [],
+                  scores: [],
                   error: entry.error ?? '已取消'
                 }
           )
