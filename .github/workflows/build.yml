@@ -29,14 +29,10 @@ jobs:
       - run: npm test
 
   build-windows:
-    name: Windows installer (${{ matrix.arch }})
+    name: Windows installer (x64)
     needs: quality
     runs-on: windows-latest
-    # x64 + arm64 双架构：WoA 设备（Surface Pro 等）原生性能，ffmpeg 转码不再走模拟层
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x64, arm64]
+    # 当前发布目标为主流 Windows x64，避免无实际用户需求的 ARM64 交叉构建与原生依赖风险。
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,14 +54,13 @@ jobs:
       # GH_TOKEN：electron-builder publish(github) 需要。
       # 仅 tag 构建发布到 Release（--publish always）；分支/PR 构建显式 never，
       # 防止 onTagOrDraft 撞上同名草稿 Release 的资产导致 422 already_exists
-      - run: npm run build:win -- --${{ matrix.arch }} --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
-      # 用当前矩阵架构生成 unpacked 应用，并验证原生依赖确实随该架构产物分发。
-      - run: npm run build:unpack -- --${{ matrix.arch }}
+      - run: npm run build:win -- --x64 --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
+      # 生成 x64 unpacked 应用，并验证原生依赖确实随发布产物分发。
+      - run: npm run build:unpack -- --x64
       - name: Verify unpacked native dependencies
         shell: pwsh
         run: |
-          $expected = if ('${{ matrix.arch }}' -eq 'arm64') { 'win-arm64-unpacked' } else { 'win-unpacked' }
-          $app = Join-Path 'dist' $expected
+          $app = Join-Path 'dist' 'win-unpacked'
           if (-not (Test-Path $app)) { throw "未找到当前架构的 unpacked 应用目录：$app" }
           $unpacked = Join-Path $app 'resources/app.asar.unpacked/node_modules'
           @('ffmpeg-static', 'ffprobe-static', 'sharp', '@img') | ForEach-Object {
@@ -75,7 +70,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: media-scraper-desktop-win-${{ matrix.arch }}
+          name: media-scraper-desktop-win-x64
           path: dist/*.exe
           if-no-files-found: error
           # 安装包体积大，7 天过期防止 artifact 存储配额被打满
