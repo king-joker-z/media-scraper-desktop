@@ -38,7 +38,7 @@ async function collectImages(comicDir, relDir) {
   const walk = async (current) => {
     const entries = await readdir(join(comicDir, current), { withFileTypes: true })
     for (const entry of entries) {
-      if (isHiddenName(entry.name)) continue
+      if (isHiddenName(entry.name) || entry.isSymbolicLink()) continue
       const rel = current ? `${current}/${entry.name}` : entry.name
       if (entry.isDirectory()) await walk(rel)
       else if (entry.isFile() && isComicImage(entry.name)) out.push(rel)
@@ -69,7 +69,7 @@ export async function scanComic(root, relDir) {
   const entries = await readdir(comicDir, { withFileTypes: true })
 
   const chapterDirs = entries
-    .filter((entry) => entry.isDirectory() && !isHiddenName(entry.name))
+    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !isHiddenName(entry.name))
     .map((entry) => entry.name)
   const flatImages = entries
     .filter((entry) => entry.isFile() && !isHiddenName(entry.name) && isComicImage(entry.name))
@@ -106,7 +106,7 @@ export async function scanComic(root, relDir) {
 export async function scanComicWorkspace(root) {
   const entries = await readdir(root, { withFileTypes: true })
   const comicDirs = entries
-    .filter((entry) => entry.isDirectory() && !isHiddenName(entry.name))
+    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !isHiddenName(entry.name))
     .map((entry) => entry.name)
     .sort(compareComicNames)
 

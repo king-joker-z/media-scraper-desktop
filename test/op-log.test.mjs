@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { listOpLogs, writeOpLog } from '../src/main/core/op-log.mjs'
+import { listOpLogs, markOpLogUndone, readOpLog, writeOpLog } from '../src/main/core/op-log.mjs'
 
 test('writeOpLog + listOpLogs roundtrip with summary', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'msd-oplog-'))
@@ -19,6 +19,19 @@ test('writeOpLog + listOpLogs roundtrip with summary', async () => {
     assert.equal(logs[1].module, 'clean')
     assert.equal(logs[1].summary, '删除 3 个文件')
     assert.ok(logs[0].file.endsWith('.json'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('markOpLogUndone atomically keeps a readable undo marker', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-oplog-'))
+  try {
+    const file = await writeOpLog(dir, 'rename', { report: { items: [{ from: 'a', to: 'b' }] } })
+    const log = await readOpLog(file)
+    assert.ok(log)
+    await markOpLogUndone(file, log)
+    assert.ok((await readOpLog(file))?.undoneAt)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

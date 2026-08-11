@@ -33,6 +33,8 @@ declare module './fs-ops.mjs' {
   export function readBinaryFile(target: string): Promise<Buffer>
   /** 原子写入二进制文件（先 .part 后 rename） */
   export function writeBinaryFile(target: string, data: Uint8Array): Promise<void>
+  /** 原子写入文本文件（避免设置、日志等 JSON 留下半截内容） */
+  export function writeAtomicTextFile(target: string, content: string): Promise<string>
   export function removeEmptyDirs(root: string): Promise<string[]>
   export function isJunkFileName(name: string): boolean
   export function listDirNames(dir: string): Promise<string[]>

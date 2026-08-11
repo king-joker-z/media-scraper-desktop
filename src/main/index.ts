@@ -379,7 +379,9 @@ const watchState = {
   lastFingerprint: null as string | null
 }
 
+let watcherGeneration = 0
 const stopWatcher = (): void => {
+  watcherGeneration += 1
   dirWatcher?.close()
   dirWatcher = null
   watchState.watching = false
@@ -392,10 +394,11 @@ async function refreshWatcher(): Promise<void> {
   const settings = await settingsStore.get().catch(() => null)
   if (!settings?.watch.enabled || !workspaceRoot) return
   const root = workspaceRoot
+  const generation = watcherGeneration
   dirWatcher = watchDirectory(root, {
     debounceMs: settings.watch.debounceMinutes * 60_000,
     onChange: () => {
-      void onWorkspaceChanged()
+      void onWorkspaceChanged(root, generation)
     },
     onError: (error) => {
       watchState.error = `目录监控不可用：${error.message}`
@@ -416,12 +419,13 @@ async function refreshWatcher(): Promise<void> {
 }
 
 /** 工作区变化静默后：指纹比对防自触发，然后自动执行预设流水线 */
-async function onWorkspaceChanged(): Promise<void> {
+async function onWorkspaceChanged(root: string, generation: number): Promise<void> {
+  // 已关闭/已切换的 watcher 的尾随防抖回调不得操作新工作区。
+  if (generation !== watcherGeneration || workspaceRoot !== root) return
   // 流水线运行期间自身的文件写入会触发监控，直接忽略（运行后重新落基线指纹）
   if (watchRunning || abortSlots.has('pipeline')) return
   const settings = await settingsStore.get().catch(() => null)
-  const root = workspaceRoot
-  if (!settings?.watch.enabled || !root) return
+  if (generation !== watcherGeneration || workspaceRoot !== root || !settings?.watch.enabled) return
   const preset =
     settings.pipelinePresets.find((p) => p.id === settings.watch.presetId) ??
     settings.pipelinePresets[0]
@@ -429,6 +433,7 @@ async function onWorkspaceChanged(): Promise<void> {
   const fingerprint = await computeFingerprint(root, {
     concurrency: settings.scanConcurrency
   }).catch(() => null)
+  if (generation !== watcherGeneration || workspaceRoot !== root) return
   if (!fingerprint || fingerprint === watchState.lastFingerprint) return
   watchRunning = true
   try {
@@ -523,6 +528,9 @@ function createWindow(theme: string): void {
     ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      // 明确锁定隔离边界：渲染端只能使用 contextBridge 暴露的最小 API，不能获得 Node 能力。
+      contextIsolation: true,
+      nodeIntegration: false,
       sandbox: false
     }
   })
@@ -532,7 +540,13 @@ function createWindow(theme: string): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    try {
+      const url = new URL(details.url)
+      if (url.protocol === 'https:' || url.protocol === 'http:')
+        void shell.openExternal(url.toString())
+    } catch {
+      // 非法 URL 直接拒绝
+    }
     return { action: 'deny' }
   })
 

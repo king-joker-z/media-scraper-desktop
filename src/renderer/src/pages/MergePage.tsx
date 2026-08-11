@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { MergeMode, MergeResult, MergeVideoItem } from '../../../shared/types'
 import {
   checkCompatibility,
@@ -43,6 +43,8 @@ function MergePage({
   const [deleteNote, setDeleteNote] = useState('')
   const [error, setError] = useState('')
   const [playing, setPlaying] = useState<MergeVideoItem | null>(null)
+  // 删除确认必须绑定产生合并结果的工作区，避免用户切换目录后误删同名相对路径。
+  const deleteWorkspaceRef = useRef<string | null>(null)
 
   const scan = async (): Promise<void> => {
     if (!workspace) return
@@ -104,6 +106,7 @@ function MergePage({
   const execute = async (): Promise<void> => {
     if (!workspace) return
     setConfirming(false)
+    deleteWorkspaceRef.current = null
     setMerging(true)
     setError('')
     setResult(null)
@@ -112,7 +115,10 @@ function MergePage({
       const merged = await window.api.executeMerge(workspace, items, outputName)
       setResult(merged)
       // 校验通过 → 自动弹出源片段删除确认（冻结稿 §4：单独展示与确认）
-      if (merged.verified && !merged.cancelled) setConfirmingDelete(true)
+      if (merged.verified && !merged.cancelled) {
+        deleteWorkspaceRef.current = workspace
+        setConfirmingDelete(true)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -121,12 +127,18 @@ function MergePage({
   }
 
   const deleteSources = async (): Promise<void> => {
-    if (!workspace) return
+    const deleteWorkspace = deleteWorkspaceRef.current
+    if (!deleteWorkspace) return
+    if (workspace !== deleteWorkspace) {
+      setConfirmingDelete(false)
+      setError('工作区已切换，为避免误删，已取消删除源视频确认。请回到原工作区后重新扫描。')
+      return
+    }
     setConfirmingDelete(false)
     setError('')
     try {
       const report = await window.api.deleteMergeSources(
-        workspace,
+        deleteWorkspace,
         items.map((item) => ({
           videoRel: item.relativePath,
           posterRel: includePosters ? item.posterRelativePath : null
@@ -137,6 +149,7 @@ function MergePage({
           (includePosters ? '（含关联 poster）' : '（poster 已保留）') +
           (report.failed.length ? `，失败 ${report.failed.length} 个` : '')
       )
+      deleteWorkspaceRef.current = null
       await scan()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -161,7 +174,11 @@ function MergePage({
           <p className="muted">兼容素材无重编码秒级拼接；不兼容自动转码统一参数后合并。</p>
         </div>
         <div className="actions">
-          <button className="secondary" onClick={onChooseWorkspace} disabled={merging}>
+          <button
+            className="secondary"
+            onClick={onChooseWorkspace}
+            disabled={merging || confirmingDelete}
+          >
             选择工作区
           </button>
           <button className="secondary" onClick={scan} disabled={!workspace || loading || merging}>

@@ -22,15 +22,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      # 缓存整个 node_modules（含 ffmpeg-static postinstall 下载的二进制），命中则跳过 npm ci
-      - name: Cache node_modules
-        uses: actions/cache@v4
-        id: deps
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
-      - if: steps.deps.outputs.cache-hit != 'true'
-        run: npm ci
+      # setup-node 的 npm 下载缓存已启用；每次仍执行 npm ci，确保原生依赖与生命周期脚本完整、可复现。
+      - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -66,14 +59,15 @@ jobs:
       # 仅 tag 构建发布到 Release（--publish always）；分支/PR 构建显式 never，
       # 防止 onTagOrDraft 撞上同名草稿 Release 的资产导致 422 already_exists
       - run: npm run build:win -- --${{ matrix.arch }} --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
-      # 检查 unpacked 目录中原生依赖确实随安装包分发，避免只在 CI 构建成功、用户启动即崩溃。
-      - run: npm run build:unpack
+      # 用当前矩阵架构生成 unpacked 应用，并验证原生依赖确实随该架构产物分发。
+      - run: npm run build:unpack -- --${{ matrix.arch }}
       - name: Verify unpacked native dependencies
         shell: pwsh
         run: |
-          $app = Get-ChildItem -Path dist -Directory | Where-Object { $_.Name -like '*unpacked' } | Select-Object -First 1
-          if (-not $app) { throw '未找到 unpacked 应用目录' }
-          $unpacked = Join-Path $app.FullName 'resources/app.asar.unpacked/node_modules'
+          $expected = if ('${{ matrix.arch }}' -eq 'arm64') { 'win-arm64-unpacked' } else { 'win-unpacked' }
+          $app = Join-Path 'dist' $expected
+          if (-not (Test-Path $app)) { throw "未找到当前架构的 unpacked 应用目录：$app" }
+          $unpacked = Join-Path $app 'resources/app.asar.unpacked/node_modules'
           @('ffmpeg-static', 'ffprobe-static', 'sharp', '@img') | ForEach-Object {
             if (-not (Test-Path (Join-Path $unpacked $_))) { throw "缺少已解包原生依赖：$_" }
           }

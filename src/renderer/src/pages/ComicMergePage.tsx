@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Comic, ComicFormat, ComicMergeReport, ComicScanResult } from '../../../shared/types'
 import { chapterDisplayName } from '../../../shared/comic-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -45,6 +45,8 @@ function ComicMergePage({
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  // 删除确认绑定合并时的工作区，阻止切换目录后按相对路径误删。
+  const reportWorkspaceRef = useRef<string | null>(null)
 
   // 启动时读取记忆的格式偏好
   useEffect(() => {
@@ -112,6 +114,7 @@ function ComicMergePage({
 
   const execute = async (): Promise<void> => {
     if (selectedComics.length === 0) return
+    reportWorkspaceRef.current = null
     setMerging(true)
     setError('')
     setNotice('')
@@ -125,6 +128,7 @@ function ComicMergePage({
       )
       setReport(next)
       if (!next.cancelled && next.merged.length > 0) {
+        reportWorkspaceRef.current = workspace
         // 合并成功后询问删除源图片
         setConfirmDelete(true)
       }
@@ -136,13 +140,19 @@ function ComicMergePage({
   }
 
   const deleteSources = async (): Promise<void> => {
-    if (!report) return
+    const reportWorkspace = reportWorkspaceRef.current
+    if (!report || !reportWorkspace) return
+    if (workspace !== reportWorkspace) {
+      setConfirmDelete(false)
+      setError('工作区已切换，为避免误删，已取消删除源图片确认。请回到原工作区后重新扫描。')
+      return
+    }
     setConfirmDelete(false)
     setDeleting(true)
     setError('')
     try {
       const outcome = await window.api.deleteComicSources(
-        workspace,
+        reportWorkspace,
         report.merged.map((item) => item.relDir)
       )
       setNotice(
@@ -151,6 +161,7 @@ function ComicMergePage({
         }（产物与清单保留）`
       )
       setReport(null)
+      reportWorkspaceRef.current = null
       await scan()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -173,7 +184,11 @@ function ComicMergePage({
           </p>
         </div>
         <div className="actions">
-          <button className="secondary" onClick={onChooseWorkspace}>
+          <button
+            className="secondary"
+            onClick={onChooseWorkspace}
+            disabled={merging || deleting || confirmDelete}
+          >
             选择工作区
           </button>
           <button className="secondary" onClick={scan} disabled={!workspace || loading || merging}>
@@ -289,6 +304,7 @@ function ComicMergePage({
                       className="secondary comic-expand"
                       onClick={(event) => {
                         event.preventDefault()
+                        event.stopPropagation()
                         setExpanded(isOpen ? null : comic.relDir)
                       }}
                     >

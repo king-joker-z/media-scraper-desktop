@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -104,6 +104,23 @@ test('hidden files and hidden directory subtrees are fully skipped', async () =>
       assert.ok(plan.skippedHidden.includes('.DS_Store'))
     }
   )
+})
+
+test('symbolic-link directories are skipped to preserve workspace boundary', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'msd-scan-link-'))
+  const external = await mkdtemp(join(tmpdir(), 'msd-external-'))
+  try {
+    await writeFile(join(root, 'inside.mp4'), 'inside')
+    await writeFile(join(external, 'outside.mp4'), 'outside')
+    await symlink(external, join(root, 'linked'))
+
+    const plan = await createScanPlan(root)
+    assert.deepEqual(names(plan.keep.filter((item) => item.kind === 'video')), ['inside.mp4'])
+    assert.ok(plan.skippedHidden.includes('linked'))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(external, { recursive: true, force: true })
+  }
 })
 
 test('matching is restricted to the same directory level', async () => {

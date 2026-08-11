@@ -175,8 +175,5 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-ignore: legacy non-isolated preload fallback
-  window.electron = electronAPI
-  // @ts-ignore: legacy non-isolated preload fallback
-  window.api = api
+  throw new Error('需要启用 contextIsolation 才能安全启动应用')
 }

@@ -1,13 +1,7 @@
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  ensureDir,
-  ensureUniquePath,
-  pathExists,
-  permanentDelete,
-  writeTextFile
-} from '../../core/fs-ops.mjs'
+import { ensureDir, ensureUniquePath, permanentDelete, writeTextFile } from '../../core/fs-ops.mjs'
 import { probeMedia } from '../../core/probe.mjs'
 import { spawnPooled } from '../../core/ffmpeg-pool.mjs'
 import { collectFailures } from '../../core/task-report.mjs'
@@ -106,6 +100,7 @@ export async function mergeVideos({
   await ensureDir(workDir)
   const outputPath = await ensureUniquePath(join(outputDir, outputName))
   const totalMs = items.reduce((sum, item) => sum + (item.media?.durationMs ?? 0), 0)
+  let verified = false
 
   try {
     if (compatibility.compatible) {
@@ -169,6 +164,7 @@ export async function mergeVideos({
         transcoded: !compatibility.compatible
       }
     }
+    verified = true
     onProgress?.(100, '完成')
     return {
       cancelled: false,
@@ -199,8 +195,8 @@ export async function mergeVideos({
       error: error.message
     }
   } finally {
-    // 成功：清理临时目录；失败/取消：保留供断点续传
-    if (await pathExists(outputPath)) await permanentDelete(workDir)
+    // 仅在输出已通过完整校验时清理临时目录；失败/取消保留供断点续传。
+    if (verified) await permanentDelete(workDir)
   }
 }
 

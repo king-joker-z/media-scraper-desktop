@@ -1,6 +1,6 @@
 import { readdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { writeTextFile } from './fs-ops.mjs'
+import { writeAtomicTextFile } from './fs-ops.mjs'
 
 /**
  * 操作日志（冻结稿：永久删除不可恢复，留档可查）。
@@ -32,7 +32,7 @@ export async function pruneOpLogs(dir, keep = OP_LOG_KEEP) {
 export async function writeOpLog(dir, module, payload) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const file = join(dir, `${stamp}-${module}.json`)
-  await writeTextFile(
+  await writeAtomicTextFile(
     file,
     JSON.stringify({ module, finishedAt: new Date().toISOString(), ...payload }, null, 2)
   )
@@ -52,7 +52,10 @@ export async function readOpLog(file) {
 
 /** 回写 undoneAt 标记（一键撤销成功后防重复撤销）。 */
 export async function markOpLogUndone(file, log) {
-  await writeTextFile(file, JSON.stringify({ ...log, undoneAt: new Date().toISOString() }, null, 2))
+  await writeAtomicTextFile(
+    file,
+    JSON.stringify({ ...log, undoneAt: new Date().toISOString() }, null, 2)
+  )
 }
 
 /** 最近的日志摘要（新到旧）。 */

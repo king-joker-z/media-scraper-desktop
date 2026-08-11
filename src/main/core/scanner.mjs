@@ -129,6 +129,12 @@ async function walk(root, current, records, skipped, state) {
       skipped.push(relative(root, join(current, entry.name)))
       continue
     }
+    // 不跟随符号链接或 Windows junction：否则表面位于工作区内的路径会实际指向工作区外，
+    // 进而使后续清理、移动等操作突破用户选择的目录边界。
+    if (entry.isSymbolicLink()) {
+      skipped.push(relative(root, join(current, entry.name)))
+      continue
+    }
     if (entry.isDirectory()) subdirs.push(entry)
     else if (entry.isFile()) files.push(entry)
   }

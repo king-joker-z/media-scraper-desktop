@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -36,6 +36,27 @@ const withTempDir = async (fn) => {
 }
 
 const page = { data: TINY_PNG, width: 1, height: 1, ext: 'png' }
+
+test('漫画扫描跳过指向工作区外的符号链接目录', async () => {
+  await withTempDir(async (root) => {
+    const external = await mkdtemp(join(tmpdir(), 'msd-comic-external-'))
+    try {
+      await mkdir(join(root, '正常漫画', '第1话'), { recursive: true })
+      await writeFile(join(root, '正常漫画', '第1话', '1.png'), TINY_PNG)
+      await mkdir(join(external, '第1话'), { recursive: true })
+      await writeFile(join(external, '第1话', 'outside.png'), TINY_PNG)
+      await symlink(external, join(root, '外链漫画'))
+
+      const result = await scanComicWorkspace(root)
+      assert.deepEqual(
+        result.comics.map((comic) => comic.name),
+        ['正常漫画']
+      )
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+})
 
 test('EPUB：创建后有正确页数、章节导航，增量追加保持顺序', () => {
   const initial = createEpub({
