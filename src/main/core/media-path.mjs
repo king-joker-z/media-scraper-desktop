@@ -24,7 +24,9 @@ export function mediaUrlPathToLocal(decoded) {
  */
 export function normalizeMediaPath(p) {
   let n = String(p).replaceAll('\\', '/').replace(/\/+$/, '')
-  if (/^[a-z]:\//.test(n)) n = n[0].toUpperCase() + n.slice(1)
+  // Windows 文件系统默认不区分大小写。除了盘符，目录/文件名也必须统一，
+  // 否则系统对话框与 Chromium / file:// 解析的大小写差异会令合法视频遭白名单 403。
+  if (/^[a-z]:\//i.test(n) || n.startsWith('//')) n = n.toLowerCase()
   return n
 }
 

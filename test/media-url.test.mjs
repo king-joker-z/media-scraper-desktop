@@ -24,7 +24,7 @@ test('Windows drive media URL roundtrip keeps the drive in pathname and passes a
   assert.equal(url.hostname, 'local')
   assert.equal(decodedPath, '/C:/媒体库/海报 #1?.jpg')
   // 在 POSIX CI 上不能用本机 resolve 还原 Windows 盘符；白名单比较本身是跨平台纯规则。
-  assert.equal(isMediaPathAllowed('C:/媒体库/海报 #1?.jpg', ['C:\\媒体库']), true)
+  assert.equal(isMediaPathAllowed('c:/媒体库/海报 #1?.jpg', ['C:\\媒体库']), true)
   if (process.platform === 'win32') {
     assert.equal(localPath, 'C:\\媒体库\\海报 #1?.jpg')
     assert.equal(isMediaPathAllowed(localPath, ['C:\\媒体库']), true)
@@ -37,9 +37,9 @@ test('UNC media URL roundtrip preserves server share and passes allowlist', () =
 
   assert.equal(url.hostname, 'local')
   assert.equal(decodedPath, '//NAS/漫画库/第 01 话/封面 #1.jpg')
-  assert.equal(isMediaPathAllowed('//NAS/漫画库/第 01 话/封面 #1.jpg', ['\\\\NAS\\漫画库']), true)
+  assert.equal(isMediaPathAllowed('//nas/漫画库/第 01 话/封面 #1.jpg', ['\\\\NAS\\漫画库']), true)
   if (process.platform === 'win32') {
-    assert.equal(normalizeMediaPath(localPath), '//NAS/漫画库/第 01 话/封面 #1.jpg')
+    assert.equal(normalizeMediaPath(localPath), '//nas/漫画库/第 01 话/封面 #1.jpg')
     assert.equal(isMediaPathAllowed(localPath, ['\\\\NAS\\漫画库']), true)
   }
 })
