@@ -5,6 +5,7 @@ import type {
   StorageCategory,
   StorageStats,
   ThemeMode,
+  ThemePalette,
   UpdateStatus,
   WatchStatus
 } from '../../../shared/types'
@@ -16,6 +17,13 @@ const THEME_TABS: { key: ThemeMode; label: string }[] = [
   { key: 'system', label: '跟随系统' },
   { key: 'light', label: '浅色' },
   { key: 'dark', label: '深色' }
+]
+
+const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }[] = [
+  { key: 'ocean', label: '海洋蓝', description: '专注、清晰，适合日常整理' },
+  { key: 'violet', label: '暮光紫', description: '更具创作感的深邃强调色' },
+  { key: 'forest', label: '森林绿', description: '低干扰、舒缓的任务氛围' },
+  { key: 'sunset', label: '日落橙', description: '鲜明温暖，突出操作反馈' }
 ]
 
 const UPDATE_STATE_LABELS: Record<UpdateStatus['state'], string> = {
@@ -188,11 +196,29 @@ function SettingsPage(): React.JSX.Element {
               key={tab.key}
               className={`mode-tab ${settings.theme === tab.key ? 'active' : ''}`}
               onClick={() => {
-                applyTheme(tab.key)
+                applyTheme(tab.key, settings.themePalette)
                 persist({ theme: tab.key })
               }}
             >
               {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="palette-grid" aria-label="强调色方案">
+          {PALETTE_OPTIONS.map((palette) => (
+            <button
+              key={palette.key}
+              className={`palette-option ${settings.themePalette === palette.key ? 'active' : ''}`}
+              onClick={() => {
+                applyTheme(settings.theme, palette.key)
+                persist({ themePalette: palette.key })
+              }}
+            >
+              <span className={`palette-swatch palette-swatch-${palette.key}`} aria-hidden="true" />
+              <span>
+                <b>{palette.label}</b>
+                <small>{palette.description}</small>
+              </span>
             </button>
           ))}
         </div>

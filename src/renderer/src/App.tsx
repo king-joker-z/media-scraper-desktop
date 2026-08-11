@@ -76,7 +76,7 @@ function App(): React.JSX.Element {
     window.api
       .getSettings()
       .then(async (settings) => {
-        applyTheme(settings.theme)
+        applyTheme(settings.theme, settings.themePalette)
         setRecents({
           video: settings.recentWorkspaces,
           comic: settings.comicRecentWorkspaces

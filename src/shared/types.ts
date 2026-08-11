@@ -121,6 +121,9 @@ export interface AiProviderConfig {
 /** 界面主题：跟随系统 / 浅色 / 深色 */
 export type ThemeMode = 'system' | 'light' | 'dark'
 
+/** 强调色方案：仅改变品牌色与交互强调，不改变内容层级 */
+export type ThemePalette = 'ocean' | 'violet' | 'forest' | 'sunset'
+
 export interface AppSettings {
   /** 当前激活的功能模块（null = 启动时显示模块选择页） */
   activeModule: AppModule | null
@@ -138,6 +141,8 @@ export interface AppSettings {
   ffmpegPoolSize: number
   /** 界面主题，默认跟随系统 */
   theme: ThemeMode
+  /** 界面强调色方案，默认海洋蓝 */
+  themePalette: ThemePalette
   aiProviders: AiProviderConfig[]
   activeProviderId: string
   /** AI 重命名 prompt 模板，支持 {{parentFolder}} {{fileName}} {{extension}} */

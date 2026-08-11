@@ -140,16 +140,25 @@ test('atomic write creates .bak backup after first successful write', async () =
   })
 })
 
-test('theme and recentWorkspaces persist and reload', async () => {
+test('theme, palette and recentWorkspaces persist and reload', async () => {
   await withTempDir(async (dir) => {
     const file = join(dir, 'settings.json')
     const store = createSettingsStore(file)
-    await store.update({ theme: 'dark', recentWorkspaces: ['/path/a', '/path/b'] })
+    await store.update({
+      theme: 'dark',
+      themePalette: 'violet',
+      recentWorkspaces: ['/path/a', '/path/b']
+    })
     const reloaded = createSettingsStore(file)
     const settings = await reloaded.get()
     assert.equal(settings.theme, 'dark')
+    assert.equal(settings.themePalette, 'violet')
     assert.deepEqual(settings.recentWorkspaces, ['/path/a', '/path/b'])
   })
+})
+
+test('invalid palette falls back to ocean', () => {
+  assert.equal(normalizeSettings({ themePalette: 'unknown' }).themePalette, 'ocean')
 })
 
 test('normalizeSettings filters malformed providers and models', () => {

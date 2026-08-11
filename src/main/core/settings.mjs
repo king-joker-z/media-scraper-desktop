@@ -35,6 +35,7 @@ export const PROVIDER_PRESETS = [
 ]
 
 export const THEME_OPTIONS = ['system', 'light', 'dark']
+export const THEME_PALETTE_OPTIONS = ['ocean', 'violet', 'forest', 'sunset']
 
 /** 最近工作区最多记忆条数 */
 export const MAX_RECENT_WORKSPACES = 8
@@ -64,6 +65,7 @@ export const DEFAULT_SETTINGS = {
   scanConcurrency: DEFAULT_SCAN_CONCURRENCY,
   ffmpegPoolSize: DEFAULT_FFMPEG_POOL_SIZE,
   theme: 'system',
+  themePalette: 'ocean',
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
     ...preset,
     token: '',
@@ -181,6 +183,9 @@ export function normalizeSettings(raw) {
     ),
     ffmpegPoolSize: clampFfmpegPoolSize(input.ffmpegPoolSize ?? DEFAULT_SETTINGS.ffmpegPoolSize),
     theme: THEME_OPTIONS.includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
+    themePalette: THEME_PALETTE_OPTIONS.includes(input.themePalette)
+      ? input.themePalette
+      : DEFAULT_SETTINGS.themePalette,
     aiProviders,
     activeProviderId,
     promptTemplate:
