@@ -7,6 +7,7 @@ import {
   clearAiCache,
   extractJsonArray,
   extractSingleName,
+  normalizeAiName,
   fetchWithRetry,
   requestAiNames,
   readAiResponseContent
@@ -36,7 +37,7 @@ test('requestAiNames caches results within the session', async () => {
       json: async () => ({ choices: [{ message: { content: '["cached-name"]' } }] })
     }
   }
-  const file = { parentFolder: 'p', fileName: 'a', extension: '.mp4' }
+  const file = { parentFolder: 'p', fileName: 'a' }
   const options = { baseUrl: 'https://x', token: 'sk', model: 'm', template: 't', fetchImpl }
   const first = await requestAiNames({ ...options, files: [file] })
   const second = await requestAiNames({ ...options, files: [file] })
@@ -46,7 +47,7 @@ test('requestAiNames caches results within the session', async () => {
   // 混合场景：一缓存一未命中，只请求未命中的
   const third = await requestAiNames({
     ...options,
-    files: [file, { parentFolder: 'p', fileName: 'b', extension: '.mp4' }],
+    files: [file, { parentFolder: 'p', fileName: 'b' }],
     fetchImpl: async () => {
       calls += 1
       return { ok: true, json: async () => ({ choices: [{ message: { content: '["b-name"]' } }] }) }
@@ -89,6 +90,30 @@ test('requestAiNames caches results within the session', async () => {
   })
   assert.equal(calls, 4)
   assert.deepEqual(isolated, ['other-provider'])
+})
+
+test('fetchWithRetry stops promptly when externally cancelled', async () => {
+  const controller = new AbortController()
+  const pending = fetchWithRetry(
+    'https://x',
+    {},
+    {
+      signal: controller.signal,
+      retryDelayMs: 1,
+      fetchImpl: async (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener(
+            'abort',
+            () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+            {
+              once: true
+            }
+          )
+        })
+    }
+  )
+  controller.abort()
+  await assert.rejects(pending, /已取消 AI 命名/)
 })
 
 test('fetchWithRetry retries network errors and 5xx, not 4xx', async () => {
@@ -152,13 +177,12 @@ test('fetchWithRetry retries network errors and 5xx, not 4xx', async () => {
   )
 })
 
-test('buildPrompt substitutes all template variables', () => {
+test('buildPrompt substitutes filename variables but removes deprecated extension variable', () => {
   const out = buildPrompt('父目录={{parentFolder}} 文件={{fileName}} 扩展={{extension}}', {
     parentFolder: '演唱会',
-    fileName: 'abc@111',
-    extension: '.mp4'
+    fileName: 'abc@111'
   })
-  assert.equal(out, '父目录=演唱会 文件=abc@111 扩展=.mp4')
+  assert.equal(out, '父目录=演唱会 文件=abc@111 扩展=')
 })
 
 test('extractJsonArray tolerates markdown fences, wrapper objects and brackets inside names', () => {
@@ -169,10 +193,19 @@ test('extractJsonArray tolerates markdown fences, wrapper objects and brackets i
   assert.throws(() => extractJsonArray('没有数组'), /未找到有效 JSON 数组/)
 })
 
-test('extractSingleName accepts a bare single-title response but rejects multiline text', () => {
+test('extractSingleName accepts a bare single-title response but rejects invalid length and multiline text', () => {
   assert.equal(extractSingleName('失控克隆：测试母本的无限轮回'), '失控克隆：测试母本的无限轮回')
   assert.equal(extractSingleName('文件名： "干净标题"'), '干净标题')
   assert.throws(() => extractSingleName('标题一\n标题二'), /不是可用/)
+  assert.throws(() => extractSingleName('a'.repeat(201)), /不是可用/)
+})
+
+test('normalizeAiName cleans illegal filename characters and rejects invalid results', () => {
+  assert.equal(normalizeAiName('  第一集：开场?  '), '第一集：开场')
+  assert.equal(normalizeAiName('标题. '), '标题')
+  assert.throws(() => normalizeAiName('CON'), /保留设备名/)
+  assert.throws(() => normalizeAiName('\\/:*?\x00'), /空名称/)
+  assert.throws(() => normalizeAiName('a'.repeat(201)), /过长/)
 })
 
 test('readAiResponseContent accepts SSE data events and compatible content shapes', async () => {
@@ -199,16 +232,32 @@ test('readAiResponseContent accepts SSE data events and compatible content shape
     json: async () => ({})
   })
   assert.equal(outputContent, '["兼容名称"]')
+
+  await assert.rejects(
+    readAiResponseContent({ text: async () => '', json: async () => ({}) }),
+    /AI 返回为空/
+  )
 })
 
-test('buildAiMessages numbers each file', () => {
-  const messages = buildAiMessages('改名 {{fileName}}', [
-    { parentFolder: 'p', fileName: 'a', extension: '.mp4' },
-    { parentFolder: 'p', fileName: 'b', extension: '.mkv' }
-  ])
+test('buildAiMessages groups videos by parent folder and sends no extension', () => {
+  const messages = buildAiMessages(
+    '清理噪音；目录={{parentFolder}}；文件={{fileName}}；扩展={{extension}}',
+    [
+      { parentFolder: '剧集A', fileName: '第一集' },
+      { parentFolder: '剧集A', fileName: '第二集' },
+      { parentFolder: '剧集B', fileName: '特别篇' }
+    ]
+  )
   assert.equal(messages[0].role, 'system')
-  assert.ok(messages[1].content.includes('1. 改名 a'))
-  assert.ok(messages[1].content.includes('2. 改名 b'))
+  const content = messages[1].content
+  assert.match(
+    content,
+    /命名要求：清理噪音；目录=见下方分组标题；文件=见下方编号文件列表；扩展=不提供扩展名/
+  )
+  assert.equal((content.match(/父文件夹：剧集A/g) ?? []).length, 1)
+  assert.match(content, /父文件夹：剧集A（编号 1–2）\n1\. 第一集\n2\. 第二集/)
+  assert.match(content, /父文件夹：剧集B（编号 3）\n3\. 特别篇/)
+  assert.doesNotMatch(content, /\.mp4|\.mkv/)
 })
 
 const mockFetchOk = (names) => async () => ({
@@ -224,8 +273,8 @@ test('requestAiNames maps response names in order and targets baseUrl', async ()
     model: 'm',
     template: '{{fileName}}',
     files: [
-      { parentFolder: 'p', fileName: 'a@111', extension: '.mp4' },
-      { parentFolder: 'p', fileName: 'b@222', extension: '.mp4' }
+      { parentFolder: 'p', fileName: 'a@111' },
+      { parentFolder: 'p', fileName: 'b@222' }
     ],
     fetchImpl: async (url) => {
       calledUrl = url
@@ -239,14 +288,14 @@ test('requestAiNames maps response names in order and targets baseUrl', async ()
   assert.equal(calledUrl, 'https://api.deepseek.com/chat/completions')
 })
 
-test('requestAiNames requires token and validates count', async () => {
+test('requestAiNames requires token, validates prompt length and validates count', async () => {
   await assert.rejects(
     requestAiNames({
       baseUrl: 'https://x',
       token: '',
       model: 'm',
       template: '',
-      files: [{ parentFolder: '', fileName: 'a', extension: '.mp4' }]
+      files: [{ parentFolder: '', fileName: 'a' }]
     }),
     /Token/
   )
@@ -255,10 +304,20 @@ test('requestAiNames requires token and validates count', async () => {
       baseUrl: 'https://x',
       token: 'sk',
       model: 'm',
+      template: 'a'.repeat(2001),
+      files: [{ parentFolder: '', fileName: 'a' }]
+    }),
+    /要求过长/
+  )
+  await assert.rejects(
+    requestAiNames({
+      baseUrl: 'https://x',
+      token: 'sk',
+      model: 'm',
       template: '',
       files: [
-        { parentFolder: '', fileName: 'a', extension: '.mp4' },
-        { parentFolder: '', fileName: 'b', extension: '.mp4' }
+        { parentFolder: '', fileName: 'a' },
+        { parentFolder: '', fileName: 'b' }
       ],
       fetchImpl: mockFetchOk(['只有一个'])
     }),
@@ -271,7 +330,7 @@ test('requestAiNames accepts a bare title only for a single-item regeneration', 
   const base = { baseUrl: 'https://x', token: 'sk', model: 'm', template: '' }
   const one = await requestAiNames({
     ...base,
-    files: [{ parentFolder: '', fileName: 'a', extension: '.mp4' }],
+    files: [{ parentFolder: '', fileName: 'a' }],
     useCache: false,
     fetchImpl: async () => ({
       ok: true,
@@ -283,8 +342,8 @@ test('requestAiNames accepts a bare title only for a single-item regeneration', 
     requestAiNames({
       ...base,
       files: [
-        { parentFolder: '', fileName: 'a', extension: '.mp4' },
-        { parentFolder: '', fileName: 'b', extension: '.mp4' }
+        { parentFolder: '', fileName: 'a' },
+        { parentFolder: '', fileName: 'b' }
       ],
       useCache: false,
       fetchImpl: async () => ({
@@ -296,6 +355,38 @@ test('requestAiNames accepts a bare title only for a single-item regeneration', 
   )
 })
 
+test('requestAiNames cancellation stops remaining batches', async () => {
+  clearAiCache()
+  const controller = new AbortController()
+  let calls = 0
+  const pending = requestAiNames({
+    baseUrl: 'https://x',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    signal: controller.signal,
+    files: Array.from({ length: 41 }, (_, index) => ({
+      parentFolder: 'p',
+      fileName: `cancel-${index}`
+    })),
+    fetchImpl: async (_url, init) => {
+      calls += 1
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener(
+          'abort',
+          () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+          {
+            once: true
+          }
+        )
+      })
+    }
+  })
+  controller.abort()
+  await assert.rejects(pending, /已取消 AI 命名/)
+  assert.ok(calls <= 2)
+})
+
 test('requestAiNames parses SSE response and disables stream requests', async () => {
   clearAiCache()
   let body
@@ -304,7 +395,7 @@ test('requestAiNames parses SSE response and disables stream requests', async ()
     token: 'sk',
     model: 'm',
     template: '',
-    files: [{ parentFolder: '', fileName: 'a', extension: '.mp4' }],
+    files: [{ parentFolder: '', fileName: 'a' }],
     fetchImpl: async (_url, init) => {
       body = JSON.parse(init.body)
       return {
@@ -326,7 +417,7 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
       token: 'sk',
       model: 'm',
       template: '',
-      files: [{ parentFolder: '', fileName: 'a', extension: '.mp4' }],
+      files: [{ parentFolder: '', fileName: 'a' }],
       fetchImpl: async () => ({ ok: false, status: 401, text: async () => 'unauthorized' })
     }),
     /401/
@@ -335,8 +426,7 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
   let calls = 0
   const files = Array.from({ length: 120 }, (_, i) => ({
     parentFolder: 'p',
-    fileName: `f${i}`,
-    extension: '.mp4'
+    fileName: `f${i}`
   }))
   const batchReports = []
   const names = await requestAiNames({

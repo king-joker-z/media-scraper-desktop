@@ -22,6 +22,11 @@ import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 type Mode = 'seq' | 'regex' | 'ai' | 'ext'
 
+const parentFolderOf = (relativePath: string): string => {
+  const segments = relativePath.split(/[\\/]/)
+  return segments.length > 1 ? (segments.at(-2) ?? '') : '（根目录）'
+}
+
 const MODE_TABS: { key: Mode; label: string }[] = [
   { key: 'seq', label: '纯序号' },
   { key: 'regex', label: '正则清洗 + 序号' },
@@ -63,6 +68,7 @@ function RenamePage({
   const [useCustom, setUseCustom] = useState(false)
   const [aiNamesMap, setAiNamesMap] = useState<Record<string, string> | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
+  const [regenerating, setRegenerating] = useState<string | null>(null)
   const [probes, setProbes] = useState<Record<string, ProbeContainerItem>>({})
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [executing, setExecuting] = useState(false)
@@ -196,10 +202,9 @@ function RenamePage({
       const sorted = sortVideos(videos, 'title', 'asc')
       const names = await window.api.requestAiNames(
         sorted.map((v) => ({
-          parentFolder: workspace.split(/[\\/]/).pop() ?? '',
-          // 发送给 AI 的文件名先剥离旧序号前缀，避免模型沿用
-          fileName: stripSeqPrefix(stemOfName(v.name)),
-          extension: extOfName(v.name)
+          parentFolder: parentFolderOf(v.relativePath),
+          // 发送给 AI 的文件名先剥离旧序号前缀，避免模型沿用；扩展名不影响命名，不发送。
+          fileName: stripSeqPrefix(stemOfName(v.name))
         })),
         // 用户点击“重新生成”时必须绕过成功缓存，真正再次请求模型。
         aiNamesMap !== null
@@ -220,23 +225,24 @@ function RenamePage({
 
   /** 单条重新生成（仅 AI 模式）：只重发这一条，不影响其他结果 */
   const regenerateOne = async (video: PosterVideoItem): Promise<void> => {
+    setRegenerating(video.relativePath)
     setError('')
     try {
       const names = await window.api.requestAiNames(
         [
           {
-            parentFolder: workspace.split(/[\\/]/).pop() ?? '',
-            fileName: stripSeqPrefix(stemOfName(video.name)),
-            extension: extOfName(video.name)
+            parentFolder: parentFolderOf(video.relativePath),
+            fileName: stripSeqPrefix(stemOfName(video.name))
           }
         ],
         true
       )
-      if (names[0]) {
-        setAiNamesMap((prev) => ({ ...prev, [video.relativePath]: names[0] }))
-      }
+      if (names.length === 0 || !names[0]) throw new Error('AI 返回空结果')
+      setAiNamesMap((prev) => ({ ...prev, [video.relativePath]: names[0] }))
     } catch (err) {
       setError(`AI 命名失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setRegenerating(null)
     }
   }
 
@@ -279,26 +285,35 @@ function RenamePage({
           <p className="muted">视频与 poster 成组改名，poster 自动同步为「新名-poster.jpg」。</p>
         </div>
         <div className="actions">
-          <button className="secondary" onClick={onChooseWorkspace} disabled={executing}>
+          <button
+            className="secondary"
+            onClick={onChooseWorkspace}
+            disabled={executing || aiLoading}
+          >
             选择工作区
           </button>
           <button
             className="secondary"
             onClick={refresh}
-            disabled={!workspace || loading || executing}
+            disabled={!workspace || loading || executing || aiLoading}
           >
             {loading ? '扫描中…' : '扫描视频'}
           </button>
           {pairs.length > 0 && (
             <button
-              disabled={changedPairs.length === 0 || Object.keys(errors).length > 0 || executing}
+              disabled={
+                changedPairs.length === 0 ||
+                Object.keys(errors).length > 0 ||
+                executing ||
+                aiLoading
+              }
               onClick={() => setConfirming(true)}
             >
               {executing ? '执行中…' : `执行重命名（${changedPairs.length}）`}
             </button>
           )}
-          {executing && (
-            <button className="secondary" onClick={() => window.api.cancelRename()}>
+          {(executing || aiLoading) && (
+            <button className="secondary" onClick={() => void window.api.cancelRename()}>
               取消
             </button>
           )}
@@ -400,7 +415,7 @@ function RenamePage({
               </p>
               <SeqControls seq={seq} onChange={setSeq} />
               <div className="actions">
-                <button onClick={runAi} disabled={aiLoading || videos.length === 0}>
+                <button onClick={runAi} disabled={aiLoading || executing || videos.length === 0}>
                   {aiLoading ? 'AI 生成中…' : aiNamesMap ? '重新生成' : '生成 AI 命名'}
                 </button>
               </div>
@@ -471,9 +486,10 @@ function RenamePage({
                         <button
                           className="rename-regenerate"
                           title="只重新生成这一条"
-                          onClick={() => regenerateOne(video)}
+                          disabled={aiLoading || executing || regenerating === video.relativePath}
+                          onClick={() => void regenerateOne(video)}
                         >
-                          重新生成
+                          {regenerating === video.relativePath ? '生成中…' : '重新生成'}
                         </button>
                       )}
                     </span>

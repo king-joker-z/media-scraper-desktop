@@ -424,11 +424,12 @@ function SettingsPage(): React.JSX.Element {
       <section className="settings-card">
         <h2>AI 重命名 Prompt 模板</h2>
         <p className="muted">
-          可用变量：{'{{parentFolder}}'}（父文件夹名）、{'{{fileName}}'}（当前文件名）、
-          {'{{extension}}'}（扩展名）。
+          可用变量：{'{{parentFolder}}'}（父文件夹名）、{'{{fileName}}'}
+          （当前文件名）。同一父目录在一个批次中只声明一次；扩展名不发送给 AI。
         </p>
         <textarea
           rows={8}
+          maxLength={2000}
           value={promptDraft ?? settings.promptTemplate}
           onChange={(event) => setPromptDraft(event.target.value)}
           onBlur={() => {
@@ -437,6 +438,10 @@ function SettingsPage(): React.JSX.Element {
             }
           }}
         />
+        <p className="muted">
+          {(promptDraft ?? settings.promptTemplate).length}/2000 字符。命名要求每个 AI
+          批次仅发送一次。
+        </p>
       </section>
 
       <section className="settings-card">

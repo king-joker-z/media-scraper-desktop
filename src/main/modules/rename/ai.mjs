@@ -4,12 +4,19 @@
  */
 
 import { createLruCache } from '../../core/lru-cache.mjs'
+import {
+  ILLEGAL_NAME_RE,
+  MAX_STEM_LENGTH,
+  TRAILING_DOT_SPACE_RE,
+  WINDOWS_RESERVED_NAME_RE
+} from '../../../shared/rename-rules.mjs'
 
 // 一次请求过大容易让兼容平台代理/模型在生成前超时；小批次可稳定处理上百个文件。
 export const AI_BATCH_SIZE = 20
 // 双并发显著缩短大批量等待时间，同时避免一次性创建大量 SSE/HTTP 连接触发限流。
 const AI_BATCH_CONCURRENCY = 2
 const AI_REQUEST_TIMEOUT_MS = 120_000
+export const MAX_AI_PROMPT_LENGTH = 2000
 
 /**
  * OpenAI 兼容端点：baseUrl + /chat/completions。
@@ -30,15 +37,60 @@ const SYSTEM_MESSAGE = [
   '末尾不得是点号或空格（与校验规则保持一致，避免生成后被判非法）。'
 ].join('\n')
 
-/** 模板变量替换（冻结稿：{{parentFolder}} {{fileName}} {{extension}}） */
-export function buildPrompt(template, { parentFolder, fileName, extension }) {
+/** 兼容用户既有模板变量；当前批量请求仅发送目录名与无扩展名的文件名。 */
+export function buildPrompt(template, { parentFolder, fileName }) {
   return String(template)
     .replaceAll('{{parentFolder}}', parentFolder)
     .replaceAll('{{fileName}}', fileName)
-    .replaceAll('{{extension}}', extension)
+    .replaceAll('{{extension}}', '')
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+/**
+ * 把同一父目录的视频合并成一个提示词分组。编号始终对应原数组顺序，返回数组才能稳定映射。
+ * 自定义模板作为批次级要求只发送一次；历史变量用说明占位替代，避免逐文件重复注入。
+ */
+const buildBatchInstruction = (template) =>
+  String(template)
+    .replaceAll('{{parentFolder}}', '见下方分组标题')
+    .replaceAll('{{fileName}}', '见下方编号文件列表')
+    .replaceAll('{{extension}}', '不提供扩展名')
+    .trim()
+
+const abortError = () => Object.assign(new Error('已取消 AI 命名'), { name: 'AbortError' })
+
+/** 可被取消的退避等待，取消后不再发起下一次请求。 */
+const sleep = (ms, signal) =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(abortError())
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(abortError())
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+
+/** 将模型常见的非法输出规整为可落盘词干，拒绝空名、保留名和超长名称。 */
+export function normalizeAiName(value) {
+  const name = String(value ?? '')
+    .split(ILLEGAL_NAME_RE)
+    .join(' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .replace(TRAILING_DOT_SPACE_RE, '')
+    .trim()
+  if (!name) throw new Error('AI 返回了空名称或仅包含非法字符')
+  if (WINDOWS_RESERVED_NAME_RE.test(name)) {
+    throw new Error(`AI 返回了 Windows 保留设备名「${name}」`)
+  }
+  if (name.length > MAX_STEM_LENGTH) {
+    throw new Error(`AI 返回名称过长（>${MAX_STEM_LENGTH} 字符）`)
+  }
+  return name
+}
 
 /** HTTP 状态码 → 用户可懂的中文提示（U4：AI 命名失败提示友好化） */
 const HTTP_HINTS = {
@@ -72,25 +124,35 @@ export async function toFriendlyHttpError(response) {
 export async function fetchWithRetry(
   url,
   init,
-  { fetchImpl = fetch, retries = 2, timeoutMs = AI_REQUEST_TIMEOUT_MS, retryDelayMs = 1000 } = {}
+  {
+    fetchImpl = fetch,
+    retries = 2,
+    timeoutMs = AI_REQUEST_TIMEOUT_MS,
+    retryDelayMs = 1000,
+    signal
+  } = {}
 ) {
   let lastError
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (signal?.aborted) throw abortError()
+    const timeoutSignal = AbortSignal.timeout(timeoutMs)
+    const requestSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal
     try {
-      const response = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+      const response = await fetchImpl(url, { ...init, signal: requestSignal })
       if (
         !response.ok &&
         (response.status >= 500 || response.status === 429) &&
         attempt < retries
       ) {
-        await sleep(retryDelayMs * 2 ** attempt)
+        await sleep(retryDelayMs * 2 ** attempt, signal)
         continue
       }
       return response
     } catch (error) {
+      if (signal?.aborted || error?.name === 'AbortError') throw abortError()
       lastError = error
       if (attempt >= retries) break
-      await sleep(retryDelayMs * 2 ** attempt)
+      await sleep(retryDelayMs * 2 ** attempt, signal)
     }
   }
   throw new Error(
@@ -159,7 +221,7 @@ export function extractSingleName(content) {
     .replace(/\s*```$/, '')
     .trim()
     .replace(/^(?:新文件名|文件名|名称)\s*[:：]\s*/i, '')
-  if (!text || /[\r\n]/.test(text) || text.length > 240) {
+  if (!text || /[\r\n]/.test(text) || text.length > MAX_STEM_LENGTH) {
     throw new Error('AI 单条返回不是可用的文件名')
   }
   return text.replace(/^['"“”]|['"“”]$/g, '').trim()
@@ -194,9 +256,15 @@ function responseDataToContent(data) {
  * 因此不能直接调用 response.json()。兼容普通 JSON、SSE、文本块数组及常见兼容字段。
  */
 export async function readAiResponseContent(response) {
-  const raw = typeof response.text === 'function' ? await response.text() : ''
-  if (!raw) return responseDataToContent(await response.json())
+  // 响应流只能消费一次；统一读取 text 后解析，空响应直接给出明确错误。
+  if (typeof response.text !== 'function') {
+    const content = responseDataToContent(await response.json())
+    if (!content) throw new Error('AI 返回为空')
+    return content
+  }
+  const raw = await response.text()
   const trimmed = raw.trim()
+  if (!trimmed) throw new Error('AI 返回为空')
   if (!trimmed.startsWith('data:')) return responseDataToContent(JSON.parse(trimmed))
   const parts = []
   for (const line of trimmed.split(/\r?\n/)) {
@@ -213,15 +281,34 @@ export async function readAiResponseContent(response) {
   return parts.join('')
 }
 
-/** 构造批量请求消息：每个文件一段编号描述 */
+/** 构造批量请求消息：同目录只写一次目录名，单文件只发送名称。 */
 export function buildAiMessages(template, files) {
+  const groups = new Map()
+  files.forEach((file, index) => {
+    const entries = groups.get(file.parentFolder) ?? []
+    entries.push({ index, fileName: file.fileName })
+    groups.set(file.parentFolder, entries)
+  })
+  const groupedFiles = [...groups]
+    .map(([parentFolder, entries]) => {
+      const first = entries[0].index + 1
+      const last = entries.at(-1).index + 1
+      const range = first === last ? `编号 ${first}` : `编号 ${first}–${last}`
+      const list = entries.map(({ index, fileName }) => `${index + 1}. ${fileName}`).join('\n')
+      return `父文件夹：${parentFolder}（${range}）\n${list}`
+    })
+    .join('\n\n')
+  const instruction = buildBatchInstruction(template)
   const user = [
-    files.map((file, index) => `${index + 1}. ${buildPrompt(template, file)}`).join('\n\n'),
-    `\n输出契约：仅返回 JSON 字符串数组，必须恰好包含 ${files.length} 项。`,
+    instruction && `命名要求：${instruction}`,
+    groupedFiles,
+    `输出契约：仅返回 JSON 字符串数组，必须恰好包含 ${files.length} 项，数组第 N 项对应编号 N。`,
     files.length === 1
       ? '正确示例：["新文件名"]；禁止直接输出裸标题。'
       : '禁止输出编号、说明或任何额外文字。'
-  ].join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n\n')
   return [
     { role: 'system', content: SYSTEM_MESSAGE },
     { role: 'user', content: user }
@@ -234,7 +321,7 @@ export function buildAiMessages(template, files) {
 const aiCache = createLruCache(5000)
 
 const cacheKeyOf = (baseUrl, model, template, file) =>
-  `${chatCompletionsUrl(baseUrl)}|${model}|${template}|${file.parentFolder}|${file.fileName}|${file.extension}`
+  `${chatCompletionsUrl(baseUrl)}|${model}|${template}|${file.parentFolder}|${file.fileName}`
 
 export function clearAiCache() {
   aiCache.clear()
@@ -256,10 +343,14 @@ export async function requestAiNames({
   fetchImpl = fetch,
   onBatch,
   useCache = true,
-  retryDelayMs = 1000
+  retryDelayMs = 1000,
+  signal
 }) {
   if (!token) throw new Error('当前平台未配置 API Token，请先到设置页填写')
   if (!baseUrl) throw new Error('当前平台未配置 baseUrl')
+  if (String(template ?? '').length > MAX_AI_PROMPT_LENGTH) {
+    throw new Error(`AI 命名要求过长（最多 ${MAX_AI_PROMPT_LENGTH} 字符），请到设置页精简后重试`)
+  }
   if (files.length === 0) return []
 
   // 缓存命中拆分
@@ -282,6 +373,7 @@ export async function requestAiNames({
   let cursor = 0
   const worker = async () => {
     while (cursor < chunks.length) {
+      if (signal?.aborted) throw abortError()
       const chunk = chunks[cursor]
       cursor += 1
       const response = await fetchWithRetry(
@@ -305,7 +397,7 @@ export async function requestAiNames({
             stream: false
           })
         },
-        { fetchImpl, retryDelayMs, timeoutMs: AI_REQUEST_TIMEOUT_MS }
+        { fetchImpl, retryDelayMs, timeoutMs: AI_REQUEST_TIMEOUT_MS, signal }
       )
       if (!response.ok) {
         throw await toFriendlyHttpError(response)
@@ -339,7 +431,7 @@ export async function requestAiNames({
         )
       }
       chunk.forEach((entry, chunkIndex) => {
-        const name = String(chunkNames[chunkIndex]).trim()
+        const name = normalizeAiName(chunkNames[chunkIndex])
         names[entry.index] = name
         aiCache.set(cacheKeyOf(baseUrl, model, template, entry.file), name)
       })

@@ -28,7 +28,7 @@ test('returns defaults when the settings file does not exist', async () => {
     assert.ok(ids.includes('openrouter'))
     assert.ok(ids.includes('deepseek'))
     assert.ok(ids.includes('aicodemirror'))
-    assert.ok(settings.promptTemplate.includes('{{parentFolder}}'))
+    assert.ok(settings.promptTemplate.includes('文件名'))
     assert.ok(settings.regexTemplates.length >= 3)
   })
 })

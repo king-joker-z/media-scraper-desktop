@@ -141,7 +141,7 @@ export interface AppSettings {
   themePalette: ThemePalette
   aiProviders: AiProviderConfig[]
   activeProviderId: string
-  /** AI 重命名 prompt 模板，支持 {{parentFolder}} {{fileName}} {{extension}} */
+  /** AI 重命名 prompt 模板，支持 {{parentFolder}} {{fileName}} */
   promptTemplate: string
   regexTemplates: RegexTemplate[]
   /** 最近使用的工作区（最新在前，最多 8 个） */
@@ -225,9 +225,10 @@ export interface ProbeContainerItem {
 }
 
 export interface AiFileInput {
+  /** 文件所在的直接父目录名；仅在同目录分组标题中发送一次。 */
   parentFolder: string
+  /** 不含扩展名、已去除序号前缀的原始文件名。 */
   fileName: string
-  extension: string
 }
 
 /* ------------------------- 模块五：NFO 归档 ------------------------- */

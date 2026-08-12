@@ -222,6 +222,8 @@ const emitTask = (
 
 // TaskCenter 型互斥槽：同一模块同时只允许一个执行任务
 const taskSlots = new Map<string, string>()
+// AI 命名是网络任务，不经过 TaskCenter worker；单独保存 controller 以响应同一个“取消重命名”入口。
+const aiTaskControllers = new Map<string, AbortController>()
 
 /** 以互斥方式运行一个 TaskCenter 任务：占槽 → 执行 → 释放；取消经 cancelSlot 传播 */
 async function runExclusive<T>(
@@ -630,32 +632,51 @@ function registerIpcHandlers(): void {
           }
     )
   })
-  ipcMain.handle('rename:ai', async (_event, files: AiFileInput[], forceRefresh = false) => {
-    const settings = await settingsStore.get()
-    const provider = activeProvider(settings)
-    // 接入全局进度条：AI 生成按批次上报进度
-    const taskId = newTaskId('ai')
-    const label = `AI 生成命名（${provider.name}）`
-    const emit = (type: TaskEvent['type'], completed: number, stage: string): void =>
-      emitTask(taskId, label, { type, completed, total: files.length, current: stage })
-    try {
-      emit('start', 0, provider.selectedModel)
-      const names = await requestAiNames({
-        baseUrl: provider.baseUrl,
-        token: provider.token,
-        model: provider.selectedModel,
-        template: settings.promptTemplate,
-        files,
-        useCache: !forceRefresh,
-        onBatch: (done) => emit('progress', done, `已生成 ${done}/${files.length}`)
-      })
-      emit('done', files.length, '完成')
-      return names
-    } catch (error) {
-      emit('done', 0, '失败')
-      throw error
-    }
-  })
+  ipcMain.handle('rename:ai', async (_event, files: AiFileInput[], forceRefresh = false) =>
+    // AI 仅生成内存预览；使用独立槽，避免单条重新生成阻塞实际文件改名。
+    runExclusive('rename-ai', 'AI 命名', async (taskId) => {
+      const settings = await settingsStore.get()
+      const provider = activeProvider(settings)
+      const controller = new AbortController()
+      aiTaskControllers.set(taskId, controller)
+      const label = `AI 生成命名（${provider.name}）`
+      const emit = (type: TaskEvent['type'], completed: number, stage: string): void =>
+        emitTask(taskId, label, { type, completed, total: files.length, current: stage })
+      try {
+        emit('start', 0, provider.selectedModel)
+        const names = await requestAiNames({
+          baseUrl: provider.baseUrl,
+          token: provider.token,
+          model: provider.selectedModel,
+          template: settings.promptTemplate,
+          files,
+          useCache: !forceRefresh,
+          signal: controller.signal,
+          onBatch: (done) => emit('progress', done, `已生成 ${done}/${files.length}`)
+        })
+        emit('done', files.length, '完成')
+        return names
+      } catch (error) {
+        const cancelled = controller.signal.aborted || (error as Error)?.name === 'AbortError'
+        if (cancelled) {
+          emit('cancelled', 0, '已取消')
+        } else {
+          // 先报告失败细节，再发送终态，确保全局进度条不会停留在“进行中”。
+          emit('item-error', 0, '失败')
+          emitTask(taskId, label, {
+            type: 'done',
+            completed: 0,
+            failed: 1,
+            total: files.length,
+            current: '失败'
+          })
+        }
+        throw error
+      } finally {
+        aiTaskControllers.delete(taskId)
+      }
+    })
+  )
   ipcMain.handle('rename:execute', async (_event, root: string, pairs: RenamePairInput[]) =>
     runExclusive('rename', '重命名', async (taskId) => {
       const safeRoot = requireVideoRoot(root)
@@ -676,7 +697,11 @@ function registerIpcHandlers(): void {
       return report
     })
   )
-  ipcMain.handle('rename:cancel', async () => cancelSlot('rename'))
+  ipcMain.handle('rename:cancel', async () => {
+    cancelSlot('rename')
+    cancelSlot('rename-ai')
+    for (const controller of aiTaskControllers.values()) controller.abort()
+  })
 
   // ---------- 模块五：NFO 归档 ----------
   ipcMain.handle('nfo:plan', async (_event, root: string) => {

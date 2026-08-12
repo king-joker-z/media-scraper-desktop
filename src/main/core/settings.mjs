@@ -3,14 +3,8 @@ import { dirname } from 'node:path'
 import { clampConcurrency, DEFAULT_CONCURRENCY } from './task-center.mjs'
 import { writeAtomicTextFile } from './fs-ops.mjs'
 
-export const DEFAULT_PROMPT_TEMPLATE = [
-  '你是文件重命名助手。请根据以下信息为视频文件生成一个简洁、规范的新文件名：',
-  '- 父文件夹名：{{parentFolder}}',
-  '- 当前文件名（不含扩展名）：{{fileName}}',
-  '- 扩展名：{{extension}}',
-  '要求：只输出新文件名本身（不含扩展名），不要解释、不要引号、不要换行；',
-  '保留有意义的标题信息，去除网站、广告、分辨率等噪音片段。'
-].join('\n')
+export const DEFAULT_PROMPT_TEMPLATE =
+  '根据文件名生成简洁、规范的新名称；保留有意义的标题，去除网站、广告、分辨率等噪音。'
 
 /** 内置 AI 平台预设（均为 OpenAI 兼容端点；baseUrl 可在设置页修改） */
 export const PROVIDER_PRESETS = [
