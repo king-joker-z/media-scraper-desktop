@@ -28,7 +28,12 @@ export function assertSafeFileName(name) {
 
 /** 根目录必须与主进程已登记的工作区一致，避免 IPC 任意指定磁盘路径。 */
 export function assertRegisteredRoot(root, registeredRoot, label = '工作区') {
-  if (!registeredRoot || resolve(root) !== resolve(registeredRoot)) {
+  const normalizeForCompare = (path) => {
+    const resolved = resolve(path)
+    // Windows 文件系统通常不区分盘符/目录的大小写，也可能混用两类分隔符。
+    return process.platform === 'win32' ? resolved.replace(/\\/g, '/').toLowerCase() : resolved
+  }
+  if (!registeredRoot || normalizeForCompare(root) !== normalizeForCompare(registeredRoot)) {
     throw new Error(`${label}未登记或已切换，请重新选择工作区`)
   }
   return resolve(registeredRoot)

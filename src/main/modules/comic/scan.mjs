@@ -102,10 +102,15 @@ export async function scanComic(root, relDir) {
 
   let coverRel = sorted[0]?.images[0] ?? null
   const coverName = comicCoverName(relDir)
-  if (merged && (await pathExists(join(comicDir, coverName)))) coverRel = coverName
-  // 兼容既有工作区的隐藏封面；下次全量合并会升级为可见命名。
-  else if (merged && (await pathExists(join(comicDir, LEGACY_COMIC_COVER_NAME))))
+  if (merged?.coverName && (await pathExists(join(comicDir, merged.coverName)))) {
+    coverRel = merged.coverName
+  } else if (merged && (await pathExists(join(comicDir, coverName)))) {
+    // 兼容首个可见封面版本的清单（尚未登记 coverName）。
+    coverRel = coverName
+  } else if (merged && (await pathExists(join(comicDir, LEGACY_COMIC_COVER_NAME)))) {
+    // 兼容既有工作区的隐藏封面。
     coverRel = LEGACY_COMIC_COVER_NAME
+  }
 
   return {
     name: relDir,

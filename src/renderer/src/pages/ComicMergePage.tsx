@@ -92,17 +92,45 @@ function ComicMergePage({
 
   useWorkspaceSync(workspace, active, scan)
 
+  // 正则仅作为实时预览叠加在手工名称草稿之上：不会因输入过程改写草稿，清空查找条件即可恢复。
+  const { previewNames, regexError } = useMemo(() => {
+    const drafts = comicNames
+    if (!regexPattern) return { previewNames: drafts, regexError: '' }
+    try {
+      // 提前构造以识别非法表达式；实际替换仍复用共享规则。
+      new RegExp(regexPattern, 'g')
+      return {
+        previewNames: Object.fromEntries(
+          (result?.comics ?? []).map((comic) => [
+            comic.relDir,
+            applyRegexRules(drafts[comic.relDir] ?? comic.name, [
+              { pattern: regexPattern, replacement: regexReplacement, flags: 'g' }
+            ])
+          ])
+        ),
+        regexError: ''
+      }
+    } catch {
+      return { previewNames: drafts, regexError: '正则表达式无效，当前不会应用替换。' }
+    }
+  }, [comicNames, regexPattern, regexReplacement, result])
+
   const comics = useMemo(() => {
     const list = result?.comics ?? []
     const key = keyword.trim().toLowerCase()
-    return key ? list.filter((comic) => comic.name.toLowerCase().includes(key)) : list
-  }, [result, keyword])
+    return key
+      ? list.filter((comic) =>
+          (previewNames[comic.relDir] ?? comic.name).toLowerCase().includes(key)
+        )
+      : list
+  }, [result, keyword, previewNames])
 
   const selectedComics = useMemo(
     () => (result?.comics ?? []).filter((comic) => selected.has(comic.relDir)),
     [result, selected]
   )
   const needRebuild = selectedComics.some((comic) => comic.changedChapters.length > 0)
+  const comicMutating = merging || renaming || deleting
 
   const toggle = (relDir: string): void => {
     setSelected((prev) => {
@@ -118,31 +146,12 @@ function ComicMergePage({
     window.api.updateSettings({ comicFormat: next }).catch(() => {})
   }
 
-  const applyRegex = (): void => {
-    if (!regexPattern) return
-    try {
-      setComicNames(
-        Object.fromEntries(
-          (result?.comics ?? []).map((comic) => [
-            comic.relDir,
-            applyRegexRules(comicNames[comic.relDir] ?? comic.name, [
-              { pattern: regexPattern, replacement: regexReplacement, flags: 'g' }
-            ])
-          ])
-        )
-      )
-      setError('')
-    } catch {
-      setError('正则表达式无效，请检查后重试。')
-    }
-  }
-
   const renameComics = async (): Promise<void> => {
     if (!result) return
     const items = result.comics
       .map((comic) => ({
         relDir: comic.relDir,
-        newName: (comicNames[comic.relDir] ?? comic.name).trim()
+        newName: (previewNames[comic.relDir] ?? comic.name).trim()
       }))
       .filter((item) => item.relDir !== item.newName)
     if (items.length === 0) return
@@ -237,11 +246,15 @@ function ComicMergePage({
           <button
             className="secondary"
             onClick={onChooseWorkspace}
-            disabled={merging || deleting || confirmDelete}
+            disabled={comicMutating || confirmDelete}
           >
             选择工作区
           </button>
-          <button className="secondary" onClick={scan} disabled={!workspace || loading || merging}>
+          <button
+            className="secondary"
+            onClick={scan}
+            disabled={!workspace || loading || comicMutating}
+          >
             {loading ? '扫描中…' : '刷新'}
           </button>
           <button className="secondary" onClick={onOpenLibrary}>
@@ -305,28 +318,27 @@ function ComicMergePage({
           </div>
 
           <div className="comic-toolbar">
-            <strong>漫画名称</strong>
+            <div className="comic-name-heading">
+              <strong>批量替换名称</strong>
+              <span className="muted">输入后即时预览；清空“查找”可恢复手工编辑的名称。</span>
+            </div>
             <input
               className="comic-search"
               placeholder="正则查找"
               value={regexPattern}
               onChange={(event) => setRegexPattern(event.target.value)}
-              disabled={merging || renaming}
+              disabled={comicMutating}
             />
             <input
               className="comic-search"
               placeholder="替换为（可留空）"
               value={regexReplacement}
               onChange={(event) => setRegexReplacement(event.target.value)}
-              disabled={merging || renaming}
+              disabled={comicMutating}
             />
-            <button
-              className="secondary"
-              onClick={applyRegex}
-              disabled={!regexPattern || merging || renaming}
-            >
-              批量正则
-            </button>
+            {regexPattern && !regexError && (
+              <span className="regex-preview-status">实时预览中</span>
+            )}
             {renaming ? (
               <button className="secondary" onClick={() => void window.api.cancelComicRename()}>
                 取消改名
@@ -335,12 +347,14 @@ function ComicMergePage({
               <button
                 className="secondary"
                 onClick={() => void renameComics()}
-                disabled={merging || deleting}
+                disabled={comicMutating || Boolean(regexError)}
               >
                 保存名称
               </button>
             )}
           </div>
+
+          {regexError && <p className="warning-text">⚠️ {regexError}</p>}
 
           {needRebuild && !rebuild && (
             <p className="warning-text">
@@ -362,7 +376,7 @@ function ComicMergePage({
                       checked={selected.has(comic.relDir)}
                       onChange={() => toggle(comic.relDir)}
                       disabled={
-                        merging ||
+                        comicMutating ||
                         comic.imageCount === 0 ||
                         (!comic.merged ? false : comic.newChapters.length === 0 && !rebuild)
                       }
@@ -383,9 +397,14 @@ function ComicMergePage({
                     <span className="comic-info">
                       <input
                         className="comic-name-input"
-                        value={comicNames[comic.relDir] ?? comic.name}
+                        value={previewNames[comic.relDir] ?? comic.name}
                         aria-label={`${comic.name} 的漫画名称`}
-                        disabled={merging || deleting || renaming}
+                        title={
+                          regexPattern
+                            ? '正在显示批量替换预览；清空“正则查找”后可逐项编辑。'
+                            : '可直接编辑漫画名称'
+                        }
+                        disabled={comicMutating || Boolean(regexPattern)}
                         onClick={(event) => event.preventDefault()}
                         onChange={(event) =>
                           setComicNames((prev) => ({ ...prev, [comic.relDir]: event.target.value }))

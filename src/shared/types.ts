@@ -460,6 +460,8 @@ export interface ComicMergedState {
   outputName: string
   /** 输出体积（字节） */
   outputBytes: number
+  /** 本应用生成并管理的封面文件名；缺失表示旧版本清单 */
+  coverName?: string
   /** 已合并章节快照（用于增量更新检测） */
   chapters: ComicChapter[]
   updatedAt: string

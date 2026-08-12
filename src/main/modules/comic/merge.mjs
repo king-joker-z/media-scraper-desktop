@@ -8,6 +8,7 @@ import {
   createStagingPath,
   discardStagedFile,
   fileSize,
+  pathExists,
   readBinaryFile,
   removeEmptyDirs,
   writeAtomicTextFile,
@@ -243,20 +244,22 @@ export async function mergeOneComic(
   }
 
   // 封面缩略图使用可见的「漫画名-cover.jpg」；扫描规则会忽略它，绝不视为新内容。
-  if (mode === 'full' && comic.chapters[0]?.images[0]) {
-    try {
-      const cover = await sharp(join(comicDir, comic.chapters[0].images[0]), {
-        limitInputPixels: false
-      })
-        .resize({ width: COVER_WIDTH, withoutEnlargement: true })
-        .jpeg({ quality: 78, mozjpeg: true })
-        .toBuffer()
-      await writeBinaryFile(join(comicDir, comicCoverName(comic.name)), cover)
-      // 旧版隐藏封面不再使用，成功写入可见封面后删除，避免目录中保留两份。
-      await discardStagedFile(join(comicDir, LEGACY_COMIC_COVER_NAME))
-    } catch {
-      // 封面生成失败不阻断主流程
-    }
+  // 若同名文件不是本应用在清单中登记的封面，绝不覆盖用户原图。
+  const coverName = comicCoverName(comic.name)
+  const coverPath = join(comicDir, coverName)
+  const mayWriteCover = !(await pathExists(coverPath)) || comic.merged?.coverName === coverName
+  let managedCoverName = comic.merged?.coverName
+  if (mode === 'full' && comic.chapters[0]?.images[0] && mayWriteCover) {
+    const cover = await sharp(join(comicDir, comic.chapters[0].images[0]), {
+      limitInputPixels: false
+    })
+      .resize({ width: COVER_WIDTH, withoutEnlargement: true })
+      .jpeg({ quality: 78, mozjpeg: true })
+      .toBuffer()
+    await writeBinaryFile(coverPath, cover)
+    managedCoverName = coverName
+    // 旧版隐藏封面不再使用，成功写入可见封面后删除，避免目录中保留两份。
+    await discardStagedFile(join(comicDir, LEGACY_COMIC_COVER_NAME))
   }
 
   const mergedChapters =
@@ -266,6 +269,7 @@ export async function mergeOneComic(
     format,
     outputName,
     outputBytes,
+    coverName: managedCoverName,
     chapters: mergedChapters.map((chapter) => ({
       name: chapter.name,
       relDir: chapter.relDir,

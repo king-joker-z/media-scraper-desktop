@@ -15,6 +15,28 @@
   border-color: var(--accent);
 }
 
+.comic-name-input:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+  background: var(--fill-quaternary);
+}
+
+.comic-name-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 150px;
+}
+
+.regex-preview-status {
+  padding: 4px 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
 /* ---------- macOS 风格设计令牌 ---------- */
 :root {
   /* 基础令牌：表面与文字层级参考 Fluent 的中性层级；交互焦点与状态参考 Material 3。 */

@@ -136,6 +136,12 @@ const registerComicRootForRead = (root: string): string => {
 }
 const requireRelPath = (root: string, relativePath: string): string =>
   resolveInsideRoot(root, relativePath)
+/** 漫画模型限定工作区一级目录，拒绝章节等嵌套路径。 */
+const requireComicDir = (root: string, relDir: string): string => {
+  if (relDir === '.' || relDir === '..') throw new Error('漫画目录必须是工作区一级文件夹')
+  assertSafeFileName(relDir)
+  return resolveInsideRoot(root, relDir)
+}
 const requireFileInRoots = (filePath: string, roots: string[], label: string): string => {
   if (!isMediaPathAllowed(filePath, roots)) throw new Error(`${label}不在允许范围内`)
   return filePath
@@ -877,9 +883,9 @@ function registerIpcHandlers(): void {
       format: ComicFormat,
       options: { raw?: boolean; rebuild?: boolean } = {}
     ) =>
-      runExclusive('comic', '漫画合并', async (taskId) => {
+      runExclusive('comic-mutate', '漫画工作区操作', async (taskId) => {
         const safeRoot = requireComicRoot(root)
-        relDirs.forEach((relDir) => requireRelPath(safeRoot, relDir))
+        relDirs.forEach((relDir) => requireComicDir(safeRoot, relDir))
         const settings = await settingsStore.get()
         const report = await mergeComics(safeRoot, {
           relDirs,
@@ -909,13 +915,13 @@ function registerIpcHandlers(): void {
         return report
       })
   )
-  ipcMain.handle('comic:cancel', async () => cancelSlot('comic'))
+  ipcMain.handle('comic:cancel', async () => cancelSlot('comic-mutate'))
   ipcMain.handle(
     'comic:rename',
     async (_event, root: string, items: Array<{ relDir: string; newName: string }>) =>
-      runExclusive('comic-rename', '重命名漫画', async (taskId) => {
+      runExclusive('comic-mutate', '漫画工作区操作', async (taskId) => {
         const safeRoot = requireComicRoot(root)
-        items.forEach((item) => requireRelPath(safeRoot, item.relDir))
+        items.forEach((item) => requireComicDir(safeRoot, item.relDir))
         const settings = await settingsStore.get()
         const report = await renameComicDirectories(safeRoot, items, {
           taskCenter,
@@ -932,12 +938,12 @@ function registerIpcHandlers(): void {
         return report
       })
   )
-  ipcMain.handle('comic:rename-cancel', async () => cancelSlot('comic-rename'))
+  ipcMain.handle('comic:rename-cancel', async () => cancelSlot('comic-mutate'))
   ipcMain.handle('comic:delete-sources', async (_event, root: string, relDirs: string[]) => {
     const safeRoot = requireComicRoot(root)
-    relDirs.forEach((relDir) => requireRelPath(safeRoot, relDir))
+    relDirs.forEach((relDir) => requireComicDir(safeRoot, relDir))
     const settings = await settingsStore.get()
-    return runExclusive('comic-delete', '删除漫画源图片', async (taskId) => {
+    return runExclusive('comic-mutate', '漫画工作区操作', async (taskId) => {
       const report = await deleteComicSources(safeRoot, {
         relDirs,
         taskCenter,

@@ -205,6 +205,27 @@ test('漫画改名会同步重命名产物、封面与清单', async () => {
     await stat(join(root, '新漫画名', '新漫画名-cover.jpg'))
     const state = JSON.parse(await readFile(join(root, '新漫画名', '.comic-merge.json'), 'utf8'))
     assert.equal(state.outputName, '新漫画名.epub')
+    assert.equal(state.coverName, '新漫画名-cover.jpg')
+  })
+})
+
+test('漫画改名支持名称交换，且不留下临时目录', async () => {
+  await withTempDir(async (root) => {
+    await mkdir(join(root, '漫画A', '第1话'), { recursive: true })
+    await mkdir(join(root, '漫画B', '第1话'), { recursive: true })
+    await writeFile(join(root, '漫画A', '第1话', 'a.png'), TINY_PNG)
+    await writeFile(join(root, '漫画B', '第1话', 'b.png'), TINY_PNG)
+    const report = await renameComicDirectories(
+      root,
+      [
+        { relDir: '漫画A', newName: '漫画B' },
+        { relDir: '漫画B', newName: '漫画A' }
+      ],
+      { taskCenter: createTaskCenter(), taskId: 'comic-rename-swap', concurrency: 2 }
+    )
+    assert.equal(report.failed.length, 0)
+    assert.equal(await readFile(join(root, '漫画A', '第1话', 'b.png'), 'utf8'), TINY_PNG.toString())
+    assert.equal(await readFile(join(root, '漫画B', '第1话', 'a.png'), 'utf8'), TINY_PNG.toString())
   })
 })
 
