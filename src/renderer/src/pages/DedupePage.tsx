@@ -252,7 +252,6 @@ function DedupePage({
           deleteBytes={checkedBytes}
           danger={checked.size > 50}
           recoverable
-          confirmWord="确认删除"
           extra="删除选中的重复文件（默认进系统回收站，可在设置改永久删除），每组未被勾选的文件保留。"
           onConfirm={execute}
           onCancel={() => setConfirming(false)}

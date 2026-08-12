@@ -16,7 +16,6 @@ const MODULE_LABELS: Record<string, string> = {
   nfo: 'NFO 归档',
   'merge-delete-sources': '合并源删除',
   'dedupe-delete': '去重删除',
-  pipeline: '自动化流水线',
   undo: '一键撤销'
 }
 

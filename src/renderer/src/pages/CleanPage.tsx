@@ -243,7 +243,6 @@ function CleanPage({
           deleteBytes={plan.deleteBytes}
           danger={plan.risk === 'danger'}
           recoverable={toTrash}
-          confirmWord={toTrash ? '确认删除' : '永久删除'}
           extra={`同时将上移 ${plan.moves.length} 个文件到工作区根目录，并把保留 poster 标准化为「视频名-poster.jpg」。`}
           onConfirm={execute}
           onCancel={() => setConfirming(false)}

@@ -150,37 +150,8 @@ export interface AppSettings {
   regexTemplates: RegexTemplate[]
   /** 最近使用的工作区（最新在前，最多 8 个） */
   recentWorkspaces: string[]
-  /** 流水线预设列表 */
-  pipelinePresets: PipelinePreset[]
   /** 删除时优先移入系统回收站（可恢复）；关闭后为永久删除 */
   deleteToTrash: boolean
-  /** 目录监控自动流水线（F4） */
-  watch: WatchSettings
-}
-
-/** 目录监控设置：工作区文件变化后防抖触发指定流水线预设 */
-export interface WatchSettings {
-  /** 是否启用监控 */
-  enabled: boolean
-  /** 触发时执行的流水线预设 ID */
-  presetId: string
-  /** 防抖分钟数（变化静默多久后才触发） */
-  debounceMinutes: number
-}
-
-/** 目录监控运行状态（watch:status） */
-export interface WatchStatus {
-  enabled: boolean
-  /** 监控器是否正在监听 */
-  watching: boolean
-  /** 被监控的工作区根目录 */
-  root: string | null
-  /** 最后一次自动流水线的完成时间（ISO） */
-  lastRunAt: string | null
-  /** 最后一次自动流水线摘要 */
-  lastSummary: string | null
-  /** 监控不可用的原因（如平台不支持递归监控） */
-  error: string | null
 }
 
 /* ------------------------- 模块四：封面管理 ------------------------- */
@@ -436,31 +407,6 @@ export interface DedupeScanResult {
   similar: SimilarDupGroup[]
 }
 
-/* ------------------------- 完整性体检（F3） ------------------------- */
-
-export interface HealthCorruptItem {
-  relativePath: string
-  error: string
-}
-
-export interface HealthReport {
-  taskId: string | null
-  cancelled: boolean
-  /** 工作区视频总数 */
-  total: number
-  /** 已完成解码校验的数量（取消时 < total） */
-  checked: number
-  corrupted: HealthCorruptItem[]
-  /** 缺 poster 的视频 relativePath */
-  missingPoster: string[]
-  /** 缺同名 .nfo 的视频 relativePath */
-  missingNfo: string[]
-  totalBytes: number
-  /** 体积最大的前 10 个视频 */
-  largest: { relativePath: string; size: number }[]
-  durationMs: number
-}
-
 /* ------------------------- 存储管理（S4） ------------------------- */
 
 export type StorageCategory = 'frames' | 'merge-temp' | 'op-logs'
@@ -479,50 +425,6 @@ export interface StorageStats {
 export interface StorageCleanResult {
   category: StorageCategory
   freedBytes: number
-}
-
-/* ------------------------- 自动化流水线 ------------------------- */
-
-/** 流水线可编排的模块类型 */
-export type PipelineModuleId = 'clean' | 'nfo' | 'dedupe' | 'health'
-
-/** 流水线步骤：一个模块实例 + 可选参数 */
-export interface PipelineStep {
-  /** 唯一 ID（用于 dnd-kit 排序 key） */
-  id: string
-  /** 模块类型 */
-  module: PipelineModuleId
-  /** 是否启用（关闭的步骤执行时跳过） */
-  enabled: boolean
-}
-
-/** 流水线预设 */
-export interface PipelinePreset {
-  /** 唯一 ID */
-  id: string
-  /** 预设名称 */
-  name: string
-  /** 有序步骤列表 */
-  steps: PipelineStep[]
-}
-
-/** 单个步骤的执行结果 */
-export interface PipelineStepResult {
-  module: PipelineModuleId
-  success: boolean
-  /** 耗时（毫秒） */
-  durationMs: number
-  /** 步骤产出的摘要文本 */
-  summary: string
-  /** 错误信息（失败时） */
-  error?: string
-}
-
-/** 流水线执行报告 */
-export interface PipelineReport {
-  cancelled: boolean
-  results: PipelineStepResult[]
-  totalDurationMs: number
 }
 
 /* ------------------------- 自动更新（F7） ------------------------- */

@@ -84,38 +84,7 @@ export const DEFAULT_SETTINGS = {
   comicWorkspace: '',
   comicRecentWorkspaces: [],
   comicFormat: 'epub',
-  pipelinePresets: [
-    {
-      id: 'default',
-      name: '默认流程',
-      steps: [
-        { id: 's1', module: 'clean', enabled: true },
-        { id: 's2', module: 'nfo', enabled: true },
-        { id: 's3', module: 'health', enabled: true }
-      ]
-    }
-  ],
-  deleteToTrash: true,
-  watch: { enabled: false, presetId: 'default', debounceMinutes: 2 }
-}
-
-/** 目录监控防抖分钟数范围 */
-export const MIN_WATCH_DEBOUNCE_MINUTES = 1
-export const MAX_WATCH_DEBOUNCE_MINUTES = 60
-
-function normalizeWatch(raw) {
-  const input = raw && typeof raw === 'object' ? raw : {}
-  const minutes = Number(input.debounceMinutes)
-  return {
-    enabled: input.enabled === true,
-    presetId: typeof input.presetId === 'string' && input.presetId ? input.presetId : 'default',
-    debounceMinutes: Number.isFinite(minutes)
-      ? Math.min(
-          MAX_WATCH_DEBOUNCE_MINUTES,
-          Math.max(MIN_WATCH_DEBOUNCE_MINUTES, Math.round(minutes))
-        )
-      : 2
-  }
+  deleteToTrash: true
 }
 
 /** 把新工作区提到最近列表首位（去重、截断） */
@@ -210,31 +179,8 @@ export function normalizeSettings(raw) {
           .slice(0, MAX_RECENT_WORKSPACES)
       : [],
     comicFormat: input.comicFormat === 'pdf' ? 'pdf' : 'epub',
-    pipelinePresets: normalizePipelinePresets(input.pipelinePresets),
-    deleteToTrash: input.deleteToTrash !== false,
-    watch: normalizeWatch(input.watch)
+    deleteToTrash: input.deleteToTrash !== false
   }
-}
-
-const VALID_MODULES = ['clean', 'nfo', 'dedupe', 'health']
-
-function normalizePipelinePresets(raw) {
-  if (!Array.isArray(raw)) return DEFAULT_SETTINGS.pipelinePresets
-  return raw
-    .filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string')
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      steps: Array.isArray(p.steps)
-        ? p.steps
-            .filter((s) => s && VALID_MODULES.includes(s.module))
-            .map((s) => ({
-              id: typeof s.id === 'string' ? s.id : `s-${Math.random().toString(36).slice(2, 7)}`,
-              module: s.module,
-              enabled: s.enabled !== false
-            }))
-        : []
-    }))
 }
 
 /** 取当前生效的 AI 平台配置 */

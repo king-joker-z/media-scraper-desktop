@@ -9,15 +9,12 @@ import type {
   ComicMergeReport,
   ComicScanResult,
   DedupeScanResult,
-  HealthReport,
   MergeResult,
   MergeSourceItem,
   MergeVideoItem,
   NfoPlan,
   NfoPlanItem,
   NfoReport,
-  PipelineReport,
-  PipelineStep,
   PosterBatchSaveReport,
   PosterPicks,
   PosterSaveResult,
@@ -31,8 +28,7 @@ import type {
   StorageStats,
   TaskEvent,
   UndoReport,
-  UpdateStatus,
-  WatchStatus
+  UpdateStatus
 } from '../shared/types'
 
 declare global {
@@ -64,7 +60,7 @@ declare global {
       ) => Promise<PosterBatchSaveReport>
       cancelPosterCapture: () => Promise<void>
       probeContainers: (root: string, relativePaths: string[]) => Promise<ProbeContainerItem[]>
-      requestAiNames: (files: AiFileInput[]) => Promise<string[]>
+      requestAiNames: (files: AiFileInput[], forceRefresh?: boolean) => Promise<string[]>
       executeRename: (root: string, pairs: RenamePairInput[]) => Promise<RenameReport>
       cancelRename: () => Promise<void>
       createNfoPlan: (root: string) => Promise<NfoPlan>
@@ -99,8 +95,6 @@ declare global {
         failed: { target: string; error: string }[]
       }>
       cancelDedupeDelete: () => Promise<void>
-      scanHealth: (root: string) => Promise<HealthReport>
-      cancelHealth: () => Promise<void>
       scanComics: (root: string) => Promise<ComicScanResult>
       mergeComics: (
         root: string,
@@ -117,8 +111,6 @@ declare global {
         deletedCount: number
         failed: { target: string; error: string }[]
       }>
-      executePipeline: (root: string, steps: PipelineStep[]) => Promise<PipelineReport>
-      cancelPipeline: () => Promise<void>
       getStorageStats: () => Promise<StorageStats>
       cleanStorage: (category: StorageCategory) => Promise<StorageCleanResult>
       checkUpdates: () => Promise<UpdateStatus>
@@ -141,7 +133,6 @@ declare global {
       >
       revealOpLog: (file: string) => Promise<void>
       undoOpLog: (file: string) => Promise<UndoReport>
-      getWatchStatus: () => Promise<WatchStatus>
       onTaskEvent: (callback: (event: TaskEvent) => void) => () => void
     }
   }

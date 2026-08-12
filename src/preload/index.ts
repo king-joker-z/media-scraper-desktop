@@ -10,15 +10,12 @@ import type {
   ComicMergeReport,
   ComicScanResult,
   DedupeScanResult,
-  HealthReport,
   MergeResult,
   MergeSourceItem,
   MergeVideoItem,
   NfoPlan,
   NfoPlanItem,
   NfoReport,
-  PipelineReport,
-  PipelineStep,
   PosterBatchSaveReport,
   PosterPicks,
   PosterSaveResult,
@@ -32,8 +29,7 @@ import type {
   StorageStats,
   TaskEvent,
   UndoReport,
-  UpdateStatus,
-  WatchStatus
+  UpdateStatus
 } from '../shared/types'
 
 const api = {
@@ -73,8 +69,8 @@ const api = {
   cancelPosterCapture: (): Promise<void> => ipcRenderer.invoke('poster:cancel'),
   probeContainers: (root: string, relativePaths: string[]): Promise<ProbeContainerItem[]> =>
     ipcRenderer.invoke('rename:probe', root, relativePaths),
-  requestAiNames: (files: AiFileInput[]): Promise<string[]> =>
-    ipcRenderer.invoke('rename:ai', files),
+  requestAiNames: (files: AiFileInput[], forceRefresh = false): Promise<string[]> =>
+    ipcRenderer.invoke('rename:ai', files, forceRefresh),
   executeRename: (root: string, pairs: RenamePairInput[]): Promise<RenameReport> =>
     ipcRenderer.invoke('rename:execute', root, pairs),
   cancelRename: (): Promise<void> => ipcRenderer.invoke('rename:cancel'),
@@ -106,8 +102,6 @@ const api = {
     failed: { target: string; error: string }[]
   }> => ipcRenderer.invoke('dedupe:delete', root, relativePaths),
   cancelDedupeDelete: (): Promise<void> => ipcRenderer.invoke('dedupe:cancel'),
-  scanHealth: (root: string): Promise<HealthReport> => ipcRenderer.invoke('health:scan', root),
-  cancelHealth: (): Promise<void> => ipcRenderer.invoke('health:cancel'),
   scanComics: (root: string): Promise<ComicScanResult> => ipcRenderer.invoke('comic:scan', root),
   mergeComics: (
     root: string,
@@ -124,9 +118,6 @@ const api = {
     deletedCount: number
     failed: { target: string; error: string }[]
   }> => ipcRenderer.invoke('comic:delete-sources', root, relDirs),
-  executePipeline: (root: string, steps: PipelineStep[]): Promise<PipelineReport> =>
-    ipcRenderer.invoke('pipeline:execute', root, steps),
-  cancelPipeline: (): Promise<void> => ipcRenderer.invoke('pipeline:cancel'),
   getStorageStats: (): Promise<StorageStats> => ipcRenderer.invoke('storage:stats'),
   cleanStorage: (category: StorageCategory): Promise<StorageCleanResult> =>
     ipcRenderer.invoke('storage:clean', category),
@@ -156,8 +147,6 @@ const api = {
   revealOpLog: (file: string): Promise<void> => ipcRenderer.invoke('op-logs:reveal', file),
   /** 一键撤销（F2）：按日志反向恢复重命名/NFO 归档 */
   undoOpLog: (file: string): Promise<UndoReport> => ipcRenderer.invoke('op-logs:undo', file),
-  /** 目录监控（F4）运行状态 */
-  getWatchStatus: (): Promise<WatchStatus> => ipcRenderer.invoke('watch:status'),
   onTaskEvent: (callback: (event: TaskEvent) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, payload: TaskEvent): void => callback(payload)
     ipcRenderer.on('tasks:event', listener)

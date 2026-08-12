@@ -16,8 +16,6 @@ import { requestAiNames } from './modules/rename/ai.mjs'
 import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
 import { deleteMergeSources, mergeVideos } from './modules/merge/merge.mjs'
 import { findDuplicates } from './modules/dedupe/dedupe.mjs'
-import { healthScan } from './modules/health/health.mjs'
-import { runPipeline } from './modules/pipeline/pipeline.mjs'
 import { undoOpLog } from './modules/undo/undo.mjs'
 import { scanComicWorkspace } from './modules/comic/scan.mjs'
 import { deleteComicSources, mergeComics } from './modules/comic/merge.mjs'
@@ -37,7 +35,6 @@ import { collectFailures } from './core/task-report.mjs'
 import { killAllActiveProcesses, activeProcessCount } from './core/process-registry.mjs'
 import { setPoolSize } from './core/ffmpeg-pool.mjs'
 import { listOpLogs, writeOpLog } from './core/op-log.mjs'
-import { watchDirectory } from './core/dir-watch.mjs'
 import { isMediaPathAllowed, mediaUrlPathToLocal } from './core/media-path.mjs'
 import { assertRegisteredRoot, assertSafeFileName, resolveInsideRoot } from './core/path-guard.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
@@ -56,8 +53,6 @@ import type {
   MergeSourceItem,
   MergeVideoItem,
   NfoPlanItem,
-  PipelineReport,
-  PipelineStep,
   PosterPicks,
   PosterVideoItem,
   RenamePairInput,
@@ -65,8 +60,7 @@ import type {
   StorageCategory,
   StorageStats,
   TaskEvent,
-  UpdateStatus,
-  WatchStatus
+  UpdateStatus
 } from '../shared/types'
 
 const settingsStore = createSettingsStore(join(app.getPath('userData'), 'settings.json'))
@@ -309,7 +303,6 @@ const registerWorkspace = async (root: string, module: AppModule = 'video'): Pro
   })
   // 顺手清理上次跨设备移动崩溃残留的 .msd-part 临时件（S3 兜底）
   void cleanMovePartials(root).catch(() => [])
-  await refreshWatcher()
 }
 
 /* ------------------------- 自动更新（F7） ------------------------- */
@@ -366,151 +359,6 @@ function setupAutoUpdate(): void {
   autoUpdater.on('error', (error) => sendUpdateStatus({ state: 'error', message: error.message }))
   // 启动静默检查一次（失败只落状态，不打扰用户）
   autoUpdater.checkForUpdates().catch(() => {})
-}
-
-/* ------------------------- 目录监控自动流水线（F4） ------------------------- */
-
-let dirWatcher: { close: () => void } | null = null
-let watchRunning = false
-const watchState = {
-  watching: false,
-  root: null as string | null,
-  error: null as string | null,
-  lastRunAt: null as string | null,
-  lastSummary: null as string | null,
-  lastFingerprint: null as string | null
-}
-
-let watcherGeneration = 0
-const stopWatcher = (): void => {
-  watcherGeneration += 1
-  dirWatcher?.close()
-  dirWatcher = null
-  watchState.watching = false
-  watchState.root = null
-}
-
-/** 按当前设置与工作区重建目录监控（设置变更/切换工作区时调用） */
-async function refreshWatcher(): Promise<void> {
-  stopWatcher()
-  const settings = await settingsStore.get().catch(() => null)
-  if (!settings?.watch.enabled || !workspaceRoot) return
-  const root = workspaceRoot
-  const generation = watcherGeneration
-  dirWatcher = watchDirectory(root, {
-    debounceMs: settings.watch.debounceMinutes * 60_000,
-    onChange: () => {
-      void onWorkspaceChanged(root, generation)
-    },
-    onError: (error) => {
-      watchState.error = `目录监控不可用：${error.message}`
-      stopWatcher()
-    }
-  })
-  watchState.watching = true
-  watchState.root = root
-  watchState.error = null
-  // 以当前指纹为基线，仅响应启用之后的新变化；基线异步计算，
-  // 不阻塞工作区注册（大目录遍历耗时），期间的变化按最新指纹判定即可
-  watchState.lastFingerprint = null
-  void computeFingerprint(root, { concurrency: settings.scanConcurrency })
-    .then((fingerprint) => {
-      if (watchState.lastFingerprint === null) watchState.lastFingerprint = fingerprint
-    })
-    .catch(() => {})
-}
-
-/** 工作区变化静默后：指纹比对防自触发，然后自动执行预设流水线 */
-async function onWorkspaceChanged(root: string, generation: number): Promise<void> {
-  // 已关闭/已切换的 watcher 的尾随防抖回调不得操作新工作区。
-  if (generation !== watcherGeneration || workspaceRoot !== root) return
-  // 流水线运行期间自身的文件写入会触发监控，直接忽略（运行后重新落基线指纹）
-  if (watchRunning || abortSlots.has('pipeline')) return
-  const settings = await settingsStore.get().catch(() => null)
-  if (generation !== watcherGeneration || workspaceRoot !== root || !settings?.watch.enabled) return
-  const preset =
-    settings.pipelinePresets.find((p) => p.id === settings.watch.presetId) ??
-    settings.pipelinePresets[0]
-  if (!preset || !preset.steps.some((s) => s.enabled)) return
-  const fingerprint = await computeFingerprint(root, {
-    concurrency: settings.scanConcurrency
-  }).catch(() => null)
-  if (generation !== watcherGeneration || workspaceRoot !== root) return
-  if (!fingerprint || fingerprint === watchState.lastFingerprint) return
-  watchRunning = true
-  try {
-    const report = await executePipelineRun(root, preset.steps, '目录监控流水线')
-    watchState.lastRunAt = new Date().toISOString()
-    watchState.lastSummary = report.results.map((r) => r.summary).join('；')
-    notifyIfBackground('目录监控已自动整理', watchState.lastSummary || '流水线完成')
-  } catch {
-    // 与手动流水线互斥冲突等情况直接跳过本轮
-  } finally {
-    watchRunning = false
-    // 运行结果作为新基线：流水线自身写入不再触发二次运行
-    watchState.lastFingerprint = await computeFingerprint(root, {
-      concurrency: settings.scanConcurrency
-    }).catch(() => watchState.lastFingerprint)
-  }
-}
-
-const getWatchStatus = async (): Promise<WatchStatus> => {
-  const settings = await settingsStore.get()
-  return {
-    enabled: settings.watch.enabled,
-    watching: watchState.watching,
-    root: watchState.root,
-    lastRunAt: watchState.lastRunAt,
-    lastSummary: watchState.lastSummary,
-    error: watchState.error
-  }
-}
-
-/** 流水线执行（手动触发与目录监控共用同一入口，互斥 + 事件 + 日志收口于此） */
-async function executePipelineRun(
-  root: string,
-  steps: PipelineStep[],
-  label = '流水线'
-): Promise<PipelineReport> {
-  const settings = await settingsStore.get()
-  const total = steps.filter((s) => s.enabled).length
-  return runExclusiveAbort('pipeline', label, async (signal, taskId) => {
-    let completed = 0
-    emitTask(taskId, label, { type: 'start', current: '准备执行流水线', total })
-    const report = await runPipeline(root, steps, {
-      taskCenter,
-      concurrency: settings.concurrency,
-      deleteFn: deleteFnOf(settings),
-      signal,
-      allowDestructive: label !== '目录监控流水线',
-      onStepStart: (step) => {
-        emitTask(taskId, label, { type: 'progress', current: `执行步骤：${step.module}`, total })
-      },
-      onStepDone: (result) => {
-        completed += 1
-        emitTask(taskId, label, {
-          type: 'progress',
-          current: result.summary,
-          total,
-          completed,
-          failed: result.success ? 0 : 1
-        })
-      }
-    })
-    emitTask(taskId, label, {
-      type: report.cancelled ? 'cancelled' : 'done',
-      current: report.cancelled ? '已取消' : '流水线完成',
-      total,
-      completed
-    })
-    logOp('pipeline', {
-      root,
-      steps,
-      report,
-      summary: report.results.map((r) => r.summary).join('；')
-    })
-    return report
-  })
 }
 
 function createWindow(theme: string): void {
@@ -592,9 +440,8 @@ function registerIpcHandlers(): void {
   ipcMain.handle('settings:get', async () => settingsStore.get())
   ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) => {
     const updated = await settingsStore.update(patch)
-    // 运行时同步 FFmpeg 进程池大小与目录监控
+    // 运行时同步 FFmpeg 进程池大小
     if (updated.ffmpegPoolSize) setPoolSize(updated.ffmpegPoolSize)
-    if (patch.watch) await refreshWatcher()
     return updated
   })
   ipcMain.handle('clean:execute', async (_event, plan: ScanPlan, picks: PosterPicks) =>
@@ -776,7 +623,7 @@ function registerIpcHandlers(): void {
           }
     )
   })
-  ipcMain.handle('rename:ai', async (_event, files: AiFileInput[]) => {
+  ipcMain.handle('rename:ai', async (_event, files: AiFileInput[], forceRefresh = false) => {
     const settings = await settingsStore.get()
     const provider = activeProvider(settings)
     // 接入全局进度条：AI 生成按批次上报进度
@@ -792,6 +639,7 @@ function registerIpcHandlers(): void {
         model: provider.selectedModel,
         template: settings.promptTemplate,
         files,
+        useCache: !forceRefresh,
         onBatch: (done) => emit('progress', done, `已生成 ${done}/${files.length}`)
       })
       emit('done', files.length, '完成')
@@ -980,21 +828,6 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle('dedupe:cancel', async () => cancelSlot('dedupe-delete'))
 
-  // ---------- 完整性体检（F3） ----------
-  ipcMain.handle('health:scan', async (_event, root: string) =>
-    runExclusive('health', '体检', async (taskId) => {
-      const safeRoot = requireVideoRoot(root)
-      const settings = await settingsStore.get()
-      return healthScan(safeRoot, {
-        taskCenter,
-        taskId,
-        concurrency: settings.concurrency,
-        ffmpegPath: resolveFfmpegPath()
-      })
-    })
-  )
-  ipcMain.handle('health:cancel', async () => cancelSlot('health'))
-
   // ---------- 存储管理（S4） ----------
   ipcMain.handle('storage:stats', async (): Promise<StorageStats> => {
     const tmpEntries = await listDirNames(tmpdir())
@@ -1029,12 +862,6 @@ function registerIpcHandlers(): void {
     }
     return { category, freedBytes }
   })
-
-  // ---------- 自动化流水线 ----------
-  ipcMain.handle('pipeline:execute', async (_event, root: string, steps: PipelineStep[]) =>
-    executePipelineRun(requireVideoRoot(root), steps)
-  )
-  ipcMain.handle('pipeline:cancel', async () => abortSlot('pipeline'))
 
   // ---------- 漫画模块 ----------
   ipcMain.handle('comic:scan', async (_event, root: string) =>
@@ -1102,9 +929,6 @@ function registerIpcHandlers(): void {
       return report
     })
   })
-
-  // ---------- 目录监控（F4） ----------
-  ipcMain.handle('watch:status', async () => getWatchStatus())
 
   // ---------- 自动更新（F7） ----------
   ipcMain.handle('update:check', async () => {
@@ -1255,7 +1079,6 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   quitting = true
   void (async () => {
-    stopWatcher()
     if (taskCenter.hasActive() || abortSlots.size > 0) {
       taskCenter.cancelAll()
       for (const controller of abortSlots.values()) controller.abort()

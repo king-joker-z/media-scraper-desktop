@@ -200,7 +200,9 @@ function RenamePage({
           // 发送给 AI 的文件名先剥离旧序号前缀，避免模型沿用
           fileName: stripSeqPrefix(stemOfName(v.name)),
           extension: extOfName(v.name)
-        }))
+        })),
+        // 用户点击“重新生成”时必须绕过成功缓存，真正再次请求模型。
+        aiNamesMap !== null
       )
       setAiNamesMap(
         Object.fromEntries(
@@ -220,13 +222,16 @@ function RenamePage({
   const regenerateOne = async (video: PosterVideoItem): Promise<void> => {
     setError('')
     try {
-      const names = await window.api.requestAiNames([
-        {
-          parentFolder: workspace.split(/[\\/]/).pop() ?? '',
-          fileName: stripSeqPrefix(stemOfName(video.name)),
-          extension: extOfName(video.name)
-        }
-      ])
+      const names = await window.api.requestAiNames(
+        [
+          {
+            parentFolder: workspace.split(/[\\/]/).pop() ?? '',
+            fileName: stripSeqPrefix(stemOfName(video.name)),
+            extension: extOfName(video.name)
+          }
+        ],
+        true
+      )
       if (names[0]) {
         setAiNamesMap((prev) => ({ ...prev, [video.relativePath]: names[0] }))
       }
@@ -389,8 +394,9 @@ function RenamePage({
                 。仅发送文件名与父目录名，不上传视频；平台/模型/prompt 均可在设置页调整。
               </p>
               <p className="muted">
-                全部文件名按编号一次性批量发送（每 50 个一批，统一返回），每个名称独立生成互不影响；
-                返回后自动叠加序号前缀：
+                首次生成会复用本会话内相同输入的成功结果；每批 20
+                个、最多双并发请求，每个名称独立生成互不影响。
+                点击“重新生成”或单条“重新生成”会绕过缓存并再次请求模型；返回后自动叠加序号前缀：
               </p>
               <SeqControls seq={seq} onChange={setSeq} />
               <div className="actions">
@@ -463,11 +469,11 @@ function RenamePage({
                       )}
                       {mode === 'ai' && aiNamesMap && video && (
                         <button
-                          className="chip-remove"
+                          className="rename-regenerate"
                           title="只重新生成这一条"
                           onClick={() => regenerateOne(video)}
                         >
-                          ↻
+                          重新生成
                         </button>
                       )}
                     </span>
@@ -529,7 +535,6 @@ function RenamePage({
           deleteCount={0}
           deleteBytes={0}
           danger={mode === 'ext' && riskyExtCount > 0}
-          confirmWord="确认风险"
           extra={`将改名 ${changedPairs.length} 个视频（poster 同步改名）。${
             mode === 'ext' && riskyExtCount > 0
               ? `其中 ${riskyExtCount} 个文件真实容器不是 MP4，仅改后缀可能导致部分播放器无法识别。`

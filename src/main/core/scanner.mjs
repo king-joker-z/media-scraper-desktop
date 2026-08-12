@@ -209,7 +209,7 @@ const PLAN_CACHE_MAX = 8
 
 const fingerprintOf = (records) => {
   const hash = createHash('md5')
-  // 拷贝后排序：sort 原地修改会污染调用方持有的数组（如流水线钉住的记录）
+  // 拷贝后排序：避免 sort 原地修改调用方持有的数组。
   const sorted = [...records].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
   for (const record of sorted) {
     hash.update(`${record.relativePath}:${record.size}:${record.mtimeMs}\n`)
@@ -234,67 +234,6 @@ export async function computeFingerprint(root, { onProgress, concurrency } = {})
 export function invalidateScanCache() {
   lastWalk = null
   planCache.clear()
-  lastPlanRecords = null
-  pinnedScan = null
-}
-
-/* ---------------- 流水线钉住模式：步骤间增量合并，免重复全量遍历 ---------------- */
-
-// 最近一次 createScanPlan 的原始记录（供流水线钉住；仅保留一份，下次扫描覆盖）
-let lastPlanRecords = null // { root, records, skippedHidden }
-// 钉住期间同 root 的 createScanPlan 直接基于钉住记录重建计划，跳过目录遍历
-let pinnedScan = null // { root, records, skippedHidden }
-
-/**
- * 流水线专用：钉住最近一次扫描的原始记录。钉住期间同 root 的 createScanPlan
- * 不再遍历目录，直接基于钉住记录（经 applyScanMutations 合并已知变更后）重建计划。
- * 代价：流水线运行期间的外部文件改动不感知（秒~分钟级窗口，可接受）。
- */
-export function pinScanRecords(root) {
-  if (lastPlanRecords?.root === root) pinnedScan = lastPlanRecords
-}
-
-/** 解除钉住（流水线结束必须调用，恢复正常扫描语义） */
-export function unpinScanRecords() {
-  pinnedScan = null
-}
-
-/**
- * 将本进程已知的文件变更合并进钉住的记录：
- * deleted（相对路径数组）/ moved（{from,to} 相对路径对）/ created（新建文件相对路径，实时 stat）。
- */
-export async function applyScanMutations(root, { deleted = [], moved = [], created = [] } = {}) {
-  if (!pinnedScan || pinnedScan.root !== root) return
-  if (deleted.length > 0) {
-    const deletedSet = new Set(deleted)
-    pinnedScan.records = pinnedScan.records.filter((r) => !deletedSet.has(r.relativePath))
-  }
-  for (const { from, to } of moved) {
-    const record = pinnedScan.records.find((r) => r.relativePath === from)
-    if (record) {
-      record.path = join(root, to)
-      record.relativePath = to
-      record.dir = dirname(to)
-      record.name = basename(to)
-    }
-  }
-  for (const rel of created) {
-    const full = join(root, rel)
-    try {
-      const info = await stat(full)
-      pinnedScan.records.push({
-        path: full,
-        relativePath: rel,
-        dir: dirname(rel),
-        name: basename(rel),
-        kind: classifyPath(full),
-        size: info.size,
-        mtimeMs: info.mtimeMs
-      })
-    } catch {
-      // 创建后立刻消失的文件跳过
-    }
-  }
 }
 
 /**
@@ -310,11 +249,7 @@ export async function createScanPlan(root, { onProgress, concurrency } = {}) {
   let records
   let skippedHidden
   let fingerprint
-  if (pinnedScan && pinnedScan.root === root) {
-    // 流水线钉住模式：跳过遍历，基于钉住记录重建（变更已由 applyScanMutations 合并）
-    ;({ records, skippedHidden } = pinnedScan)
-    fingerprint = fingerprintOf(records)
-  } else if (lastWalk && lastWalk.root === root && Date.now() - lastWalk.at < STASH_TTL_MS) {
+  if (lastWalk && lastWalk.root === root && Date.now() - lastWalk.at < STASH_TTL_MS) {
     // 复用指纹计算时的遍历结果，省掉一次全量递归
     ;({ records, skippedHidden, fingerprint } = lastWalk)
   } else {
@@ -324,7 +259,6 @@ export async function createScanPlan(root, { onProgress, concurrency } = {}) {
     fingerprint = fingerprintOf(records)
   }
   lastWalk = null
-  lastPlanRecords = { root, records, skippedHidden }
 
   const cached = planCache.get(root)
   if (cached && cached.fingerprint === fingerprint) return cached.plan

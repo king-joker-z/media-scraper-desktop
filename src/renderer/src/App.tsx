@@ -3,11 +3,9 @@ import CleanPage from './pages/CleanPage'
 import ComicLibraryPage from './pages/ComicLibraryPage'
 import ComicMergePage from './pages/ComicMergePage'
 import DedupePage from './pages/DedupePage'
-import HealthPage from './pages/HealthPage'
 import LibraryPage from './pages/LibraryPage'
 import MergePage from './pages/MergePage'
 import NfoPage from './pages/NfoPage'
-import PipelinePage from './pages/PipelinePage'
 import PosterPage from './pages/PosterPage'
 import RenamePage from './pages/RenamePage'
 import SettingsPage from './pages/SettingsPage'
@@ -25,9 +23,7 @@ export type PageKey =
   | 'rename'
   | 'poster'
   | 'nfo'
-  | 'pipeline'
   | 'dedupe'
-  | 'health'
   | 'library'
   | 'settings'
   | 'comic-merge'
@@ -39,9 +35,7 @@ const VIDEO_NAV_ITEMS: { key: PageKey; icon: string; label: string }[] = [
   { key: 'rename', icon: '✏️', label: '批量重命名' },
   { key: 'poster', icon: '🖼️', label: '封面管理' },
   { key: 'nfo', icon: '📦', label: 'NFO 归档' },
-  { key: 'pipeline', icon: '🔗', label: '流水线' },
   { key: 'dedupe', icon: '🧬', label: '视频去重' },
-  { key: 'health', icon: '🩺', label: '健康体检' },
   { key: 'library', icon: '📺', label: '媒体库' },
   { key: 'settings', icon: '⚙️', label: '设置' }
 ]
@@ -227,30 +221,10 @@ function App(): React.JSX.Element {
       )
     },
     {
-      key: 'pipeline',
-      element: (
-        <PipelinePage
-          active={module === 'video' && page === 'pipeline'}
-          workspace={workspaces.video}
-          onChooseWorkspace={chooseWorkspace}
-        />
-      )
-    },
-    {
       key: 'dedupe',
       element: (
         <DedupePage
           active={module === 'video' && page === 'dedupe'}
-          workspace={workspaces.video}
-          onChooseWorkspace={chooseWorkspace}
-        />
-      )
-    },
-    {
-      key: 'health',
-      element: (
-        <HealthPage
-          active={module === 'video' && page === 'health'}
           workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
         />
