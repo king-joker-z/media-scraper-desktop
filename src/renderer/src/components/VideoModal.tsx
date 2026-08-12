@@ -43,10 +43,16 @@ function VideoModal({
 
   return (
     <div className="dialog-overlay" onClick={close}>
-      <div className="detail-modal" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`播放视频：${title}`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="detail-header">
           <b>{title}</b>
-          <button className="chip-remove" onClick={close}>
+          <button className="chip-remove" aria-label="关闭视频播放器" onClick={close}>
             关闭
           </button>
         </div>

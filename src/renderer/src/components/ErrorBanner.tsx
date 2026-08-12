@@ -19,12 +19,17 @@ function ErrorBanner({ message }: { message: string }): React.JSX.Element | null
   }
 
   return (
-    <section className="error-banner">
+    <section className="error-banner" role="alert" aria-live="assertive">
       <span className="error-text">{message}</span>
       <button className="error-copy" onClick={copy}>
         {copied ? '已复制 ✓' : '复制详情'}
       </button>
-      <button className="error-copy" title="关闭" onClick={() => setDismissedFor(message)}>
+      <button
+        className="error-copy"
+        title="关闭"
+        aria-label="关闭错误提示"
+        onClick={() => setDismissedFor(message)}
+      >
         ✕
       </button>
     </section>

@@ -123,10 +123,16 @@ function PosterDetail({
 
   return (
     <div className="dialog-overlay" onClick={close}>
-      <div className="detail-modal" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`封面详情：${video.name}`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="detail-header">
           <b>{video.name}</b>
-          <button className="chip-remove" onClick={close}>
+          <button className="chip-remove" aria-label="关闭封面详情" onClick={close}>
             关闭
           </button>
         </div>

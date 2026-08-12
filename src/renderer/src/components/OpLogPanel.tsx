@@ -58,36 +58,54 @@ function OpLogPanel(): React.JSX.Element {
   }
 
   return (
-    <section className="settings-card">
-      <h2>操作日志</h2>
+    <section className="settings-card op-log-panel">
+      <div className="op-log-heading">
+        <div>
+          <span className="section-kicker">本地可追溯</span>
+          <h2>操作日志</h2>
+        </div>
+        <span className="op-log-total">{logs.length} 条记录</span>
+      </div>
       <p className="muted">
-        每次执行的删除/改名/移动/归档都会留档（本地 JSON），点击行在文件管理器中定位； 重命名与 NFO
-        归档支持一键撤销（删除类请从系统回收站恢复）。
+        每次删除、改名、移动和归档都会留存本地记录。选择记录可在文件管理器中定位；重命名与 NFO
+        归档可安全撤销。
       </p>
       {notice && <p className="notice-inline">{notice}</p>}
       {logs.length === 0 ? (
-        <p className="muted">暂无记录</p>
+        <div className="op-log-empty">
+          <span className="op-log-empty-mark" aria-hidden="true" />
+          <b>还没有可追溯的操作</b>
+          <span>完成一次文件处理后，记录会自动保存在这里。</span>
+        </div>
       ) : (
         <div className="op-log-list">
           {logs.map((log) => (
-            <div key={log.file} className="op-log-row-wrap">
-              <button className="op-log-row" onClick={() => window.api.revealOpLog(log.file)}>
-                <span className="op-log-module">
-                  {MODULE_LABELS[log.module] ?? log.module}
-                  {log.undone && '（已撤销）'}
+            <div key={log.file} className={`op-log-row-wrap ${log.undone ? 'undone' : ''}`}>
+              <button
+                className="op-log-row"
+                title="在文件管理器中定位此操作日志"
+                onClick={() => window.api.revealOpLog(log.file)}
+              >
+                <span className="op-log-icon" aria-hidden="true">
+                  <LogGlyph module={log.module} />
                 </span>
-                <span className="op-log-summary">{log.summary}</span>
-                <span className="op-log-time muted">
-                  {log.finishedAt.replace('T', ' ').slice(0, 19)}
+                <span className="op-log-content">
+                  <span className="op-log-module">
+                    {MODULE_LABELS[log.module] ?? log.module}
+                    {log.undone && <em>已撤销</em>}
+                  </span>
+                  <span className="op-log-summary">{log.summary}</span>
                 </span>
+                <span className="op-log-time">{log.finishedAt.replace('T', ' ').slice(0, 16)}</span>
               </button>
               {log.undoable && (
                 <button
-                  className="chip-remove"
+                  className="op-log-undo"
                   title="按此日志反向恢复文件位置"
+                  aria-label={`撤销${MODULE_LABELS[log.module] ?? log.module}`}
                   onClick={() => setUndoTarget(log)}
                 >
-                  ↩ 撤销
+                  <span aria-hidden="true">↩</span> 撤销
                 </button>
               )}
             </div>
@@ -109,6 +127,28 @@ function OpLogPanel(): React.JSX.Element {
       )}
       {undoing && <p className="muted">正在撤销…</p>}
     </section>
+  )
+}
+
+function LogGlyph({ module }: { module: string }): React.JSX.Element {
+  if (module === 'clean' || module === 'dedupe-delete' || module === 'merge-delete-sources') {
+    return (
+      <svg viewBox="0 0 16 16">
+        <path d="M3 4.5h10m-7.2 0 .5-1.5h3.4l.5 1.5m-5.8 0 .5 8.5h6.4l.5-8.5M7 7v3.5m2-3.5v3.5" />
+      </svg>
+    )
+  }
+  if (module === 'undo') {
+    return (
+      <svg viewBox="0 0 16 16">
+        <path d="M6.2 4 3 7.2l3.2 3.2M3.3 7.2h5.1a4.3 4.3 0 0 1 4.3 4.3" />
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 16 16">
+      <path d="M3 3.2h7.1L13 6.1v6.7H3V3.2Zm7 0v3h3" />
+    </svg>
   )
 }
 

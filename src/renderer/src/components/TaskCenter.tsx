@@ -37,52 +37,120 @@ function TaskCenter(): React.JSX.Element {
       {open && (
         <div className="task-panel">
           <div className="task-panel-header">
-            <b>任务中心</b>
-            {labels.length > 1 && (
-              <select
-                className="task-filter"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-              >
-                <option value={FILTER_ALL}>全部任务</option>
-                {labels.map((label) => (
-                  <option key={label} value={label}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            )}
-            <button
-              className="chip-remove"
-              onClick={() => {
-                setEvents([])
-                setFilter(FILTER_ALL)
-              }}
-            >
-              清空
-            </button>
-          </div>
-          <div className="task-list" ref={listRef}>
-            {visible.length === 0 && <p className="muted">暂无任务记录</p>}
-            {visible.map((event, index) => (
-              <div key={`${event.at}-${index}`} className={`task-row ${event.type}`}>
-                <span className="task-type">{eventLabel(event.type)}</span>
-                <span className="task-label" title={event.current}>
-                  {event.current ?? event.label}
-                </span>
-                <span className="task-count">
-                  {event.completed}/{event.total}
-                </span>
+            <div className="task-panel-title">
+              <span
+                className={`task-panel-status ${running ? 'running' : ''}`}
+                aria-hidden="true"
+              />
+              <div>
+                <b>任务中心</b>
+                <small>
+                  {running
+                    ? '正在处理队列'
+                    : events.length
+                      ? `保留最近 ${events.length} 条动态`
+                      : '等待新的工作'}
+                </small>
               </div>
-            ))}
+            </div>
+            <div className="task-panel-actions">
+              {labels.length > 1 && (
+                <select
+                  className="task-filter"
+                  aria-label="筛选任务记录"
+                  value={filter}
+                  onChange={(event) => setFilter(event.target.value)}
+                >
+                  <option value={FILTER_ALL}>全部任务</option>
+                  {labels.map((label) => (
+                    <option key={label} value={label}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                className="task-clear"
+                disabled={events.length === 0}
+                aria-label="清空任务记录"
+                onClick={() => {
+                  setEvents([])
+                  setFilter(FILTER_ALL)
+                }}
+              >
+                清空
+              </button>
+            </div>
+          </div>
+          <div className="task-list" ref={listRef} aria-live="polite">
+            {visible.length === 0 ? (
+              <div className="task-empty-state">
+                <b>这里会显示处理进度</b>
+                <span>执行整理、重命名或合并后，可在此查看每一步状态。</span>
+              </div>
+            ) : (
+              visible.map((event, index) => (
+                <div key={`${event.at}-${index}`} className={`task-row ${event.type}`}>
+                  <span className="task-event-icon" aria-hidden="true">
+                    <TaskGlyph type={event.type} />
+                  </span>
+                  <div className="task-row-body">
+                    <div className="task-row-topline">
+                      <span className="task-type">{eventLabel(event.type)}</span>
+                      <span className="task-count">
+                        {event.completed}/{event.total}
+                      </span>
+                    </div>
+                    <span className="task-label" title={event.current}>
+                      {event.current ?? event.label}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
-      <button className="task-fab" onClick={() => setOpen((value) => !value)}>
-        {running ? '⏳' : '📋'} 任务
+      <button
+        className="task-fab"
+        aria-label={open ? '关闭任务中心' : '打开任务中心'}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className={`task-fab-mark ${running ? 'running' : ''}`} aria-hidden="true" />
+        任务
         {events.length > 0 && <span className="task-badge">{events.length}</span>}
       </button>
     </div>
+  )
+}
+
+function TaskGlyph({ type }: { type: TaskEvent['type'] }): React.JSX.Element {
+  if (type === 'item-error') {
+    return (
+      <svg viewBox="0 0 16 16">
+        <path d="M8 2.1 14 13H2L8 2.1Zm0 4v3.5m0 1.8v.1" />
+      </svg>
+    )
+  }
+  if (type === 'done' || type === 'item-done') {
+    return (
+      <svg viewBox="0 0 16 16">
+        <path d="m3 8.1 3.1 3.1L13 4.8" />
+      </svg>
+    )
+  }
+  if (type === 'cancelled') {
+    return (
+      <svg viewBox="0 0 16 16">
+        <path d="m5 5 6 6m0-6-6 6" />
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 16 16">
+      <path d="M8 3.1v4.5l3 1.9M14 8A6 6 0 1 1 2 8a6 6 0 0 1 12 0Z" />
+    </svg>
   )
 }
 

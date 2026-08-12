@@ -382,7 +382,17 @@ function createWindow(theme: string): void {
     title: 'Media Scraper',
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 } }
-      : {}),
+      : process.platform === 'win32'
+        ? {
+            // Windows 使用系统标题栏按钮；高 DPI 和多显示器缩放由系统原生绘制处理。
+            titleBarStyle: 'hidden',
+            titleBarOverlay: {
+              color: theme === 'dark' ? '#101828' : '#f4f6fa',
+              symbolColor: theme === 'dark' ? '#f9fafb' : '#182230',
+              height: 36
+            }
+          }
+        : {}),
     // Windows/Linux 窗口与任务栏图标（PNG 即可；exe 图标由 electron-builder 的 win.icon 注入 .ico）
     ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
