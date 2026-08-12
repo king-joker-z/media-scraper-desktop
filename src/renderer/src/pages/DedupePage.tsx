@@ -109,6 +109,7 @@ function DedupePage({
     return (
       <label key={item.relativePath} className="confirm-check dup-row">
         <input
+          className="check-input"
           type="checkbox"
           checked={checked.has(item.relativePath)}
           onChange={() => toggle(item.relativePath)}
@@ -153,6 +154,7 @@ function DedupePage({
             title="仅检测完全重复，跳过相似重复聚类（大目录显著提速）"
           >
             <input
+              className="check-input"
               type="checkbox"
               checked={fastMode}
               onChange={(event) => setFastMode(event.target.checked)}

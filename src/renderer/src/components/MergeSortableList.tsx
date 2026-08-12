@@ -103,7 +103,7 @@ function SortableRow({
         {item.posterPath ? (
           <img src={mediaUrl(item.posterPath)} alt="" loading="lazy" />
         ) : (
-          <span className="video-thumb-empty">🎬</span>
+          <span className="video-thumb-empty" aria-label="暂无封面" />
         )}
       </span>
       <span className="merge-name" title={item.relativePath}>

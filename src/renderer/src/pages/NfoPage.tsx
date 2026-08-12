@@ -148,6 +148,7 @@ function NfoPage({
             {conflictCount > 0 && (
               <label className="confirm-check">
                 <input
+                  className="check-input"
                   type="checkbox"
                   checked={includeConflicts}
                   onChange={(event) => setIncludeConflicts(event.target.checked)}

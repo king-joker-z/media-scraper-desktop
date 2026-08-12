@@ -293,6 +293,7 @@ function ComicMergePage({
               title="不重编码、不缩放，原图直接打包（体积更大；PDF 仅 JPG/PNG 可直嵌）"
             >
               <input
+                className="check-input"
                 type="checkbox"
                 checked={raw}
                 onChange={(event) => setRaw(event.target.checked)}
@@ -302,6 +303,7 @@ function ComicMergePage({
             </label>
             <label className="confirm-check" title="忽略已有清单整体重打（章节内容变化时使用）">
               <input
+                className="check-input"
                 type="checkbox"
                 checked={rebuild}
                 onChange={(event) => setRebuild(event.target.checked)}
@@ -372,6 +374,7 @@ function ComicMergePage({
                 <div key={comic.relDir} className="comic-item">
                   <label className="comic-row">
                     <input
+                      className="check-input"
                       type="checkbox"
                       checked={selected.has(comic.relDir)}
                       onChange={() => toggle(comic.relDir)}
@@ -391,7 +394,7 @@ function ComicMergePage({
                           loading="lazy"
                         />
                       ) : (
-                        <span className="comic-cover-empty">📚</span>
+                        <span className="comic-cover-empty" aria-label="暂无封面" />
                       )}
                     </span>
                     <span className="comic-info">

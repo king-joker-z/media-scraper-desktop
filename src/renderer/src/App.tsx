@@ -449,7 +449,12 @@ function App(): React.JSX.Element {
           )}
           {showRecents && moduleRecents.length > 0 && (
             <>
-              <div className="recents-mask" onClick={() => setShowRecents(false)} />
+              <button
+                className="recents-mask"
+                type="button"
+                aria-label="关闭最近工作区列表"
+                onClick={() => setShowRecents(false)}
+              />
               <div className="recents-pop">
                 {moduleRecents.map((path) => (
                   <button
@@ -474,6 +479,7 @@ function App(): React.JSX.Element {
             <button
               key={item.key}
               className={`nav-item ${page === item.key ? 'active' : ''}`}
+              aria-current={page === item.key ? 'page' : undefined}
               onClick={() => setPage(item.key)}
             >
               <span className="nav-icon">

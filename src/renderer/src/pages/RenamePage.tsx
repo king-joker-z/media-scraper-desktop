@@ -350,6 +350,7 @@ function RenamePage({
                   {templates.map((template, index) => (
                     <label key={template.name} className="confirm-check">
                       <input
+                        className="check-input"
                         type="checkbox"
                         checked={activeRules.includes(index)}
                         onChange={(event) =>
@@ -368,6 +369,7 @@ function RenamePage({
                   ))}
                   <label className="confirm-check">
                     <input
+                      className="check-input"
                       type="checkbox"
                       checked={useCustom}
                       onChange={(event) => setUseCustom(event.target.checked)}

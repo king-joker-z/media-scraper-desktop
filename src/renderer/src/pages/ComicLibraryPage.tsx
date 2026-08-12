@@ -124,7 +124,7 @@ function ComicLibraryPage({
                       loading="lazy"
                     />
                   ) : (
-                    <span className="video-thumb-empty">📚</span>
+                    <span className="comic-cover-empty" aria-label="暂无封面" />
                   )}
                   <span className="comic-format-badge">{comic.merged!.format.toUpperCase()}</span>
                 </span>

@@ -249,7 +249,7 @@ function PosterPage({
                       loading="lazy"
                     />
                   ) : (
-                    <span className="video-thumb-empty">🎬</span>
+                    <span className="video-thumb-empty" aria-label="暂无封面" />
                   )}
                 </span>
                 <span className="video-meta">
