@@ -1,3 +1,20 @@
+.comic-name-input {
+  width: min(360px, 100%);
+  min-width: 160px;
+  padding: 4px 7px;
+  color: var(--label-primary);
+  font: inherit;
+  font-weight: 700;
+  background: var(--bg-card);
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+}
+
+.comic-name-input:focus {
+  outline: 2px solid var(--focus-ring);
+  border-color: var(--accent);
+}
+
 /* ---------- macOS 风格设计令牌 ---------- */
 :root {
   /* 基础令牌：表面与文字层级参考 Fluent 的中性层级；交互焦点与状态参考 Material 3。 */

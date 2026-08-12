@@ -17,8 +17,14 @@ export const COMIC_IMAGE_EXTENSIONS = new Set([
 /** 合并清单文件名（隐藏文件，扫描整体跳过） */
 export const COMIC_STATE_NAME = '.comic-merge.json'
 
-/** 删源后留存的封面缩略图（隐藏文件） */
-export const COMIC_COVER_NAME = '.comic-cover.jpg'
+/** 历史隐藏封面名：仅用于兼容旧工作区迁移。 */
+export const LEGACY_COMIC_COVER_NAME = '.comic-cover.jpg'
+
+/** 漫画封面：使用可见的「漫画名-cover.jpg」，扫描时始终排除，不参与章节/追更识别。 */
+export const comicCoverName = (comicName) => `${comicName}-cover.jpg`
+
+export const isComicCoverName = (name, comicName) =>
+  String(name).toLowerCase() === comicCoverName(comicName).toLowerCase()
 
 const extLower = (name) => {
   const index = String(name).lastIndexOf('.')

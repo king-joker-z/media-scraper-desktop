@@ -19,6 +19,7 @@ import { findDuplicates } from './modules/dedupe/dedupe.mjs'
 import { undoOpLog } from './modules/undo/undo.mjs'
 import { scanComicWorkspace } from './modules/comic/scan.mjs'
 import { deleteComicSources, mergeComics } from './modules/comic/merge.mjs'
+import { renameComicDirectories } from './modules/comic/rename.mjs'
 import {
   cleanMovePartials,
   createFileReadStream,
@@ -909,6 +910,29 @@ function registerIpcHandlers(): void {
       })
   )
   ipcMain.handle('comic:cancel', async () => cancelSlot('comic'))
+  ipcMain.handle(
+    'comic:rename',
+    async (_event, root: string, items: Array<{ relDir: string; newName: string }>) =>
+      runExclusive('comic-rename', '重命名漫画', async (taskId) => {
+        const safeRoot = requireComicRoot(root)
+        items.forEach((item) => requireRelPath(safeRoot, item.relDir))
+        const settings = await settingsStore.get()
+        const report = await renameComicDirectories(safeRoot, items, {
+          taskCenter,
+          taskId,
+          concurrency: settings.concurrency
+        })
+        logOp('comic-rename', {
+          root: safeRoot,
+          report,
+          summary: `重命名漫画 ${report.renamedCount} 部${
+            report.failed.length > 0 ? `，失败 ${report.failed.length} 部` : ''
+          }`
+        })
+        return report
+      })
+  )
+  ipcMain.handle('comic:rename-cancel', async () => cancelSlot('comic-rename'))
   ipcMain.handle('comic:delete-sources', async (_event, root: string, relDirs: string[]) => {
     const safeRoot = requireComicRoot(root)
     relDirs.forEach((relDir) => requireRelPath(safeRoot, relDir))

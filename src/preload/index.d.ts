@@ -103,6 +103,17 @@ declare global {
         options?: { raw?: boolean; rebuild?: boolean }
       ) => Promise<ComicMergeReport>
       cancelComicMerge: () => Promise<void>
+      renameComics: (
+        root: string,
+        items: Array<{ relDir: string; newName: string }>
+      ) => Promise<{
+        taskId: string
+        cancelled: boolean
+        renamedCount: number
+        items: Array<{ from: string; to: string }>
+        failed: Array<{ target: string; error: string }>
+      }>
+      cancelComicRename: () => Promise<void>
       deleteComicSources: (
         root: string,
         relDirs: string[]

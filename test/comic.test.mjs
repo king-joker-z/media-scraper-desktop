@@ -17,6 +17,7 @@ import {
 } from '../src/main/modules/comic/epub.mjs'
 import { appendPdf, createPdf, verifyPdfFile } from '../src/main/modules/comic/pdf.mjs'
 import { deleteComicSources, mergeComics } from '../src/main/modules/comic/merge.mjs'
+import { renameComicDirectories } from '../src/main/modules/comic/rename.mjs'
 import { scanComicWorkspace } from '../src/main/modules/comic/scan.mjs'
 
 // sharp 生成真实 1x1 PNG：与生产端同一解码链路，避免手写 base64 图的兼容性差异
@@ -158,6 +159,52 @@ test('漫画扫描：一级目录为漫画，章节自然排序，扁平图片�
       ['', '第2话', '第10话']
     )
     assert.deepEqual(found.chapters[1].images, ['第2话/2.png', '第2话/10.png'])
+  })
+})
+
+test('漫画扫描跳过可见封面，封面不参与追更章节识别', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '封面漫画')
+    await mkdir(join(comic, '第1话'), { recursive: true })
+    await writeFile(join(comic, '第1话', '1.png'), TINY_PNG)
+    await writeFile(join(comic, '封面漫画-cover.jpg'), TINY_PNG)
+
+    const found = (await scanComicWorkspace(root)).comics[0]
+    assert.equal(found.imageCount, 1)
+    assert.deepEqual(
+      found.chapters.map((chapter) => chapter.images),
+      [['第1话/1.png']]
+    )
+  })
+})
+
+test('漫画改名会同步重命名产物、封面与清单', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '旧漫画名')
+    await mkdir(join(comic, '第1话'), { recursive: true })
+    await writeFile(join(comic, '第1话', '1.png'), TINY_PNG)
+    const taskCenter = createTaskCenter()
+    await mergeComics(root, {
+      relDirs: ['旧漫画名'],
+      format: 'epub',
+      taskCenter,
+      taskId: 'comic-rename-merge',
+      concurrency: 1
+    })
+    const renamed = await renameComicDirectories(
+      root,
+      [{ relDir: '旧漫画名', newName: '新漫画名' }],
+      {
+        taskCenter,
+        taskId: 'comic-rename',
+        concurrency: 1
+      }
+    )
+    assert.equal(renamed.renamedCount, 1)
+    await stat(join(root, '新漫画名', '新漫画名.epub'))
+    await stat(join(root, '新漫画名', '新漫画名-cover.jpg'))
+    const state = JSON.parse(await readFile(join(root, '新漫画名', '.comic-merge.json'), 'utf8'))
+    assert.equal(state.outputName, '新漫画名.epub')
   })
 })
 

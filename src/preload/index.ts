@@ -110,6 +110,17 @@ const api = {
     options?: { raw?: boolean; rebuild?: boolean }
   ): Promise<ComicMergeReport> => ipcRenderer.invoke('comic:merge', root, relDirs, format, options),
   cancelComicMerge: (): Promise<void> => ipcRenderer.invoke('comic:cancel'),
+  renameComics: (
+    root: string,
+    items: Array<{ relDir: string; newName: string }>
+  ): Promise<{
+    taskId: string
+    cancelled: boolean
+    renamedCount: number
+    items: Array<{ from: string; to: string }>
+    failed: Array<{ target: string; error: string }>
+  }> => ipcRenderer.invoke('comic:rename', root, items),
+  cancelComicRename: (): Promise<void> => ipcRenderer.invoke('comic:rename-cancel'),
   deleteComicSources: (
     root: string,
     relDirs: string[]

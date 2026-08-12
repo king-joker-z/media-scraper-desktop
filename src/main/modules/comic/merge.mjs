@@ -14,9 +14,10 @@ import {
   writeBinaryFile
 } from '../../core/fs-ops.mjs'
 import {
-  COMIC_COVER_NAME,
   COMIC_STATE_NAME,
+  LEGACY_COMIC_COVER_NAME,
   chapterDisplayName,
+  comicCoverName,
   comicOutputName
 } from '../../../shared/comic-rules.mjs'
 
@@ -241,7 +242,7 @@ export async function mergeOneComic(
     }
   }
 
-  // 封面缩略图（删源后漫画库仍有封面可显示）；更新模式保留旧封面。
+  // 封面缩略图使用可见的「漫画名-cover.jpg」；扫描规则会忽略它，绝不视为新内容。
   if (mode === 'full' && comic.chapters[0]?.images[0]) {
     try {
       const cover = await sharp(join(comicDir, comic.chapters[0].images[0]), {
@@ -250,7 +251,9 @@ export async function mergeOneComic(
         .resize({ width: COVER_WIDTH, withoutEnlargement: true })
         .jpeg({ quality: 78, mozjpeg: true })
         .toBuffer()
-      await writeBinaryFile(join(comicDir, COMIC_COVER_NAME), cover)
+      await writeBinaryFile(join(comicDir, comicCoverName(comic.name)), cover)
+      // 旧版隐藏封面不再使用，成功写入可见封面后删除，避免目录中保留两份。
+      await discardStagedFile(join(comicDir, LEGACY_COMIC_COVER_NAME))
     } catch {
       // 封面生成失败不阻断主流程
     }

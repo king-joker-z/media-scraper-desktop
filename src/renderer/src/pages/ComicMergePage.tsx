@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Comic, ComicFormat, ComicMergeReport, ComicScanResult } from '../../../shared/types'
 import { chapterDisplayName } from '../../../shared/comic-rules.mjs'
+import { applyRegexRules } from '../../../shared/rename-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
 import { formatBytes, joinPath } from '../utils/format'
@@ -45,6 +46,10 @@ function ComicMergePage({
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState(false)
+  const [comicNames, setComicNames] = useState<Record<string, string>>({})
+  const [regexPattern, setRegexPattern] = useState('')
+  const [regexReplacement, setRegexReplacement] = useState('')
   // 删除确认绑定合并时的工作区，阻止切换目录后按相对路径误删。
   const reportWorkspaceRef = useRef<string | null>(null)
 
@@ -64,6 +69,7 @@ function ComicMergePage({
     try {
       const next = await window.api.scanComics(workspace)
       setResult(next)
+      setComicNames(Object.fromEntries(next.comics.map((comic) => [comic.relDir, comic.name])))
       // 默认勾选：未合并 + 有新章节可更新的（内容已变化需人工决策，不默认勾）
       setSelected(
         new Set(
@@ -110,6 +116,50 @@ function ComicMergePage({
   const changeFormat = (next: ComicFormat): void => {
     setFormat(next)
     window.api.updateSettings({ comicFormat: next }).catch(() => {})
+  }
+
+  const applyRegex = (): void => {
+    if (!regexPattern) return
+    try {
+      setComicNames(
+        Object.fromEntries(
+          (result?.comics ?? []).map((comic) => [
+            comic.relDir,
+            applyRegexRules(comicNames[comic.relDir] ?? comic.name, [
+              { pattern: regexPattern, replacement: regexReplacement, flags: 'g' }
+            ])
+          ])
+        )
+      )
+      setError('')
+    } catch {
+      setError('正则表达式无效，请检查后重试。')
+    }
+  }
+
+  const renameComics = async (): Promise<void> => {
+    if (!result) return
+    const items = result.comics
+      .map((comic) => ({
+        relDir: comic.relDir,
+        newName: (comicNames[comic.relDir] ?? comic.name).trim()
+      }))
+      .filter((item) => item.relDir !== item.newName)
+    if (items.length === 0) return
+    setRenaming(true)
+    setError('')
+    setNotice('')
+    try {
+      const outcome = await window.api.renameComics(workspace, items)
+      setNotice(
+        `已重命名漫画 ${outcome.renamedCount} 部${outcome.failed.length ? `，失败 ${outcome.failed.length} 部` : ''}`
+      )
+      await scan()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRenaming(false)
+    }
   }
 
   const execute = async (): Promise<void> => {
@@ -254,6 +304,44 @@ function ComicMergePage({
             />
           </div>
 
+          <div className="comic-toolbar">
+            <strong>漫画名称</strong>
+            <input
+              className="comic-search"
+              placeholder="正则查找"
+              value={regexPattern}
+              onChange={(event) => setRegexPattern(event.target.value)}
+              disabled={merging || renaming}
+            />
+            <input
+              className="comic-search"
+              placeholder="替换为（可留空）"
+              value={regexReplacement}
+              onChange={(event) => setRegexReplacement(event.target.value)}
+              disabled={merging || renaming}
+            />
+            <button
+              className="secondary"
+              onClick={applyRegex}
+              disabled={!regexPattern || merging || renaming}
+            >
+              批量正则
+            </button>
+            {renaming ? (
+              <button className="secondary" onClick={() => void window.api.cancelComicRename()}>
+                取消改名
+              </button>
+            ) : (
+              <button
+                className="secondary"
+                onClick={() => void renameComics()}
+                disabled={merging || deleting}
+              >
+                保存名称
+              </button>
+            )}
+          </div>
+
           {needRebuild && !rebuild && (
             <p className="warning-text">
               ⚠️ 选中的漫画存在「内容已变化」的章节，需勾选「全量重建」后才能合并。
@@ -293,7 +381,16 @@ function ComicMergePage({
                       )}
                     </span>
                     <span className="comic-info">
-                      <b>{comic.name}</b>
+                      <input
+                        className="comic-name-input"
+                        value={comicNames[comic.relDir] ?? comic.name}
+                        aria-label={`${comic.name} 的漫画名称`}
+                        disabled={merging || deleting || renaming}
+                        onClick={(event) => event.preventDefault()}
+                        onChange={(event) =>
+                          setComicNames((prev) => ({ ...prev, [comic.relDir]: event.target.value }))
+                        }
+                      />
                       <span className="muted">
                         {comic.chapters.length} 章 · {comic.imageCount} 图
                         {comic.merged ? ` · 产物 ${formatBytes(comic.merged.outputBytes)}` : ''}

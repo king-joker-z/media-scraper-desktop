@@ -2,10 +2,12 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { recoverStagedOutputs } from '../../core/fs-ops.mjs'
 import {
-  COMIC_COVER_NAME,
   COMIC_STATE_NAME,
+  LEGACY_COMIC_COVER_NAME,
+  comicCoverName,
   compareComicNames,
   diffComicChapters,
+  isComicCoverName,
   isComicImage,
   sortComicChapters
 } from '../../../shared/comic-rules.mjs'
@@ -33,7 +35,7 @@ const pathExists = async (target) => {
 }
 
 /** 递归收集目录内图片（相对漫画目录的正斜杠路径，自然排序；隐藏项跳过） */
-async function collectImages(comicDir, relDir) {
+async function collectImages(comicDir, relDir, comicName) {
   const out = []
   const walk = async (current) => {
     const entries = await readdir(join(comicDir, current), { withFileTypes: true })
@@ -41,7 +43,12 @@ async function collectImages(comicDir, relDir) {
       if (isHiddenName(entry.name) || entry.isSymbolicLink()) continue
       const rel = current ? `${current}/${entry.name}` : entry.name
       if (entry.isDirectory()) await walk(rel)
-      else if (entry.isFile() && isComicImage(entry.name)) out.push(rel)
+      else if (
+        entry.isFile() &&
+        isComicImage(entry.name) &&
+        !isComicCoverName(entry.name, comicName)
+      )
+        out.push(rel)
     }
   }
   await walk(relDir)
@@ -72,14 +79,20 @@ export async function scanComic(root, relDir) {
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !isHiddenName(entry.name))
     .map((entry) => entry.name)
   const flatImages = entries
-    .filter((entry) => entry.isFile() && !isHiddenName(entry.name) && isComicImage(entry.name))
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        !isHiddenName(entry.name) &&
+        isComicImage(entry.name) &&
+        !isComicCoverName(entry.name, relDir)
+    )
     .map((entry) => entry.name)
     .sort(compareComicNames)
 
   const chapters = []
   if (flatImages.length > 0) chapters.push({ name: '', relDir: '', images: flatImages })
   for (const dir of chapterDirs) {
-    const images = await collectImages(comicDir, dir)
+    const images = await collectImages(comicDir, dir, relDir)
     if (images.length > 0) chapters.push({ name: dir, relDir: dir, images })
   }
   const sorted = sortComicChapters(chapters)
@@ -88,7 +101,11 @@ export async function scanComic(root, relDir) {
   const { newChapters, changedChapters } = diffComicChapters(sorted, merged)
 
   let coverRel = sorted[0]?.images[0] ?? null
-  if (merged && (await pathExists(join(comicDir, COMIC_COVER_NAME)))) coverRel = COMIC_COVER_NAME
+  const coverName = comicCoverName(relDir)
+  if (merged && (await pathExists(join(comicDir, coverName)))) coverRel = coverName
+  // 兼容既有工作区的隐藏封面；下次全量合并会升级为可见命名。
+  else if (merged && (await pathExists(join(comicDir, LEGACY_COMIC_COVER_NAME))))
+    coverRel = LEGACY_COMIC_COVER_NAME
 
   return {
     name: relDir,
