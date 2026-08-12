@@ -4,7 +4,6 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  assessRisk,
   classifyPath,
   computeFingerprint,
   createScanPlan,
@@ -212,22 +211,6 @@ test('one image matching multiple videos is an ambiguity conflict', async () => 
   )
 })
 
-test('assessRisk: danger on >50 deletes, >1GB, or no videos', () => {
-  const item = (size) => ({ size })
-  assert.equal(assessRisk([item(1)], 3).risk, 'normal')
-  assert.equal(
-    assessRisk(
-      Array.from({ length: 51 }, () => item(1)),
-      3
-    ).risk,
-    'danger'
-  )
-  assert.equal(assessRisk([item(1024 * 1024 * 1024 + 1)], 3).risk, 'danger')
-  assert.equal(assessRisk([item(1)], 0).risk, 'danger')
-  assert.equal(assessRisk([], 0).risk, 'normal')
-  assert.equal(assessRisk([item(100)], 1).deleteBytes, 100)
-})
-
 test('predictMoves: root keep and hidden names block, collisions get (n)', () => {
   const keep = [
     { relativePath: 'V.mp4', dir: '.', name: 'V.mp4' },
@@ -253,7 +236,6 @@ test('kept posters get standardized finalName in plan', async () => {
       const plan = await createScanPlan(root)
       const poster = plan.keep.find((item) => item.kind === 'image')
       assert.equal(poster.finalName, 'Movie A-poster.jpg')
-      assert.equal(plan.risk, 'normal')
     }
   )
 })

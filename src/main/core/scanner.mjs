@@ -57,19 +57,6 @@ export const posterFinalName = (videoRelativePath) => {
   return `${basename(videoRelativePath, ext)}-poster.jpg`
 }
 
-/** 危险阈值：删除条数或总体积超过即需确认词二次确认（冻结稿 §2.6） */
-export const DANGER_DELETE_COUNT = 50
-export const DANGER_DELETE_BYTES = 1024 * 1024 * 1024
-
-export function assessRisk(deleteItems, videoCount) {
-  const deleteBytes = deleteItems.reduce((sum, item) => sum + item.size, 0)
-  const danger =
-    deleteItems.length > DANGER_DELETE_COUNT ||
-    deleteBytes > DANGER_DELETE_BYTES ||
-    (videoCount === 0 && deleteItems.length > 0)
-  return { risk: danger ? 'danger' : 'normal', deleteBytes }
-}
-
 /**
  * 上移重名预测（冻结稿 §2.7 预览可见）：
  * 占用者 = 根目录保留项 + 根目录隐藏项；子目录项按路径排序后依次占位，
@@ -360,7 +347,7 @@ export async function createScanPlan(root, { onProgress, concurrency } = {}) {
     }
   }
 
-  const { risk, deleteBytes } = assessRisk(deleteItems, videoCount)
+  const deleteBytes = deleteItems.reduce((sum, item) => sum + item.size, 0)
 
   const plan = {
     root,
@@ -371,7 +358,6 @@ export async function createScanPlan(root, { onProgress, concurrency } = {}) {
     conflicts,
     skippedHidden,
     deleteBytes,
-    risk,
     summary: {
       videos: videoCount,
       images: imageCount,

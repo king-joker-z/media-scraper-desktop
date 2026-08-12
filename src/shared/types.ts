@@ -61,8 +61,6 @@ export interface ScanSummary {
   conflicts: number
 }
 
-export type PlanRisk = 'normal' | 'danger'
-
 export interface ScanPlan {
   root: string
   keep: KeepItem[]
@@ -75,8 +73,6 @@ export interface ScanPlan {
   summary: ScanSummary
   /** 删除候选总体积（字节） */
   deleteBytes: number
-  /** 危险场景（删除数>50、体积>1GB、无视频）需确认词二次确认 */
-  risk: PlanRisk
 }
 
 /* ---------------------------- 模块一：清理 ---------------------------- */

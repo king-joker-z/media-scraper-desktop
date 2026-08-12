@@ -163,13 +163,6 @@ function CleanPage({
             </div>
           </section>
 
-          {plan.risk === 'danger' && (
-            <section className="error-banner">
-              ⚠️ 本计划被判定为高风险（删除数量 &gt; 50 / 体积 &gt; 1GB /
-              工作区内无视频），执行时需要输入确认词。
-            </section>
-          )}
-
           {plan.pendingPick.length > 0 && (
             <section className="pick-card">
               <h2>为以下视频选择唯一 poster（其余候选将被永久删除）</h2>
@@ -241,7 +234,7 @@ function CleanPage({
           title="确认执行清理计划"
           deleteCount={plan.deleteItems.length + unpickedCount(plan, picks)}
           deleteBytes={plan.deleteBytes}
-          danger={plan.risk === 'danger'}
+          danger={false}
           recoverable={toTrash}
           extra={`同时将上移 ${plan.moves.length} 个文件到工作区根目录，并把保留 poster 标准化为「视频名-poster.jpg」。`}
           onConfirm={execute}

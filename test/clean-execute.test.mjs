@@ -44,8 +44,6 @@ test('end-to-end: 冻结稿示例树清理后目录结构正确', async () => {
     },
     async (root) => {
       const plan = await createScanPlan(root)
-      assert.equal(plan.risk, 'normal')
-
       const taskCenter = createTaskCenter()
       const report = await executeCleanPlan(plan, {
         picks: {},
