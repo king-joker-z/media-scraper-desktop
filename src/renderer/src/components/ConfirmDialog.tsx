@@ -71,6 +71,7 @@ function ConfirmDialog({
         {toggle && (
           <label className="confirm-check">
             <input
+              className="confirm-check-input"
               type="checkbox"
               checked={toggle.checked}
               onChange={(event) => toggle.onChange(event.target.checked)}
@@ -80,6 +81,7 @@ function ConfirmDialog({
         )}
         <label className="confirm-check">
           <input
+            className="confirm-check-input"
             type="checkbox"
             checked={checked}
             onChange={(event) => setChecked(event.target.checked)}
