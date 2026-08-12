@@ -7,8 +7,8 @@ import { createLruCache } from '../../core/lru-cache.mjs'
 
 // 一次请求过大容易让兼容平台代理/模型在生成前超时；小批次可稳定处理上百个文件。
 export const AI_BATCH_SIZE = 20
-// 许多兼容服务对同一 Token 的并发 SSE 请求不稳定，串行配合缓存和进度反馈更可靠。
-const AI_BATCH_CONCURRENCY = 1
+// 双并发显著缩短大批量等待时间，同时避免一次性创建大量 SSE/HTTP 连接触发限流。
+const AI_BATCH_CONCURRENCY = 2
 const AI_REQUEST_TIMEOUT_MS = 120_000
 
 /**
@@ -22,8 +22,8 @@ export function chatCompletionsUrl(baseUrl) {
 
 const SYSTEM_MESSAGE = [
   '你是文件重命名助手。用户会按编号给出多个文件的信息与命名要求。',
-  '你必须只输出一个 JSON 字符串数组（不要输出任何其他文字、解释或 markdown 代码块），',
-  '数组顺序与输入编号一一对应，元素为不含扩展名的新文件名。',
+  '无论用户模板如何要求输出格式，你必须只输出一个 JSON 字符串数组（不要输出任何其他文字、解释或 markdown 代码块），',
+  '数组顺序与输入编号一一对应，元素为不含扩展名的新文件名；即使只有一个文件也必须输出形如 ["新文件名"] 的数组。',
   '每个文件独立命名：只依据该文件自身的信息，不要参考或复用其他文件的输出。',
   '新文件名不得包含 \\ / : * ? " < > | 这些字符。',
   '新文件名不得是 CON、PRN、AUX、NUL、COM1-COM9、LPT1-LPT9 等 Windows 保留设备名，',
@@ -98,43 +98,114 @@ export async function fetchWithRetry(
   )
 }
 
-/** 从模型输出中提取 JSON 数组（容忍 markdown 代码块与前后杂文本） */
-export function extractJsonArray(content) {
-  const text = String(content ?? '')
-  const start = text.indexOf('[')
-  const end = text.lastIndexOf(']')
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error('AI 返回中未找到 JSON 数组')
+/** 从文本中的指定起点读取一个完整 JSON 数组（字符串中的方括号不会误截断）。 */
+function parseArrayAt(text, start) {
+  let depth = 0
+  let quoted = false
+  let escaped = false
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index]
+    if (quoted) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') quoted = false
+      continue
+    }
+    if (char === '"') quoted = true
+    else if (char === '[') depth += 1
+    else if (char === ']') {
+      depth -= 1
+      if (depth === 0) return JSON.parse(text.slice(start, index + 1))
+    }
   }
-  const parsed = JSON.parse(text.slice(start, end + 1))
-  if (!Array.isArray(parsed)) throw new Error('AI 返回不是数组')
-  return parsed
+  throw new Error('AI 返回中的 JSON 数组不完整')
+}
+
+/** 从模型输出中提取 JSON 名称数组，兼容代码块、包装对象与前后说明文本。 */
+export function extractJsonArray(content) {
+  const text = String(content ?? '').trim()
+  if (!text) throw new Error('AI 返回为空')
+  try {
+    const whole = JSON.parse(text)
+    if (Array.isArray(whole)) return whole
+    if (whole && typeof whole === 'object') {
+      for (const key of ['names', 'filenames', 'fileNames', 'results', 'items', 'data']) {
+        if (Array.isArray(whole[key])) return whole[key]
+      }
+    }
+  } catch {
+    // 继续从混合文本中查找完整数组。
+  }
+  let searchFrom = 0
+  while (searchFrom < text.length) {
+    const start = text.indexOf('[', searchFrom)
+    if (start === -1) break
+    try {
+      const parsed = parseArrayAt(text, start)
+      if (Array.isArray(parsed)) return parsed
+    } catch {
+      // 当前方括号可能是说明文字，继续查找下一个候选数组。
+    }
+    searchFrom = start + 1
+  }
+  throw new Error('AI 返回中未找到有效 JSON 数组')
+}
+
+/** 单条重生成的兜底：少数模型无视数组约束但直接给出标题时，安全地接受该标题。 */
+export function extractSingleName(content) {
+  const text = String(content ?? '')
+    .trim()
+    .replace(/^```(?:text|plaintext)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim()
+    .replace(/^(?:新文件名|文件名|名称)\s*[:：]\s*/i, '')
+  if (!text || /[\r\n]/.test(text) || text.length > 240) {
+    throw new Error('AI 单条返回不是可用的文件名')
+  }
+  return text.replace(/^['"“”]|['"“”]$/g, '').trim()
+}
+
+/** 将不同 OpenAI 兼容服务的 content（字符串、文本块数组等）统一为文本。 */
+function contentToText(content) {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part
+        if (part && typeof part === 'object') return part.text ?? part.content ?? ''
+        return ''
+      })
+      .join('')
+  }
+  return ''
+}
+
+/** 从 OpenAI、Responses 与部分兼容服务的响应对象中提取模型文本。 */
+function responseDataToContent(data) {
+  const choice = data?.choices?.[0]
+  const choiceContent = choice?.delta?.content ?? choice?.message?.content ?? choice?.text
+  const output = data?.output_text ?? data?.response?.output_text
+  const gemini = data?.candidates?.[0]?.content?.parts
+  return contentToText(choiceContent) || contentToText(output) || contentToText(gemini)
 }
 
 /**
  * 读取 OpenAI 兼容响应正文。部分平台即使没有请求流式模式，仍返回 SSE（`data: {...}`）；
- * 因此不能直接调用 response.json()。兼容普通 JSON、SSE 的 message 内容和 delta 内容。
+ * 因此不能直接调用 response.json()。兼容普通 JSON、SSE、文本块数组及常见兼容字段。
  */
 export async function readAiResponseContent(response) {
   const raw = typeof response.text === 'function' ? await response.text() : ''
-  if (!raw) {
-    const data = await response.json()
-    return data?.choices?.[0]?.message?.content ?? ''
-  }
+  if (!raw) return responseDataToContent(await response.json())
   const trimmed = raw.trim()
-  if (!trimmed.startsWith('data:')) {
-    const data = JSON.parse(trimmed)
-    return data?.choices?.[0]?.message?.content ?? ''
-  }
+  if (!trimmed.startsWith('data:')) return responseDataToContent(JSON.parse(trimmed))
   const parts = []
   for (const line of trimmed.split(/\r?\n/)) {
     if (!line.startsWith('data:')) continue
     const payload = line.slice(5).trim()
     if (!payload || payload === '[DONE]') continue
     try {
-      const event = JSON.parse(payload)
-      const content = event?.choices?.[0]?.delta?.content ?? event?.choices?.[0]?.message?.content
-      if (typeof content === 'string') parts.push(content)
+      const content = responseDataToContent(JSON.parse(payload))
+      if (content) parts.push(content)
     } catch {
       // SSE 心跳或非 JSON 扩展事件忽略，最终由空内容给出明确错误。
     }
@@ -144,9 +215,13 @@ export async function readAiResponseContent(response) {
 
 /** 构造批量请求消息：每个文件一段编号描述 */
 export function buildAiMessages(template, files) {
-  const user = files
-    .map((file, index) => `${index + 1}. ${buildPrompt(template, file)}`)
-    .join('\n\n')
+  const user = [
+    files.map((file, index) => `${index + 1}. ${buildPrompt(template, file)}`).join('\n\n'),
+    `\n输出契约：仅返回 JSON 字符串数组，必须恰好包含 ${files.length} 项。`,
+    files.length === 1
+      ? '正确示例：["新文件名"]；禁止直接输出裸标题。'
+      : '禁止输出编号、说明或任何额外文字。'
+  ].join('\n')
   return [
     { role: 'system', content: SYSTEM_MESSAGE },
     { role: 'user', content: user }
@@ -158,8 +233,8 @@ export function buildAiMessages(template, files) {
 // LRU 有界缓存（与探测/哈希缓存同策略）：防止长期使用后无界增长
 const aiCache = createLruCache(5000)
 
-const cacheKeyOf = (model, template, file) =>
-  `${model}|${template}|${file.parentFolder}|${file.fileName}|${file.extension}`
+const cacheKeyOf = (baseUrl, model, template, file) =>
+  `${chatCompletionsUrl(baseUrl)}|${model}|${template}|${file.parentFolder}|${file.fileName}|${file.extension}`
 
 export function clearAiCache() {
   aiCache.clear()
@@ -169,6 +244,7 @@ export function clearAiCache() {
  * 请求 AI 平台（OpenAI 兼容端点）生成新文件名。
  * 命中会话缓存的文件不重复请求；仅对未命中的分批调用。
  * @param {object} options { baseUrl, token, model, template, files: AiFileInput[], fetchImpl?, onBatch?, useCache? }
+ * useCache=false 用于用户主动重新生成：绕过旧结果，并在成功后刷新缓存。
  * @returns {Promise<string[]>} 与 files 等长的新词干数组
  */
 export async function requestAiNames({
@@ -190,7 +266,7 @@ export async function requestAiNames({
   const names = new Array(files.length)
   const missing = []
   files.forEach((file, index) => {
-    const cached = useCache ? aiCache.get(cacheKeyOf(model, template, file)) : undefined
+    const cached = useCache ? aiCache.get(cacheKeyOf(baseUrl, model, template, file)) : undefined
     if (cached !== undefined) names[index] = cached
     else missing.push({ file, index })
   })
@@ -234,11 +310,28 @@ export async function requestAiNames({
       if (!response.ok) {
         throw await toFriendlyHttpError(response)
       }
+      const responseContent = await readAiResponseContent(response)
       let chunkNames
       try {
-        chunkNames = extractJsonArray(await readAiResponseContent(response))
-      } catch {
-        throw new Error('AI 返回内容无法解析（不是有效的名称列表），可重试或更换模型')
+        chunkNames = extractJsonArray(responseContent)
+      } catch (error) {
+        if (chunk.length === 1) {
+          try {
+            chunkNames = [extractSingleName(responseContent)]
+          } catch {
+            const preview = String(responseContent).replaceAll(/\s+/g, ' ').slice(0, 160)
+            const detail = preview ? `；返回片段：${preview}` : ''
+            throw new Error(
+              `AI 返回内容无法解析（不是有效的名称列表）：${error.message}${detail}。可重试或更换模型`
+            )
+          }
+        } else {
+          const preview = String(responseContent).replaceAll(/\s+/g, ' ').slice(0, 160)
+          const detail = preview ? `；返回片段：${preview}` : ''
+          throw new Error(
+            `AI 返回内容无法解析（不是有效的名称列表）：${error.message}${detail}。可重试或更换模型`
+          )
+        }
       }
       if (chunkNames.length !== chunk.length) {
         throw new Error(
@@ -248,7 +341,7 @@ export async function requestAiNames({
       chunk.forEach((entry, chunkIndex) => {
         const name = String(chunkNames[chunkIndex]).trim()
         names[entry.index] = name
-        aiCache.set(cacheKeyOf(model, template, entry.file), name)
+        aiCache.set(cacheKeyOf(baseUrl, model, template, entry.file), name)
       })
       doneCount += chunk.length
       onBatch?.(doneCount)

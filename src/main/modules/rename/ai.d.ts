@@ -8,6 +8,8 @@ declare module './ai.mjs' {
     vars: { parentFolder: string; fileName: string; extension: string }
   ): string
   export function extractJsonArray(content: unknown): unknown[]
+  /** 单条 AI 结果的纯文本标题兜底解析。 */
+  export function extractSingleName(content: unknown): string
   /** 兼容普通 OpenAI JSON 与 SSE data: 响应，提取模型文本。 */
   export function readAiResponseContent(response: {
     text?: () => Promise<string>

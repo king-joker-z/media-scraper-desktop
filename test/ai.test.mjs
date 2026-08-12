@@ -6,6 +6,7 @@ import {
   chatCompletionsUrl,
   clearAiCache,
   extractJsonArray,
+  extractSingleName,
   fetchWithRetry,
   requestAiNames,
   readAiResponseContent
@@ -53,6 +54,41 @@ test('requestAiNames caches results within the session', async () => {
   })
   assert.equal(calls, 2)
   assert.deepEqual(third, ['cached-name', 'b-name']) // 顺序与输入一致
+
+  // 主动重新生成绕过成功缓存，并用最新成功结果覆盖缓存。
+  const refreshed = await requestAiNames({
+    ...options,
+    files: [file],
+    useCache: false,
+    fetchImpl: async () => {
+      calls += 1
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '["fresh-name"]' } }] })
+      }
+    }
+  })
+  assert.equal(calls, 3)
+  assert.deepEqual(refreshed, ['fresh-name'])
+  const afterRefresh = await requestAiNames({ ...options, files: [file] })
+  assert.equal(calls, 3)
+  assert.deepEqual(afterRefresh, ['fresh-name'])
+
+  // 同模型、同 prompt、同文件但不同平台不能共享结果。
+  const isolated = await requestAiNames({
+    ...options,
+    baseUrl: 'https://another-provider.example/v1',
+    files: [file],
+    fetchImpl: async () => {
+      calls += 1
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '["other-provider"]' } }] })
+      }
+    }
+  })
+  assert.equal(calls, 4)
+  assert.deepEqual(isolated, ['other-provider'])
 })
 
 test('fetchWithRetry retries network errors and 5xx, not 4xx', async () => {
@@ -125,22 +161,44 @@ test('buildPrompt substitutes all template variables', () => {
   assert.equal(out, '父目录=演唱会 文件=abc@111 扩展=.mp4')
 })
 
-test('extractJsonArray tolerates markdown fences and surrounding text', () => {
+test('extractJsonArray tolerates markdown fences, wrapper objects and brackets inside names', () => {
   assert.deepEqual(extractJsonArray('["a","b"]'), ['a', 'b'])
   assert.deepEqual(extractJsonArray('```json\n["a"]\n```'), ['a'])
   assert.deepEqual(extractJsonArray('结果如下：["x", "y"] 希望满意'), ['x', 'y'])
-  assert.throws(() => extractJsonArray('没有数组'), /未找到 JSON 数组/)
+  assert.deepEqual(extractJsonArray('{"names":["[第一季]", "第二季"]}'), ['[第一季]', '第二季'])
+  assert.throws(() => extractJsonArray('没有数组'), /未找到有效 JSON 数组/)
 })
 
-test('readAiResponseContent accepts SSE data events from compatible providers', async () => {
-  const content = await readAiResponseContent({
+test('extractSingleName accepts a bare single-title response but rejects multiline text', () => {
+  assert.equal(extractSingleName('失控克隆：测试母本的无限轮回'), '失控克隆：测试母本的无限轮回')
+  assert.equal(extractSingleName('文件名： "干净标题"'), '干净标题')
+  assert.throws(() => extractSingleName('标题一\n标题二'), /不是可用/)
+})
+
+test('readAiResponseContent accepts SSE data events and compatible content shapes', async () => {
+  const sseContent = await readAiResponseContent({
     text: async () =>
       'data: {"choices":[{"delta":{"content":"[\\"第一"}}]}\n\n' +
       'data: {"choices":[{"delta":{"content":"集\\"]"}}]}\n\n' +
       'data: [DONE]\n\n',
     json: async () => ({})
   })
-  assert.equal(content, '["第一集"]')
+  assert.equal(sseContent, '["第一集"]')
+
+  const blockContent = await readAiResponseContent({
+    text: async () =>
+      JSON.stringify({
+        choices: [{ message: { content: [{ type: 'text', text: '["文本块名称"]' }] } }]
+      }),
+    json: async () => ({})
+  })
+  assert.equal(blockContent, '["文本块名称"]')
+
+  const outputContent = await readAiResponseContent({
+    text: async () => JSON.stringify({ output_text: '["兼容名称"]' }),
+    json: async () => ({})
+  })
+  assert.equal(outputContent, '["兼容名称"]')
 })
 
 test('buildAiMessages numbers each file', () => {
@@ -208,6 +266,36 @@ test('requestAiNames requires token and validates count', async () => {
   )
 })
 
+test('requestAiNames accepts a bare title only for a single-item regeneration', async () => {
+  clearAiCache()
+  const base = { baseUrl: 'https://x', token: 'sk', model: 'm', template: '' }
+  const one = await requestAiNames({
+    ...base,
+    files: [{ parentFolder: '', fileName: 'a', extension: '.mp4' }],
+    useCache: false,
+    fetchImpl: async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ choices: [{ message: { content: '裸标题' } }] })
+    })
+  })
+  assert.deepEqual(one, ['裸标题'])
+  await assert.rejects(
+    requestAiNames({
+      ...base,
+      files: [
+        { parentFolder: '', fileName: 'a', extension: '.mp4' },
+        { parentFolder: '', fileName: 'b', extension: '.mp4' }
+      ],
+      useCache: false,
+      fetchImpl: async () => ({
+        ok: true,
+        text: async () => JSON.stringify({ choices: [{ message: { content: '裸标题' } }] })
+      })
+    }),
+    /名称列表/
+  )
+})
+
 test('requestAiNames parses SSE response and disables stream requests', async () => {
   clearAiCache()
   let body
@@ -260,7 +348,8 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
     onBatch: (done) => batchReports.push(done),
     fetchImpl: async (_url, init) => {
       calls += 1
-      const count = JSON.parse(init.body).messages[1].content.split('\n\n').length
+      const prompt = JSON.parse(init.body).messages[1].content
+      const count = Number(/必须恰好包含 (\d+) 项/.exec(prompt)?.[1])
       return {
         ok: true,
         json: async () => ({
@@ -273,7 +362,7 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
       }
     }
   })
-  assert.equal(calls, 6) // 20 × 6，单路小批次避免兼容服务超时
+  assert.equal(calls, 6) // 20 × 6，受控双并发避免兼容服务超时
   assert.equal(names.length, 120)
-  assert.deepEqual(batchReports, [20, 40, 60, 80, 100, 120]) // 进度回调累计
+  assert.equal(batchReports.at(-1), 120) // 并发完成顺序不固定，但最终进度必须完整
 })
