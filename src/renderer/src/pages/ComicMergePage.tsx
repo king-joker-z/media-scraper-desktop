@@ -209,7 +209,7 @@ function ComicMergePage({
       {notice && <p className="notice-inline">{notice}</p>}
 
       {result && (
-        <section className="plan">
+        <section className="plan comic-merge-plan">
           <div className="comic-toolbar">
             <div className="mode-tabs" title="输出格式（切换后记忆）">
               <button
@@ -262,7 +262,7 @@ function ComicMergePage({
 
           {comics.length === 0 && keyword && <p className="muted">没有匹配的漫画。</p>}
 
-          <div className="comic-list">
+          <div className="comic-list" tabIndex={0}>
             {comics.map((comic) => {
               const badge = comicBadge(comic)
               const isOpen = expanded === comic.relDir

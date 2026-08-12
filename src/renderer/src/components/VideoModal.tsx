@@ -29,18 +29,24 @@ function VideoModal({
     }
   }
 
+  // 只在用户真正关闭弹窗时释放媒体，不能放进 effect cleanup：Strict Mode 会模拟卸载导致 src 被提前移除。
+  const close = (): void => {
+    savePosition()
+    const video = videoRef.current
+    if (video) {
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
+    }
+    onClose()
+  }
+
   return (
-    <div className="dialog-overlay" onClick={onClose}>
+    <div className="dialog-overlay" onClick={close}>
       <div className="detail-modal" onClick={(event) => event.stopPropagation()}>
         <div className="detail-header">
           <b>{title}</b>
-          <button
-            className="chip-remove"
-            onClick={() => {
-              savePosition()
-              onClose()
-            }}
-          >
+          <button className="chip-remove" onClick={close}>
             关闭
           </button>
         </div>

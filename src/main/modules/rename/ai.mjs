@@ -5,9 +5,11 @@
 
 import { createLruCache } from '../../core/lru-cache.mjs'
 
-export const AI_BATCH_SIZE = 50
-/** 批间并发：429 由 fetchWithRetry 指数退避兜底，2 路并行在提速与限流间取平衡 */
-const AI_BATCH_CONCURRENCY = 2
+// 一次请求过大容易让兼容平台代理/模型在生成前超时；小批次可稳定处理上百个文件。
+export const AI_BATCH_SIZE = 20
+// 许多兼容服务对同一 Token 的并发 SSE 请求不稳定，串行配合缓存和进度反馈更可靠。
+const AI_BATCH_CONCURRENCY = 1
+const AI_REQUEST_TIMEOUT_MS = 120_000
 
 /**
  * OpenAI 兼容端点：baseUrl + /chat/completions。
@@ -70,7 +72,7 @@ export async function toFriendlyHttpError(response) {
 export async function fetchWithRetry(
   url,
   init,
-  { fetchImpl = fetch, retries = 2, timeoutMs = 30_000, retryDelayMs = 1000 } = {}
+  { fetchImpl = fetch, retries = 2, timeoutMs = AI_REQUEST_TIMEOUT_MS, retryDelayMs = 1000 } = {}
 ) {
   let lastError
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -107,6 +109,37 @@ export function extractJsonArray(content) {
   const parsed = JSON.parse(text.slice(start, end + 1))
   if (!Array.isArray(parsed)) throw new Error('AI 返回不是数组')
   return parsed
+}
+
+/**
+ * 读取 OpenAI 兼容响应正文。部分平台即使没有请求流式模式，仍返回 SSE（`data: {...}`）；
+ * 因此不能直接调用 response.json()。兼容普通 JSON、SSE 的 message 内容和 delta 内容。
+ */
+export async function readAiResponseContent(response) {
+  const raw = typeof response.text === 'function' ? await response.text() : ''
+  if (!raw) {
+    const data = await response.json()
+    return data?.choices?.[0]?.message?.content ?? ''
+  }
+  const trimmed = raw.trim()
+  if (!trimmed.startsWith('data:')) {
+    const data = JSON.parse(trimmed)
+    return data?.choices?.[0]?.message?.content ?? ''
+  }
+  const parts = []
+  for (const line of trimmed.split(/\r?\n/)) {
+    if (!line.startsWith('data:')) continue
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') continue
+    try {
+      const event = JSON.parse(payload)
+      const content = event?.choices?.[0]?.delta?.content ?? event?.choices?.[0]?.message?.content
+      if (typeof content === 'string') parts.push(content)
+    } catch {
+      // SSE 心跳或非 JSON 扩展事件忽略，最终由空内容给出明确错误。
+    }
+  }
+  return parts.join('')
 }
 
 /** 构造批量请求消息：每个文件一段编号描述 */
@@ -191,18 +224,19 @@ export async function requestAiNames({
               template,
               chunk.map((entry) => entry.file)
             ),
-            temperature: 0.2
+            temperature: 0.2,
+            // 显式关闭流式请求；少数平台仍返回 SSE，由 readAiResponseContent 兼容处理。
+            stream: false
           })
         },
-        { fetchImpl, retryDelayMs }
+        { fetchImpl, retryDelayMs, timeoutMs: AI_REQUEST_TIMEOUT_MS }
       )
       if (!response.ok) {
         throw await toFriendlyHttpError(response)
       }
-      const data = await response.json()
       let chunkNames
       try {
-        chunkNames = extractJsonArray(data?.choices?.[0]?.message?.content)
+        chunkNames = extractJsonArray(await readAiResponseContent(response))
       } catch {
         throw new Error('AI 返回内容无法解析（不是有效的名称列表），可重试或更换模型')
       }

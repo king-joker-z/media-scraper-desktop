@@ -1,7 +1,7 @@
-import { app, shell, BrowserWindow, dialog, ipcMain, net, Notification, protocol } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain, Notification, protocol } from 'electron'
 import { extname, join } from 'path'
+import { Readable } from 'node:stream'
 import { tmpdir } from 'os'
-import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
@@ -23,9 +23,11 @@ import { scanComicWorkspace } from './modules/comic/scan.mjs'
 import { deleteComicSources, mergeComics } from './modules/comic/merge.mjs'
 import {
   cleanMovePartials,
+  createFileReadStream,
   deleteToTrash,
   dirSizeBytes,
   diskFreeBytes,
+  fileSize,
   listDirNames,
   permanentDelete,
   pathExists,
@@ -1186,27 +1188,48 @@ app.whenReady().then(async () => {
     const decoded = decodeURIComponent(new URL(request.url).pathname)
     // 盘符去前导斜杠、UNC 保留双斜杠、resolve 归一化 .. 防路径穿越（如 C:/ws/../elsewhere）
     const filePath = mediaUrlPathToLocal(decoded)
-    if (!isMediaAllowed(filePath)) {
-      return new Response('Forbidden', { status: 403 })
+    if (!isMediaAllowed(filePath)) return new Response('Forbidden', { status: 403 })
+
+    let size
+    try {
+      size = await fileSize(filePath)
+    } catch {
+      return new Response('Not Found', { status: 404 })
     }
-    // 视频拖动进度条依赖 Range 请求，透传给文件读取
-    const fetchHeaders = new Headers()
-    const range = request.headers.get('range')
-    if (range) fetchHeaders.set('range', range)
-    const response = await net.fetch(pathToFileURL(filePath).toString(), {
-      headers: fetchHeaders
+
+    const isImage = IMAGE_EXTENSIONS.has(extname(filePath).toLowerCase())
+    const headers = new Headers({
+      'Accept-Ranges': 'bytes',
+      'Content-Length': String(size),
+      ...(isImage ? { 'Cache-Control': 'no-store' } : {})
     })
-    // 封面保存是同路径就地覆盖写入，必须禁止图片缓存，否则界面展示旧图
-    if (IMAGE_EXTENSIONS.has(extname(filePath).toLowerCase())) {
-      const headers = new Headers(response.headers)
-      headers.set('Cache-Control', 'no-store')
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers
-      })
+    const range = request.headers.get('range')
+    if (!range) {
+      const stream = createFileReadStream(filePath)
+      return new Response(Readable.toWeb(stream) as ReadableStream, { status: 200, headers })
     }
-    return response
+
+    // 不经 file:// 转发，而是协议层直接返回标准 206；Windows Chromium 可稳定拖动进度条。
+    const match = /^bytes=(\d*)-(\d*)$/i.exec(range.trim())
+    if (!match)
+      return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } })
+    const [, startText, endText] = match
+    let start = startText ? Number(startText) : 0
+    let end = endText ? Number(endText) : size - 1
+    if (!startText && endText) {
+      start = Math.max(0, size - Number(endText))
+      end = size - 1
+    }
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= size) {
+      return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } })
+    }
+    end = Math.min(end, size - 1)
+    if (end < start)
+      return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } })
+    const stream = createFileReadStream(filePath, { start, end })
+    headers.set('Content-Length', String(end - start + 1))
+    headers.set('Content-Range', `bytes ${start}-${end}/${size}`)
+    return new Response(Readable.toWeb(stream) as ReadableStream, { status: 206, headers })
   })
 
   app.on('browser-window-created', (_, window) => {

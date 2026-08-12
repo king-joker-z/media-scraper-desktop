@@ -8,6 +8,13 @@ declare module './ai.mjs' {
     vars: { parentFolder: string; fileName: string; extension: string }
   ): string
   export function extractJsonArray(content: unknown): unknown[]
+  /** 兼容普通 OpenAI JSON 与 SSE data: 响应，提取模型文本。 */
+  export function readAiResponseContent(response: {
+    text?: () => Promise<string>
+    json: () => Promise<{
+      choices?: { message?: { content?: string }; delta?: { content?: string } }[]
+    }>
+  }): Promise<string>
   export function buildAiMessages(
     template: string,
     files: AiFileInput[]

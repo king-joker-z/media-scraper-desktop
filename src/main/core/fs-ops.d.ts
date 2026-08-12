@@ -26,6 +26,11 @@ declare module './fs-ops.mjs' {
     newName: string,
     options?: MoveOptions
   ): Promise<string>
+  export function createFileReadStream(
+    target: string,
+    options?: { start?: number; end?: number }
+  ): import('node:fs').ReadStream
+  export function fileSize(target: string): Promise<number>
   export function writeTextFile(target: string, content: string): Promise<string>
   /** 读文本文件（utf8） */
   export function readTextFile(target: string): Promise<string>

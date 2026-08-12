@@ -428,7 +428,7 @@ h2 {
   gap: 14px;
 }
 .plan {
-  overflow: hidden;
+  overflow: visible;
 }
 .plan h2 {
   padding: 14px 14px 10px;
@@ -443,6 +443,31 @@ h2 {
 .plan > div {
   max-height: 420px;
   overflow-y: auto;
+}
+.plan > .comic-toolbar {
+  max-height: none;
+  overflow: visible;
+}
+/* 漫画合并卡片含工具栏、列表、底栏；不能沿用普通 plan 的通用子元素滚动规则。 */
+.comic-merge-plan {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 18px;
+}
+.comic-merge-plan > .comic-toolbar,
+.comic-merge-plan > .comic-list,
+.comic-merge-plan > .plan-footer {
+  max-height: none;
+  overflow: visible;
+}
+.comic-merge-plan > .comic-list {
+  flex: 0 1 min(58vh, 680px);
+  min-height: 168px;
+  overflow-y: auto;
+}
+.comic-merge-plan > .plan-footer {
+  flex-shrink: 0;
 }
 .plan article {
   padding: 9px 14px;
@@ -2065,6 +2090,9 @@ h2 {
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
+.comic-merge-plan .comic-toolbar {
+  padding: 0;
+}
 .comic-search {
   margin-left: auto;
   min-width: 200px;
@@ -2078,6 +2106,14 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: min(58vh, 680px);
+  padding: 2px 8px 2px 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.comic-merge-plan .comic-list {
+  margin: 0;
 }
 .comic-item {
   border: 1px solid var(--separator);
@@ -2187,6 +2223,9 @@ h2 {
   margin-top: 16px;
   padding-top: 14px;
   border-top: 1px solid var(--separator);
+}
+.comic-merge-plan .plan-footer {
+  margin-bottom: 0;
 }
 
 /* ---------- 漫画库 ---------- */

@@ -44,10 +44,9 @@ function PosterDetail({
     if (video.posterPath || candidates.length > 0) return
     let alive = true
     generate()
-      .then(({ frames, scores }) => {
+      .then(({ frames, scores: nextScores }) => {
         if (!alive) return
-        onCandidates(frames, scores)
-        // capturePosters 返回质量评分最高的帧在首位，默认选择推荐项。
+        onCandidates(frames, nextScores)
         if (frames[0]) onSelect(frames[0])
       })
       .catch((err) => alive && setError(err instanceof Error ? err.message : String(err)))
@@ -78,8 +77,8 @@ function PosterDetail({
     setBusy(true)
     setError('')
     try {
-      const { frames, scores } = await generate()
-      onCandidates(frames, scores)
+      const { frames, scores: nextScores } = await generate()
+      onCandidates(frames, nextScores)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -111,12 +110,23 @@ function PosterDetail({
   const scoreFor = (frame: string): CandidateFrameScore | undefined =>
     scores.find((entry) => entry.path === frame)
 
+  // 截帧详情关闭时主动断开播放器，Windows 才能立即释放视频文件锁。
+  const close = (): void => {
+    const player = videoRef.current
+    if (player) {
+      player.pause()
+      player.removeAttribute('src')
+      player.load()
+    }
+    onClose()
+  }
+
   return (
-    <div className="dialog-overlay" onClick={onClose}>
+    <div className="dialog-overlay" onClick={close}>
       <div className="detail-modal" onClick={(event) => event.stopPropagation()}>
         <div className="detail-header">
           <b>{video.name}</b>
-          <button className="chip-remove" onClick={onClose}>
+          <button className="chip-remove" onClick={close}>
             关闭
           </button>
         </div>
@@ -140,32 +150,22 @@ function PosterDetail({
         {error && <p className="danger-text">{error}</p>}
         <div className="candidate-strip">
           {busy && allFrames.length === 0 && <p className="muted">正在截取候选帧…</p>}
-          {allFrames.map((frame) => {
-            const score = scoreFor(frame)
-            return (
-              <button
-                key={frame}
-                className={`candidate ${selection === frame ? 'selected' : ''}`}
-                onClick={() => onSelect(frame)}
-              >
-                <img src={`${mediaUrl(frame)}?v=${version}`} alt="候选帧" loading="lazy" />
-                {frame === video.posterPath ? (
-                  <span className="candidate-tag">当前封面</span>
-                ) : (
-                  frame === candidates[0] && <span className="candidate-tag">推荐</span>
-                )}
-                {score && (
-                  <span className="candidate-score">
-                    <b>{Math.round(score.score)} 分</b>
-                    <small>
-                      清晰 {Math.round(score.clarity)} · 黑场 {Math.round(score.blackRatio * 100)}%
-                      · 亮度 {Math.round(score.brightness)}
-                    </small>
-                  </span>
-                )}
-              </button>
-            )
-          })}
+          {allFrames.map((frame) => (
+            <button
+              key={frame}
+              className={`candidate ${selection === frame ? 'selected' : ''}`}
+              onClick={() => onSelect(frame)}
+            >
+              <img src={`${mediaUrl(frame)}?v=${version}`} alt="候选帧" loading="lazy" />
+              {frame === video.posterPath ? (
+                <span className="candidate-tag">当前封面</span>
+              ) : (
+                scoreFor(frame) && (
+                  <span className="candidate-tag">质量 {scoreFor(frame)!.score}</span>
+                )
+              )}
+            </button>
+          ))}
         </div>
         {confirming && (
           <ConfirmDialog

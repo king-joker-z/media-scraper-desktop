@@ -7,7 +7,8 @@ import {
   clearAiCache,
   extractJsonArray,
   fetchWithRetry,
-  requestAiNames
+  requestAiNames,
+  readAiResponseContent
 } from '../src/main/modules/rename/ai.mjs'
 
 test('chatCompletionsUrl appends endpoint without double-appending', () => {
@@ -131,6 +132,17 @@ test('extractJsonArray tolerates markdown fences and surrounding text', () => {
   assert.throws(() => extractJsonArray('没有数组'), /未找到 JSON 数组/)
 })
 
+test('readAiResponseContent accepts SSE data events from compatible providers', async () => {
+  const content = await readAiResponseContent({
+    text: async () =>
+      'data: {"choices":[{"delta":{"content":"[\\"第一"}}]}\n\n' +
+      'data: {"choices":[{"delta":{"content":"集\\"]"}}]}\n\n' +
+      'data: [DONE]\n\n',
+    json: async () => ({})
+  })
+  assert.equal(content, '["第一集"]')
+})
+
 test('buildAiMessages numbers each file', () => {
   const messages = buildAiMessages('改名 {{fileName}}', [
     { parentFolder: 'p', fileName: 'a', extension: '.mp4' },
@@ -196,7 +208,30 @@ test('requestAiNames requires token and validates count', async () => {
   )
 })
 
+test('requestAiNames parses SSE response and disables stream requests', async () => {
+  clearAiCache()
+  let body
+  const names = await requestAiNames({
+    baseUrl: 'https://x',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    files: [{ parentFolder: '', fileName: 'a', extension: '.mp4' }],
+    fetchImpl: async (_url, init) => {
+      body = JSON.parse(init.body)
+      return {
+        ok: true,
+        text: async () =>
+          'data: {"choices":[{"message":{"content":"[\\"已整理\\"]"}}]}\n\ndata: [DONE]\n'
+      }
+    }
+  })
+  assert.deepEqual(names, ['已整理'])
+  assert.equal(body.stream, false)
+})
+
 test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
+  clearAiCache()
   await assert.rejects(
     requestAiNames({
       baseUrl: 'https://x',
@@ -238,7 +273,7 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
       }
     }
   })
-  assert.equal(calls, 3) // 50 + 50 + 20
+  assert.equal(calls, 6) // 20 × 6，单路小批次避免兼容服务超时
   assert.equal(names.length, 120)
-  assert.deepEqual(batchReports, [50, 100, 120]) // 进度回调累计
+  assert.deepEqual(batchReports, [20, 40, 60, 80, 100, 120]) // 进度回调累计
 })

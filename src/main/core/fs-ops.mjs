@@ -35,12 +35,13 @@ export async function pathExists(target) {
 // 锁定文件，rename/rm 直接报 EBUSY/EPERM/EACCES。短延迟重试可消除绝大多数瞬时失败。
 // macOS/Linux 的 POSIX 语义允许对打开中的文件 rename/unlink，不会触发，行为不变。
 const LOCK_RETRY_CODES = new Set(['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY'])
-const LOCK_RETRY_MAX = 3
-const LOCK_RETRY_BASE_MS = 200
+// Defender/资源管理器缩略图和 Chromium 在 Windows 上常持锁数秒；3 次不足以覆盖实际场景。
+const LOCK_RETRY_MAX = 8
+const LOCK_RETRY_BASE_MS = 250
 
 const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** 对瞬时文件锁定错误做短延迟重试（最多 3 次，200/400/600ms）；其他错误立即抛出 */
+/** 对瞬时文件锁定错误做递增延迟重试（最多 8 次，覆盖约 9 秒）；其他错误立即抛出。 */
 async function withLockRetry(fn) {
   for (let attempt = 0; attempt <= LOCK_RETRY_MAX; attempt += 1) {
     try {
@@ -78,7 +79,7 @@ export async function deleteToTrash(target) {
     await permanentDelete(target)
     return
   }
-  await trashImpl(target)
+  await withLockRetry(() => trashImpl(target))
 }
 
 /**
@@ -307,6 +308,11 @@ export async function fileSize(target) {
   return (await stat(target)).size
 }
 
+/** 为 media:// 等只读协议创建可指定字节区间的文件流，保持文件访问入口集中。 */
+export function createFileReadStream(target, options) {
+  return createReadStream(target, options)
+}
+
 /**
  * 将已验证的同目录暂存文件安全替换为正式产物。
  * Windows 上先将旧产物移至 backup，再落位 staging；任何失败都会优先恢复旧产物，
@@ -413,14 +419,15 @@ export async function removeEmptyDirs(root) {
       if (dir === root) return
       const remaining = await readdir(dir, { withFileTypes: true })
       if (remaining.length === 0) {
-        await rmdir(dir)
+        await withLockRetry(() => rmdir(dir))
         removed.push(dir)
         return
       }
       const junkOnly = remaining.every((entry) => entry.isFile() && isJunkFileName(entry.name))
       if (junkOnly) {
-        for (const entry of remaining) await rm(join(dir, entry.name), { force: true })
-        await rmdir(dir)
+        for (const entry of remaining)
+          await withLockRetry(() => rm(join(dir, entry.name), { force: true }))
+        await withLockRetry(() => rmdir(dir))
         removed.push(dir)
       }
     } catch {
