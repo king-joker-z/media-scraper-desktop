@@ -86,8 +86,9 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }): React.JSX
     ),
     film: (
       <>
-        <rect x="3" y="5" width="18" height="14" rx="2" />
-        <path d="M7 5v14M17 5v14M3 10h4M17 10h4M3 14h4M17 14h4" />
+        <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+        <path d="M7.5 4.5v15M16.5 4.5v15M3.5 9h4M16.5 9h4M3.5 15h4M16.5 15h4" />
+        <path d="m10.5 9.2 4.2 2.8-4.2 2.8z" />
       </>
     ),
     folder: (
@@ -422,8 +423,8 @@ function App(): React.JSX.Element {
             aria-label="切换模块"
             onClick={() => switchModule(null)}
           >
-            <span className="brand-icon">
-              <Icon name={MODULE_META[module].icon} size={20} />
+            <span className={`brand-icon brand-icon-${module}`}>
+              <Icon name={MODULE_META[module].icon} size={28} />
             </span>
             <span className="brand-name">{MODULE_META[module].name}</span>
             <span className="module-switch-caret">⇄</span>
