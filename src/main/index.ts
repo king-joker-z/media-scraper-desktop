@@ -785,40 +785,71 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle(
     'merge:execute',
-    async (_event, root: string, items: MergeVideoItem[], outputName: string) =>
-      runExclusiveAbort('merge', '合并', async (signal, taskId) => {
-        const safeRoot = requireVideoRoot(root)
-        assertSafeFileName(outputName)
-        items.forEach((item) => requireFileInRoots(item.path, [safeRoot], '合并源文件'))
-        const emit = (type: TaskEvent['type'], percent: number, stage: string): void =>
-          emitTask(taskId, '视频合并', { type, total: 100, completed: percent, current: stage })
-        emit('start', 0, '准备合并')
-        const settings = await settingsStore.get()
-        const result = await mergeVideos({
-          items: items.map((item) => ({ path: item.path, name: item.name, media: item.media })),
-          outputDir: safeRoot,
-          outputName,
-          ffmpegPath: resolveFfmpegPath(),
-          ffprobePath: resolveFfprobePath(),
-          signal,
-          nvencEnabled: settings.nvencEnabled,
-          onProgress: (percent, stage) => emit('progress', percent, stage)
-        })
-        if (result.cancelled) {
-          emit('cancelled', 100, result.verifyNote)
-        } else if (result.verified) {
-          emit('done', 100, result.verifyNote)
-        } else {
-          emitTask(taskId, '视频合并', {
-            type: 'done',
-            total: 100,
-            completed: 0,
-            failed: 1,
-            current: result.error || result.verifyNote
+    async (_event, root: string, items: MergeVideoItem[], outputName: string) => {
+      try {
+        return await runExclusiveAbort('merge', '合并', async (signal, taskId) => {
+          const safeRoot = requireVideoRoot(root)
+          assertSafeFileName(outputName)
+          items.forEach((item) => requireFileInRoots(item.path, [safeRoot], '合并源文件'))
+          const emit = (type: TaskEvent['type'], percent: number, stage: string): void =>
+            emitTask(taskId, '视频合并', { type, total: 100, completed: percent, current: stage })
+          emit('start', 0, '准备合并')
+          const settings = await settingsStore.get()
+          const result = await mergeVideos({
+            items: items.map((item) => ({ path: item.path, name: item.name, media: item.media })),
+            outputDir: safeRoot,
+            outputName,
+            ffmpegPath: resolveFfmpegPath(),
+            ffprobePath: resolveFfprobePath(),
+            signal,
+            nvencEnabled: settings.nvencEnabled,
+            onProgress: (percent, stage) => emit('progress', percent, stage)
           })
-        }
-        return result
-      })
+          if (result.cancelled) {
+            emit('cancelled', 100, result.verifyNote)
+          } else if (result.verified) {
+            emit('done', 100, result.verifyNote)
+          } else {
+            const diagnostic = {
+              root: safeRoot,
+              outputName,
+              itemCount: items.length,
+              result,
+              summary: `合并失败：${result.verifyNote}`
+            }
+            // 失败诊断异步持久化，保留主进程返回的原始错误和阶段，避免 UI/IPC 边界吞掉细节。
+            logOp('merge-failure', diagnostic)
+            emitTask(taskId, '视频合并', {
+              type: 'done',
+              total: 100,
+              completed: 0,
+              failed: 1,
+              current: result.error || result.verifyNote
+            })
+          }
+          return result
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const details =
+          error && typeof error === 'object'
+            ? {
+                code: 'code' in error ? String(error.code) : undefined,
+                stack: error instanceof Error ? error.stack : undefined
+              }
+            : undefined
+        // 包含工作区、输入规模及原始异常；用户无需从截图转录错误即可供后续定位。
+        logOp('merge-ipc-error', {
+          root,
+          outputName,
+          itemCount: items.length,
+          error: message,
+          details,
+          summary: `合并 IPC 异常：${message}`
+        })
+        throw error
+      }
+    }
   )
   ipcMain.handle('merge:delete-sources', async (_event, root: string, items: MergeSourceItem[]) => {
     const safeRoot = requireVideoRoot(root)

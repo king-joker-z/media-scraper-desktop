@@ -165,6 +165,11 @@ test('verifyMergeOutput validates duration and streams', () => {
   const items = [item('a'), item('b')]
   assert.equal(verifyMergeOutput(media({ durationMs: 20_000 }), items).ok, true)
   assert.equal(verifyMergeOutput(media({ durationMs: 30_000 }), items).ok, false) // 偏差过大
+  const manyItems = Array.from({ length: 106 }, (_, index) => item(`片段 ${index + 1}`))
+  // 每段边界 50ms 的时间基量化误差可累计；106 段的 4.4s 偏差是正常输出。
+  assert.equal(verifyMergeOutput(media({ durationMs: 1_064_400 }), manyItems).ok, true)
+  assert.equal(verifyMergeOutput(media({ durationMs: 1_070_000 }), manyItems).ok, false)
+
   assert.equal(verifyMergeOutput(media({ durationMs: 20_000, audioCodec: null }), items).ok, false) // 丢音轨
   assert.equal(verifyMergeOutput(media({ durationMs: 20_000, videoCodec: null }), items).ok, false)
   assert.equal(verifyMergeOutput(null, items).ok, false)

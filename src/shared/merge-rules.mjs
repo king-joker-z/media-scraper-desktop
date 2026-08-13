@@ -217,16 +217,21 @@ export function buildConcatSegmentsArgs(listPath, outputPath) {
   ]
 }
 
-/** 合并输出校验：时长容差 ±2s；全部源有音轨时输出必须含音轨。 */
+/**
+ * 合并输出校验：每个片段转码/重封装都会在帧边界与容器时间基上引入少量量化误差。
+ * 单片段保留 ±2s 基础容差；多片段按每个拼接边界 50ms 累加（最多 10s），
+ * 避免百段短视频的正常累计误差被误判为损坏，同时仍能拒绝明显截断的输出。
+ */
 export function verifyMergeOutput(outputMedia, items) {
   if (!outputMedia) return { ok: false, note: '输出文件无法读取' }
   if (!outputMedia.videoCodec) return { ok: false, note: '输出缺少视频流' }
   const expectedMs = items.reduce((sum, item) => sum + (item.media?.durationMs ?? 0), 0)
   const diff = Math.abs(outputMedia.durationMs - expectedMs)
-  if (diff > 2000) {
+  const durationToleranceMs = Math.min(10_000, Math.max(2_000, Math.max(0, items.length - 1) * 50))
+  if (diff > durationToleranceMs) {
     return {
       ok: false,
-      note: `时长偏差过大：输出 ${(outputMedia.durationMs / 1000).toFixed(1)}s，预期 ${(expectedMs / 1000).toFixed(1)}s`
+      note: `时长偏差过大：输出 ${(outputMedia.durationMs / 1000).toFixed(1)}s，预期 ${(expectedMs / 1000).toFixed(1)}s（容差 ${(durationToleranceMs / 1000).toFixed(1)}s）`
     }
   }
   const allHadAudio = items.every((item) => item.media?.audioCodec)

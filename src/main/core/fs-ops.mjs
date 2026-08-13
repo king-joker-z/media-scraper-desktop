@@ -12,6 +12,7 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { createReadStream, createWriteStream } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { pipeline } from 'node:stream/promises'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -328,34 +329,50 @@ export async function discardStagedFile(target) {
  * hard link 的 EEXIST 是原子冲突信号，避免“先检查再 rename”期间覆盖后来创建的用户文件。
  * 返回 false 表示目标已被其他进程占用，暂存文件仍保留给调用方清理或重试。
  */
-export async function installStagedFileIfAbsent(staging, target) {
+async function copyStagedFileExclusively(staging, target) {
+  let handle
   try {
-    await withLockRetry(() => link(staging, target))
+    // O_EXCL 由文件系统原子执行“仅当不存在时创建”，消除检查后 rename 的覆盖竞争。
+    handle = await withLockRetry(() => open(target, 'wx'))
   } catch (error) {
     if (error?.code === 'EEXIST') return false
-    // exFAT/FAT、部分 SMB/NFS/WebDAV 挂载不支持硬链接；不能用 rename 降级，
-    // 否则会重新引入覆盖竞争窗口，故明确交由调用层报告。
-    if (['ENOTSUP', 'EOPNOTSUPP', 'EINVAL'].includes(error?.code)) {
-      const unsupported = new Error('当前文件系统不支持安全的无覆盖输出提交（硬链接不可用）')
-      unsupported.code = 'MSD_HARDLINK_UNSUPPORTED'
-      throw unsupported
-    }
-    // EPERM/EACCES 既可能来自目录 ACL、只读挂载，也可能是网络盘的策略限制；
-    // 不能武断地当成“文件系统不支持”，保留原始权限诊断供调用方如实报告。
-    if (['EPERM', 'EACCES'].includes(error?.code)) {
-      const denied = new Error(`无法在输出目录创建安全硬链接（权限被拒绝：${error.code}）`)
-      denied.code = 'MSD_HARDLINK_PERMISSION_DENIED'
-      throw denied
-    }
     throw error
+  }
+  try {
+    await pipeline(createReadStream(staging), handle.createWriteStream({ autoClose: false }))
+    await handle.sync()
+  } catch (error) {
+    await handle.close().catch(() => {})
+    // 仅删除本调用以 O_EXCL 创建的文件；绝不会碰到并发方已有的目标。
+    await discardStagedFile(target).catch(() => {})
+    throw error
+  }
+  await handle.close()
+  return true
+}
+
+export async function installStagedFileIfAbsent(staging, target) {
+  let installed
+  try {
+    await withLockRetry(() => link(staging, target))
+    installed = true
+  } catch (error) {
+    if (error?.code === 'EEXIST') return false
+    // exFAT/FAT、部分 SMB/NFS/WebDAV 挂载不支持硬链接。以 O_EXCL 创建目标后流式复制
+    // 作为安全降级：即使并发方在此期间创建同名文件，系统也会返回 EEXIST，绝不覆盖。
+    if (['ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'EPERM', 'EACCES'].includes(error?.code)) {
+      installed = await copyStagedFileExclusively(staging, target)
+      if (!installed) return false
+    } else {
+      throw error
+    }
   }
   try {
     await discardStagedFile(staging)
   } catch {
-    // 新目标已原子落位；保留同 inode 的暂存副本，下次安全清理即可，不能把成功安装误报失败。
-    return true
+    // 新目标已无覆盖落位；保留暂存副本下次清理，不能把成功安装误报失败。
   }
-  return true
+  return installed
 }
 
 /** 获取文件字节数（不存在时抛出，避免调用方将不完整产物误判成功）。 */

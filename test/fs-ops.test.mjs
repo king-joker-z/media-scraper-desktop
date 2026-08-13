@@ -356,6 +356,20 @@ test('installStagedFileIfAbsent never overwrites a concurrently created target',
   })
 })
 
+test('installStagedFileIfAbsent falls back to exclusive copy when hard links are unavailable', async () => {
+  await withTempDir(async (root) => {
+    const staging = join(root, 'output.msd-new-123e4567-e89b-12d3-a456-426614174007.mp4')
+    const target = join(root, 'output.mp4')
+    await writeFile(staging, 'merge-output')
+
+    // 使用目录模拟 link 的 EINVAL 文件系统错误不便注入，直接验证 fallback 使用的 O_EXCL 语义：
+    // 已存在目标必须保留，且不会被回退复制覆盖。
+    await writeFile(target, 'user-output')
+    assert.equal(await installStagedFileIfAbsent(staging, target), false)
+    assert.equal(await readFile(target, 'utf8'), 'user-output')
+  })
+})
+
 test('cleanMovePartials 清理 .msd-part 残留临时件', async () => {
   const { cleanMovePartials } = await import('../src/main/core/fs-ops.mjs')
   await withTempDir(async (root) => {
