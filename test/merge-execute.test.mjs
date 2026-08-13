@@ -300,6 +300,126 @@ test('mergeVideos 在验证通过前不暴露正式输出文件', async () => {
   }
 })
 
+test('mergeVideos retries from an isolated CPU workdir after a runtime NVENC failure', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { size: '640x480' }))
+    let nvencAttempts = 0
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'runtime-fallback.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      nvencEnabled: true,
+      probeNvenc: async () => ({ available: true }),
+      diskFree: async () => Number.MAX_SAFE_INTEGER,
+      runFfmpegImpl: async (ffmpegPath, args) => {
+        if (args.includes('h264_nvenc')) {
+          nvencAttempts += 1
+          throw new Error('h264_nvenc: InitializeEncoder failed while opening encoder')
+        }
+        await execFileAsync(ffmpegPath, args)
+      }
+    })
+    assert.equal(nvencAttempts, 1)
+    assert.equal(result.verified, true)
+    assert.equal(result.videoEncoder, 'cpu')
+    assert.match(result.nvencFallbackReason, /实际转码时 NVIDIA NVENC 不可用/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos blocks stream-copy before writing when output disk is insufficient', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4')))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4')))
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'copy-no-space.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      diskFree: async () => 0
+    })
+    assert.equal(result.verified, false)
+    assert.match(result.verifyNote, /输出盘可用空间不足/)
+    assert.equal(await pathExists(join(dir, 'copy-no-space.mp4')), false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos blocks transcode before writing when temp or output disk is insufficient', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { size: '640x480' }))
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'no-space.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      diskFree: async () => 0
+    })
+    assert.equal(result.verified, false)
+    assert.match(result.verifyNote, /临时目录与输出目录所在磁盘.*空间不足/)
+    assert.equal(await pathExists(join(dir, 'no-space.mp4')), false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos blocks transcode using combined peak space when temp and output share a volume', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { size: '640x480' }))
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'same-volume-no-space.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      diskFree: async () => 100 * 1024 * 1024,
+      volumeId: async () => 'same-volume'
+    })
+    assert.equal(result.verified, false)
+    assert.match(result.verifyNote, /临时目录与输出目录所在磁盘.*空间不足/)
+    assert.equal(await pathExists(join(dir, 'same-volume-no-space.mp4')), false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos returns a diagnostic result when disk space preflight cannot access a directory', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { size: '640x480' }))
+    const inaccessible = Object.assign(new Error('network share unavailable'), { code: 'ENOTCONN' })
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'network-error.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      diskFree: async () => {
+        throw inaccessible
+      }
+    })
+    assert.equal(result.verified, false)
+    assert.match(result.verifyNote, /无法读取临时目录或输出目录的可用空间/)
+    assert.match(result.error, /network share unavailable/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('mergeVideos cancellation cleans up partial output', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
   try {

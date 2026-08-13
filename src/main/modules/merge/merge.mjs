@@ -2,13 +2,17 @@ import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  commitStagedFile,
+  createMergeTransactionPath,
   createStagingPath,
   discardStagedFile,
+  diskFreeBytes,
   ensureDir,
   fileMtimeMs,
   ensureUniquePath,
+  fileSystemId,
+  installStagedFileIfAbsent,
   permanentDelete,
+  writeAtomicTextFile,
   writeTextFile
 } from '../../core/fs-ops.mjs'
 import { probeMedia } from '../../core/probe.mjs'
@@ -21,6 +25,7 @@ import {
   buildConcatSegmentsArgs,
   buildTranscodeArgs,
   checkCompatibility,
+  estimateOutputBytes,
   verifyMergeOutput
 } from '../../../shared/merge-rules.mjs'
 
@@ -57,6 +62,14 @@ function runFfmpeg(ffmpegPath, args, { signal, onProgress, totalMs }) {
       `ffmpeg 异常退出（code=${code} signal=${termSignal}）args=${args.join(' ')} ：${stderrTail.slice(-300) || '无错误输出'}`
     )
   })
+}
+
+/** 判断实际转码失败是否来自 NVENC 设备、驱动或编码会话，而非输入媒体/滤镜/磁盘错误。 */
+function isNvencRuntimeFailure(error) {
+  const message = String(error?.message ?? error).toLowerCase()
+  return /no nvenc capable devices|no capable devices|cannot load nvcuda|openencodesession|initializeencoder failed|error while opening encoder|failed setup for format cuda|nvenc[\s\S]{0,300}(?:fail|error)|cuda(?:_error)?|too many concurrent|unsupported.*(?:device|encode)|device.*(?:not available|not supported)/.test(
+    message
+  )
 }
 
 /** 确定性临时目录：同一片段集合 + 同一目标参数 → 同一目录，支撑断点续传 */
@@ -108,6 +121,9 @@ async function segmentReady(segment, ffprobePath, expectedMs) {
  * @param {AbortSignal} [options.signal]
  * @param {boolean} [options.nvencEnabled] 是否允许 NVIDIA NVENC 编码加速；不可用时先探测再回退 CPU
  * @param {(ffmpegPath: string) => Promise<{available: boolean, reason?: string}>} [options.probeNvenc]
+ * @param {(dir: string) => Promise<number>} [options.diskFree] 查询指定目录所在卷的可用字节数（测试可注入）
+ * @param {(dir: string) => Promise<string|number>} [options.volumeId] 查询目录所在卷标识（测试可注入）
+ * @param {typeof runFfmpeg} [options.runFfmpegImpl] FFmpeg 执行器（仅测试注入）
  */
 export async function mergeVideos({
   items,
@@ -118,7 +134,10 @@ export async function mergeVideos({
   onProgress,
   signal,
   nvencEnabled = false,
-  probeNvenc = probeNvencCapability
+  probeNvenc = probeNvencCapability,
+  diskFree = diskFreeBytes,
+  volumeId = fileSystemId,
+  runFfmpegImpl = runFfmpeg
 }) {
   const compatibility = checkCompatibility(items)
   const unreadableItems = items.filter((item) => !item.media)
@@ -170,13 +189,125 @@ export async function mergeVideos({
   }
   // 目录包含编码器和源媒体版本，断点缓存不会在不同编码器或源文件变更后混用。
   let workDir = mergeWorkDir(versionedItems, compatibility.target, activeEncoder)
-  await ensureDir(workDir)
-  const outputPath = await ensureUniquePath(join(outputDir, outputName))
+  let outputPath
+  try {
+    await ensureDir(workDir)
+    outputPath = await ensureUniquePath(join(outputDir, outputName))
+  } catch (error) {
+    return {
+      cancelled: false,
+      outputPath: null,
+      verified: false,
+      verifyNote: '合并前检查失败：无法创建临时目录或分配输出路径',
+      transcoded: false,
+      videoEncoder: activeEncoder,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
   // ffmpeg 只写入同目录隐藏暂存文件；避免 Windows 资源管理器在正式 MP4 尚未落盘时
   // 触发缩略图/索引读取，并在验证通过后才以 rename 原子提交。
   const stagingPath = createStagingPath(outputPath)
   const totalMs = items.reduce((sum, item) => sum + (item.media?.durationMs ?? 0), 0)
+  const estimatedBytes = estimateOutputBytes(items, compatibility.compatible)
+  // 输出估算可能低于 CRF/CQ 实际大小；每份产物预留 25% + 最少 64MB，避免临界写满。
+  const reservePerArtifact = Math.ceil(estimatedBytes * 1.25 + 64 * 1024 * 1024)
+  const ensureOutputSpace = async () => {
+    const freeBytes = await diskFree(outputDir)
+    if (freeBytes < reservePerArtifact) {
+      throw new Error(
+        `输出盘可用空间不足，建议预留约 ${(reservePerArtifact / 1024 / 1024).toFixed(0)} MB`
+      )
+    }
+  }
+  if (compatibility.compatible) {
+    try {
+      await ensureOutputSpace()
+    } catch (error) {
+      const code = error?.code
+      const message = error instanceof Error ? error.message : String(error)
+      if (!['ENOSYS', 'ENOTSUP', 'EOPNOTSUPP'].includes(code)) {
+        return {
+          cancelled: false,
+          outputPath: null,
+          verified: false,
+          verifyNote: `合并前检查失败：无法确认输出盘可用空间（${message}）`,
+          transcoded: false,
+          videoEncoder: 'copy',
+          error: message
+        }
+      }
+      onProgress?.(0, '无法读取输出盘可用空间，将由 FFmpeg 在写入时校验')
+    }
+  } else {
+    try {
+      const [tempFreeBytes, outputFreeBytes, tempVolume, outputVolume] = await Promise.all([
+        diskFree(workDir),
+        diskFree(outputDir),
+        volumeId(workDir),
+        volumeId(outputDir)
+      ])
+      const sameVolume = tempVolume === outputVolume
+      const requiredTempBytes = sameVolume ? reservePerArtifact * 2 : reservePerArtifact
+      if (
+        tempFreeBytes < requiredTempBytes ||
+        (!sameVolume && outputFreeBytes < reservePerArtifact)
+      ) {
+        const insufficient = sameVolume
+          ? '临时目录与输出目录所在磁盘'
+          : [
+              ...(tempFreeBytes < reservePerArtifact ? ['系统临时盘'] : []),
+              ...(outputFreeBytes < reservePerArtifact ? ['输出盘'] : [])
+            ].join('、')
+        return {
+          cancelled: false,
+          outputPath: null,
+          verified: false,
+          verifyNote: `合并前检查失败：${insufficient}可用空间不足，转码峰值建议预留约 ${(requiredTempBytes / 1024 / 1024).toFixed(0)} MB`,
+          transcoded: false,
+          videoEncoder: activeEncoder
+        }
+      }
+    } catch (error) {
+      const code = error?.code
+      const message = error instanceof Error ? error.message : String(error)
+      // 仅明确“不支持统计”的文件系统允许降级；权限、断连和路径错误必须直接报告。
+      if (!['ENOSYS', 'ENOTSUP', 'EOPNOTSUPP'].includes(code)) {
+        return {
+          cancelled: false,
+          outputPath: null,
+          verified: false,
+          verifyNote: `合并前检查失败：无法读取临时目录或输出目录的可用空间（${message}）`,
+          transcoded: false,
+          videoEncoder: activeEncoder,
+          error: message
+        }
+      }
+      onProgress?.(0, '无法读取磁盘可用空间，将由 FFmpeg 在写入时校验')
+    }
+  }
+  const transactionPath = createMergeTransactionPath(outputDir)
+  const transaction = {
+    version: 2,
+    state: 'writing',
+    staging: stagingPath,
+    target: outputPath
+  }
+  try {
+    // 先记录写入意图：主进程在 FFmpeg 写暂存期间异常退出时，扫描可安全清理未校验产物。
+    await writeAtomicTextFile(transactionPath, JSON.stringify(transaction))
+  } catch (error) {
+    return {
+      cancelled: false,
+      outputPath: null,
+      verified: false,
+      verifyNote: '合并前检查失败：无法创建输出事务记录',
+      transcoded: false,
+      videoEncoder: activeEncoder,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
   let verified = false
+  let transactionCleanupPending = false
 
   try {
     if (compatibility.compatible) {
@@ -184,7 +315,7 @@ export async function mergeVideos({
       onProgress?.(1, '无重编码拼接中')
       const listPath = join(workDir, 'concat.txt')
       await writeTextFile(listPath, buildConcatList(items.map((item) => item.path)))
-      await runFfmpeg(ffmpegPath, buildConcatCopyArgs(listPath, stagingPath), {
+      await runFfmpegImpl(ffmpegPath, buildConcatCopyArgs(listPath, stagingPath), {
         signal,
         totalMs,
         onProgress: (pct) => onProgress?.(pct, '无重编码拼接中')
@@ -192,21 +323,20 @@ export async function mergeVideos({
     } else {
       // ---- 转码统一后拼接 ----
       const target = compatibility.target
-      let segments = []
-      for (let i = 0; i < items.length; i += 1) {
-        if (signal?.aborted) throw new Error('已取消')
-        const item = items[i]
-        const segment = join(workDir, `seg-${String(i).padStart(3, '0')}.mp4`)
-        const base = Math.round((i / items.length) * 90)
-        const span = Math.round(90 / items.length)
-        // 断点续传：已就绪的中间段直接跳过
-        if (await segmentReady(segment, ffprobePath, item.media?.durationMs ?? 0)) {
-          onProgress?.(base + span, `跳过已完成段 ${i + 1}/${items.length} · ${item.name}`)
-          segments.push(segment)
-          continue
-        }
-        const transcode = (encoder) =>
-          runFfmpeg(
+      const transcodeAll = async (encoder, targetWorkDir) => {
+        const segments = []
+        for (let i = 0; i < items.length; i += 1) {
+          if (signal?.aborted) throw new Error('已取消')
+          const item = items[i]
+          const segment = join(targetWorkDir, `seg-${String(i).padStart(3, '0')}.mp4`)
+          const base = Math.round((i / items.length) * 90)
+          const span = Math.round(90 / items.length)
+          if (await segmentReady(segment, ffprobePath, item.media?.durationMs ?? 0)) {
+            onProgress?.(base + span, `跳过已完成段 ${i + 1}/${items.length} · ${item.name}`)
+            segments.push(segment)
+            continue
+          }
+          await runFfmpegImpl(
             ffmpegPath,
             buildTranscodeArgs(item.path, target, segment, {
               encoder,
@@ -224,14 +354,47 @@ export async function mergeVideos({
                 )
             }
           )
-        // 能力已由独立烟测确认。业务转码失败通常是输入、磁盘、权限或滤镜问题，不能误判 NVENC 后重跑一遍。
-        await transcode(activeEncoder)
-        segments.push(segment)
+          segments.push(segment)
+        }
+        return segments
+      }
+      let segments
+      try {
+        segments = await transcodeAll(activeEncoder, workDir)
+      } catch (error) {
+        const shouldFallbackToCpu =
+          activeEncoder === 'nvenc' && !signal?.aborted && isNvencRuntimeFailure(error)
+        if (!shouldFallbackToCpu) throw error
+        nvencFallbackReason = `实际转码时 NVIDIA NVENC 不可用：${
+          error instanceof Error ? error.message : String(error)
+        }`
+        onProgress?.(0, '⚠ NVIDIA NVENC 转码失败，已自动回退 CPU x264 编码')
+        // CPU 与 NVENC 中间段隔离，避免混用不同编码器产物；失败目录不参与续传，立即清理。
+        const failedNvencWorkDir = workDir
+        activeEncoder = 'cpu'
+        workDir = mergeWorkDir(versionedItems, target, activeEncoder)
+        await permanentDelete(failedNvencWorkDir).catch(() => {})
+        await ensureDir(workDir)
+        segments = await transcodeAll(activeEncoder, workDir)
+      }
+      try {
+        await ensureOutputSpace()
+      } catch (error) {
+        await discardStagedFile(transactionPath).catch(() => {})
+        return {
+          cancelled: false,
+          outputPath: null,
+          verified: false,
+          verifyNote: `拼接前检查失败：${error instanceof Error ? error.message : String(error)}`,
+          transcoded: true,
+          videoEncoder: activeEncoder,
+          ...(nvencFallbackReason ? { nvencFallbackReason } : {})
+        }
       }
       onProgress?.(92, '拼接中')
       const listPath = join(workDir, 'concat.txt')
       await writeTextFile(listPath, buildConcatList(segments))
-      await runFfmpeg(ffmpegPath, buildConcatSegmentsArgs(listPath, stagingPath), {
+      await runFfmpegImpl(ffmpegPath, buildConcatSegmentsArgs(listPath, stagingPath), {
         signal,
         totalMs,
         onProgress: (pct) => onProgress?.(92 + Math.round(pct * 0.07), '拼接中')
@@ -244,6 +407,7 @@ export async function mergeVideos({
     const verify = verifyMergeOutput(outputMedia, items)
     if (!verify.ok) {
       await discardStagedFile(stagingPath).catch(() => {})
+      await discardStagedFile(transactionPath).catch(() => {})
       return {
         cancelled: false,
         outputPath: null,
@@ -254,9 +418,36 @@ export async function mergeVideos({
         ...(nvencFallbackReason ? { nvencFallbackReason } : {})
       }
     }
-    await commitStagedFile(stagingPath, outputPath)
+    await writeAtomicTextFile(
+      transactionPath,
+      JSON.stringify({ ...transaction, state: 'prepared' })
+    )
+    if (!(await installStagedFileIfAbsent(stagingPath, outputPath))) {
+      // 目标由其他进程创建：仅清理本次已校验暂存和日志，绝不触碰该目标文件。
+      await discardStagedFile(stagingPath).catch(() => {})
+      await discardStagedFile(transactionPath).catch(() => {})
+      return {
+        cancelled: false,
+        outputPath: null,
+        verified: false,
+        verifyNote: '输出文件在合并期间被新建，已保留对方文件且未覆盖；请重新执行以生成新名称',
+        transcoded: !compatibility.compatible,
+        videoEncoder: compatibility.compatible ? 'copy' : activeEncoder,
+        ...(nvencFallbackReason ? { nvencFallbackReason } : {})
+      }
+    }
+    // 正式产物已无覆盖落位；后续 journal 更新失败不能把成功合并误报为失败。
     verified = true
-    onProgress?.(100, '完成')
+    try {
+      await writeAtomicTextFile(
+        transactionPath,
+        JSON.stringify({ ...transaction, state: 'installed' })
+      )
+      await discardStagedFile(transactionPath)
+    } catch {
+      transactionCleanupPending = true
+    }
+    onProgress?.(100, transactionCleanupPending ? '完成（恢复记录待清理）' : '完成')
     return {
       cancelled: false,
       outputPath,
@@ -265,14 +456,16 @@ export async function mergeVideos({
         !compatibility.compatible
           ? `（${activeEncoder === 'nvenc' ? 'NVIDIA NVENC 视频编码；解码和缩放由 CPU 完成' : 'CPU x264'}）`
           : ''
-      }`,
+      }${transactionCleanupPending ? '（恢复记录将在下次扫描时清理）' : ''}`,
       transcoded: !compatibility.compatible,
       videoEncoder: compatibility.compatible ? 'copy' : activeEncoder,
       ...(nvencFallbackReason ? { nvencFallbackReason } : {})
     }
   } catch (error) {
-    const cancelled = signal?.aborted || error.message === '已取消'
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const cancelled = signal?.aborted || errorMessage === '已取消'
     await discardStagedFile(stagingPath).catch(() => {})
+    await discardStagedFile(transactionPath).catch(() => {})
     if (cancelled) {
       // 取消：保留中间产物，下次同参数合并可断点续传
       return {
@@ -287,15 +480,18 @@ export async function mergeVideos({
         ...(nvencFallbackReason ? { nvencFallbackReason } : {})
       }
     }
+    const hardLinkUnsupported = error?.code === 'MSD_HARDLINK_UNSUPPORTED'
     return {
       cancelled: false,
       outputPath: null,
       verified: false,
-      verifyNote: '合并失败（已完成的转码段已保留，重新执行可续传）',
+      verifyNote: hardLinkUnsupported
+        ? '合并失败：当前输出文件系统不支持安全的无覆盖提交，请将工作区移至 NTFS、APFS 或其他支持硬链接的文件系统'
+        : '合并失败（已完成的转码段已保留，重新执行可续传）',
       transcoded: !compatibility.compatible,
       videoEncoder: compatibility.compatible ? 'copy' : activeEncoder,
       ...(nvencFallbackReason ? { nvencFallbackReason } : {}),
-      error: error.message
+      error: errorMessage
     }
   } finally {
     // 仅在输出已通过完整校验时清理临时目录；失败/取消保留供断点续传。

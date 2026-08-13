@@ -22,6 +22,13 @@ declare module './merge.mjs' {
     signal?: AbortSignal
     nvencEnabled?: boolean
     probeNvenc?: (ffmpegPath: string) => Promise<{ available: boolean; reason?: string }>
+    diskFree?: (dir: string) => Promise<number>
+    volumeId?: (dir: string) => Promise<string | number>
+    runFfmpegImpl?: (
+      ffmpegPath: string,
+      args: string[],
+      options: { signal?: AbortSignal; onProgress?: (percent: number) => void; totalMs: number }
+    ) => Promise<void>
   }): Promise<MergeResult>
 
   export function deleteMergeSources(

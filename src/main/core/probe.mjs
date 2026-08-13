@@ -8,7 +8,15 @@ import { createLruCache } from './lru-cache.mjs'
  * 打包后二进制在 app.asar.unpacked 中（electron-builder asarUnpack 配置）。
  */
 export function resolveFfprobePath() {
-  const raw = typeof ffprobeStatic === 'string' ? ffprobeStatic : ffprobeStatic.path
+  // ffprobe-static 当前不会提供 Windows ARM64 可执行文件；即使解析到 x64 路径，
+  // 在未安装 x64 仿真组件的设备上只会得到难以理解的 ENOEXEC/UNKNOWN 错误。
+  if (process.platform === 'win32' && process.arch === 'arm64') {
+    throw new Error(
+      '当前随应用分发的 FFprobe 不支持 Windows ARM64，请安装 x64 版本运行，或等待 ARM64 二进制支持。'
+    )
+  }
+  const raw = typeof ffprobeStatic === 'string' ? ffprobeStatic : ffprobeStatic?.path
+  if (!raw) throw new Error('未找到随应用分发的 FFprobe 二进制，请重新安装应用。')
   return raw.replace('app.asar', 'app.asar.unpacked')
 }
 

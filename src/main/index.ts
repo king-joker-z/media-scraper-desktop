@@ -30,7 +30,9 @@ import {
   listDirNames,
   permanentDelete,
   pathExists,
-  setTrashImpl
+  recoverStagedOutputs,
+  setTrashImpl,
+  isStagedOutputName
 } from './core/fs-ops.mjs'
 import { collectFailures } from './core/task-report.mjs'
 import { killAllActiveProcesses, activeProcessCount } from './core/process-registry.mjs'
@@ -751,13 +753,15 @@ function registerIpcHandlers(): void {
   // ---------- 模块二：视频合并 ----------
   ipcMain.handle('merge:scan', async (_event, root: string) => {
     const safeRoot = requireVideoRoot(root)
+    // 恢复断电/强制退出残留的 MP4 backup，清理已被正式输出替代的暂存件。
+    await recoverStagedOutputs(safeRoot).catch(() => [])
     const settings = await settingsStore.get()
-    // 排除本产品生成的合并产物，避免再次参与合并
+    // 排除本产品生成的合并产物和未提交暂存件，避免半成品再次参与合并。
     const videos = (
       await trackScan<PosterVideoItem[]>('扫描视频列表', (onProgress) =>
         listPosterVideos(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
       )
-    ).filter((v) => !isMergeOutputName(v.name))
+    ).filter((v) => !isMergeOutputName(v.name) && !isStagedOutputName(v.name))
     const probed = await taskCenter.run({
       taskId: newTaskId('merge-probe'),
       label: '读取媒体信息',

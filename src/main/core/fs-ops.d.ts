@@ -45,5 +45,14 @@ declare module './fs-ops.mjs' {
   export function listDirNames(dir: string): Promise<string[]>
   export function directRename(from: string, to: string): Promise<string>
   export function diskFreeBytes(dir: string): Promise<number>
+  /** 返回目录所在设备标识，用于判断是否共享磁盘空间池。 */
+  export function fileSystemId(dir: string): Promise<string>
+  export function createMergeTransactionPath(dir: string): string
+  /** 无覆盖地将同目录暂存文件安装为正式产物；目标存在时返回 false。 */
+  export function installStagedFileIfAbsent(staging: string, target: string): Promise<boolean>
+  /** 判断是否为应用生成但尚未提交的 EPUB/PDF/MP4 暂存或备份文件。 */
+  export function isStagedOutputName(name: string): boolean
+  /** 恢复正式产物缺失时的 backup，或清理已被正式产物替代的暂存件。 */
+  export function recoverStagedOutputs(dir: string): Promise<string[]>
   export function ensureDir(dir: string): Promise<string>
 }

@@ -6,6 +6,14 @@ import { runPooled } from './ffmpeg-pool.mjs'
 
 /** ffmpeg 二进制路径：打包后位于 app.asar.unpacked（asarUnpack 配置） */
 export function resolveFfmpegPath() {
+  if (!ffmpegStatic) {
+    const unsupportedArm = process.platform === 'win32' && process.arch === 'arm64'
+    throw new Error(
+      unsupportedArm
+        ? '当前随应用分发的 FFmpeg 不支持 Windows ARM64，请安装 x64 版本运行，或等待 ARM64 二进制支持。'
+        : '未找到随应用分发的 FFmpeg 二进制，请重新安装应用。'
+    )
+  }
   return String(ffmpegStatic).replace('app.asar', 'app.asar.unpacked')
 }
 

@@ -11,6 +11,10 @@ import {
   moveWithCollision,
   pathExists,
   permanentDelete,
+  createMergeTransactionPath,
+  installStagedFileIfAbsent,
+  recoverStagedOutputs,
+  isStagedOutputName,
   removeEmptyDirs,
   renameWithCollision,
   writeTextFile
@@ -229,6 +233,126 @@ test('deleteToTrash 回收站实现抛错时保留文件并向调用方报错', 
     await assert.rejects(() => deleteToTrash(target), /trash unsupported/)
     assert.equal(await pathExists(target), true)
     setTrashImpl(null)
+  })
+})
+
+test('recoverStagedOutputs only restores MP4 files recorded in a merge transaction', async () => {
+  await withTempDir(async (root) => {
+    const staging = join(root, 'merged.msd-new-123e4567-e89b-12d3-a456-426614174001.mp4')
+    const target = join(root, 'merged.mp4')
+    const journal = createMergeTransactionPath(root)
+    const unrelated = join(root, 'unrelated.mp4.msd-backup-123e4567-e89b-12d3-a456-426614174002')
+    await writeFile(staging, 'stale-output')
+    await writeFile(unrelated, 'user-file')
+    await writeFile(journal, JSON.stringify({ version: 2, state: 'prepared', staging, target }))
+
+    const recovered = await recoverStagedOutputs(root)
+    assert.deepEqual(recovered, [target])
+    assert.equal(await readFile(target, 'utf8'), 'stale-output')
+    assert.equal(await pathExists(staging), false)
+    assert.equal(await readFile(unrelated, 'utf8'), 'user-file')
+    assert.equal(await pathExists(journal), false)
+    assert.equal(isStagedOutputName('normal.mp4'), false)
+  })
+})
+
+test('recoverStagedOutputs uses the highest journal state when atomic journal update leaves a backup', async () => {
+  await withTempDir(async (root) => {
+    const staging = join(root, 'merged.msd-new-123e4567-e89b-12d3-a456-426614174004.mp4')
+    const target = join(root, 'merged.mp4')
+    const journal = createMergeTransactionPath(root)
+    const journalBackup = `${journal}.msd-backup-123e4567-e89b-12d3-a456-426614174005`
+    await writeFile(staging, 'verified-output')
+    await writeFile(journal, JSON.stringify({ version: 2, state: 'writing', staging, target }))
+    await writeFile(
+      journalBackup,
+      JSON.stringify({ version: 2, state: 'prepared', staging, target })
+    )
+
+    assert.deepEqual(await recoverStagedOutputs(root), [target])
+    assert.equal(await readFile(target, 'utf8'), 'verified-output')
+    assert.equal(await pathExists(staging), false)
+    assert.equal(await pathExists(journal), false)
+    assert.equal(await pathExists(journalBackup), false)
+  })
+})
+
+test('recoverStagedOutputs removes an unverified writing-stage MP4 transaction', async () => {
+  await withTempDir(async (root) => {
+    const staging = join(root, 'merged.msd-new-123e4567-e89b-12d3-a456-426614174003.mp4')
+    const target = join(root, 'merged.mp4')
+    const journal = createMergeTransactionPath(root)
+    await writeFile(staging, 'partial-output')
+    await writeFile(journal, JSON.stringify({ version: 2, state: 'writing', staging, target }))
+
+    assert.deepEqual(await recoverStagedOutputs(root), [])
+    assert.equal(await pathExists(staging), false)
+    assert.equal(await pathExists(journal), false)
+    assert.equal(await pathExists(target), false)
+  })
+})
+
+test('recoverStagedOutputs preserves an unverified or mismatched MP4 transaction', async () => {
+  await withTempDir(async (root) => {
+    const target = join(root, 'family.mp4')
+    const staging = join(root, 'other.msd-new-123e4567-e89b-12d3-a456-426614174000.mp4')
+    const backup = join(root, 'other.mp4.msd-backup-123e4567-e89b-12d3-a456-426614174001')
+    const journal = createMergeTransactionPath(root)
+    await writeFile(target, 'user-file')
+    await writeFile(staging, 'staging')
+    await writeFile(backup, 'backup')
+    await writeFile(journal, JSON.stringify({ version: 2, state: 'prepared', staging, target }))
+
+    assert.deepEqual(await recoverStagedOutputs(root), [])
+    assert.equal(await readFile(target, 'utf8'), 'user-file')
+    assert.equal(await readFile(staging, 'utf8'), 'staging')
+    assert.equal(await readFile(backup, 'utf8'), 'backup')
+    assert.equal(await pathExists(journal), true)
+  })
+})
+
+test('recoverStagedOutputs preserves a valid prepared transaction when another process owns target', async () => {
+  await withTempDir(async (root) => {
+    const staging = join(root, 'merged.msd-new-123e4567-e89b-12d3-a456-426614174000.mp4')
+    const target = join(root, 'merged.mp4')
+    const journal = createMergeTransactionPath(root)
+    await writeFile(staging, 'our-output')
+    await writeFile(target, 'other-process-output')
+    await writeFile(journal, JSON.stringify({ version: 2, state: 'prepared', staging, target }))
+
+    assert.deepEqual(await recoverStagedOutputs(root), [])
+    assert.equal(await readFile(target, 'utf8'), 'other-process-output')
+    assert.equal(await readFile(staging, 'utf8'), 'our-output')
+    assert.equal(await pathExists(journal), true)
+  })
+})
+
+test('recoverStagedOutputs preserves installed staging that is not the target inode', async () => {
+  await withTempDir(async (root) => {
+    const staging = join(root, 'merged.msd-new-123e4567-e89b-12d3-a456-426614174006.mp4')
+    const target = join(root, 'merged.mp4')
+    const journal = createMergeTransactionPath(root)
+    await writeFile(staging, 'transaction-output')
+    await writeFile(target, 'external-output')
+    await writeFile(journal, JSON.stringify({ version: 2, state: 'installed', staging, target }))
+
+    assert.deepEqual(await recoverStagedOutputs(root), [])
+    assert.equal(await readFile(staging, 'utf8'), 'transaction-output')
+    assert.equal(await readFile(target, 'utf8'), 'external-output')
+    assert.equal(await pathExists(journal), true)
+  })
+})
+
+test('installStagedFileIfAbsent never overwrites a concurrently created target', async () => {
+  await withTempDir(async (root) => {
+    const staging = join(root, 'output.msd-new-123e4567-e89b-12d3-a456-426614174000.mp4')
+    const target = join(root, 'output.mp4')
+    await writeFile(staging, 'merge-output')
+    await writeFile(target, 'user-output')
+
+    assert.equal(await installStagedFileIfAbsent(staging, target), false)
+    assert.equal(await readFile(target, 'utf8'), 'user-output')
+    assert.equal(await readFile(staging, 'utf8'), 'merge-output')
   })
 })
 

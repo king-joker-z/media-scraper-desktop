@@ -1,5 +1,6 @@
 import {
   access,
+  link,
   mkdir,
   readdir,
   readFile,
@@ -12,8 +13,16 @@ import {
 } from 'node:fs/promises'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, dirname, extname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
+
+const MERGE_TRANSACTION_PREFIX = '.msd-merge-transaction-'
+const MERGE_TRANSACTION_RE =
+  /^\.msd-merge-transaction-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}\.json$/i
+const MERGE_TRANSACTION_BACKUP_RE = new RegExp(
+  `^(${MERGE_TRANSACTION_RE.source.slice(1, -1)})\\.msd-backup-[\\da-f]{8}-(?:[\\da-f]{4}-){3}[\\da-f]{12}$`,
+  'i'
+)
 
 /**
  * 执行层唯一写入口：所有模块的删除/移动/改名/写文件必须经由本文件，
@@ -257,6 +266,12 @@ export async function diskFreeBytes(dir) {
   return Number(stats.bavail) * Number(stats.bsize)
 }
 
+/** 返回目录所在文件系统标识，用于判断临时目录与输出目录是否共享空间池。 */
+export async function fileSystemId(dir) {
+  // statfs.type 只代表文件系统类型（如所有 APFS 卷均相同），不能区分具体卷。
+  return String((await stat(dir)).dev)
+}
+
 /** 读取目录条目名；目录不存在返回空数组。 */
 export async function listDirNames(dir) {
   try {
@@ -308,6 +323,41 @@ export async function discardStagedFile(target) {
   await withLockRetry(() => rm(target, { force: true }))
 }
 
+/**
+ * 将同目录暂存文件无覆盖地安装为正式产物。
+ * hard link 的 EEXIST 是原子冲突信号，避免“先检查再 rename”期间覆盖后来创建的用户文件。
+ * 返回 false 表示目标已被其他进程占用，暂存文件仍保留给调用方清理或重试。
+ */
+export async function installStagedFileIfAbsent(staging, target) {
+  try {
+    await withLockRetry(() => link(staging, target))
+  } catch (error) {
+    if (error?.code === 'EEXIST') return false
+    // exFAT/FAT、部分 SMB/NFS/WebDAV 挂载不支持硬链接；不能用 rename 降级，
+    // 否则会重新引入覆盖竞争窗口，故明确交由调用层报告。
+    if (['ENOTSUP', 'EOPNOTSUPP', 'EINVAL'].includes(error?.code)) {
+      const unsupported = new Error('当前文件系统不支持安全的无覆盖输出提交（硬链接不可用）')
+      unsupported.code = 'MSD_HARDLINK_UNSUPPORTED'
+      throw unsupported
+    }
+    // EPERM/EACCES 既可能来自目录 ACL、只读挂载，也可能是网络盘的策略限制；
+    // 不能武断地当成“文件系统不支持”，保留原始权限诊断供调用方如实报告。
+    if (['EPERM', 'EACCES'].includes(error?.code)) {
+      const denied = new Error(`无法在输出目录创建安全硬链接（权限被拒绝：${error.code}）`)
+      denied.code = 'MSD_HARDLINK_PERMISSION_DENIED'
+      throw denied
+    }
+    throw error
+  }
+  try {
+    await discardStagedFile(staging)
+  } catch {
+    // 新目标已原子落位；保留同 inode 的暂存副本，下次安全清理即可，不能把成功安装误报失败。
+    return true
+  }
+  return true
+}
+
 /** 获取文件字节数（不存在时抛出，避免调用方将不完整产物误判成功）。 */
 export async function fileSize(target) {
   return (await stat(target)).size
@@ -328,8 +378,8 @@ export function createFileReadStream(target, options) {
  * Windows 上先将旧产物移至 backup，再落位 staging；任何失败都会优先恢复旧产物，
  * 因此阅读器/同步软件造成的短暂锁定不会导致原书丢失。
  */
-export async function commitStagedFile(staging, target) {
-  const backup = `${target}.msd-backup-${randomUUID()}`
+export async function commitStagedFile(staging, target, { backupPath } = {}) {
+  const backup = backupPath ?? `${target}.msd-backup-${randomUUID()}`
   const hadTarget = await pathExists(target)
   let movedOld = false
   try {
@@ -371,9 +421,69 @@ export async function writeAtomicTextFile(target, content) {
 
 /**
  * 恢复大文件安全替换中因断电/强制退出留下的暂存件。
- * 只识别本应用带 UUID 后缀的 .epub/.pdf 文件：正式文件缺失时恢复 backup，
- * 正式文件存在时清理过期 backup/new，绝不扫描或触碰用户的其他文件。
+ * 仅依据视频合并写入的事务日志恢复，不会仅凭文件名删除或改名用户文件。
+ * 日志、staging、backup 必须都位于同一工作区根目录，且路径命名严格受校验。
  */
+export const isStagedOutputName = (name) =>
+  /^(?:.*\.(?:epub|pdf|mp4))\.msd-(?:new|backup)-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(
+    name
+  ) || /^.*\.msd-new-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}\.(?:epub|pdf|mp4)$/i.test(name)
+
+export function createMergeTransactionPath(dir) {
+  return join(dir, `${MERGE_TRANSACTION_PREFIX}${randomUUID()}.json`)
+}
+
+function stagedEbookInfo(name) {
+  const suffixStyle =
+    /^(.*\.(?:epub|pdf))\.msd-(new|backup)-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.exec(name)
+  if (suffixStyle) return { outputName: suffixStyle[1], kind: suffixStyle[2] }
+  const extensionStyle =
+    /^(.*)\.msd-new-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}(\.(?:epub|pdf))$/i.exec(name)
+  if (extensionStyle) return { outputName: `${extensionStyle[1]}${extensionStyle[2]}`, kind: 'new' }
+  return null
+}
+
+function normalizeComparablePath(path) {
+  const normalized = resolve(path).replace(/\\/g, '/')
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+function isPathInDir(path, dir) {
+  return dirname(normalizeComparablePath(path)) === normalizeComparablePath(dir)
+}
+
+function mergeTransactionInfo(transaction, dir) {
+  const { version, state, staging, target } = transaction ?? {}
+  if (
+    version !== 2 ||
+    !['writing', 'prepared', 'installed'].includes(state) ||
+    ![staging, target].every((path) => typeof path === 'string' && isPathInDir(path, dir)) ||
+    extname(target).toLowerCase() !== '.mp4'
+  ) {
+    return null
+  }
+  const targetName = basename(target)
+  const extension = extname(targetName)
+  const stem = targetName.slice(0, -extension.length)
+  const stagingMatch = new RegExp(
+    `^${escapeRegExp(stem)}\\.msd-new-([\\da-f]{8}(?:-[\\da-f]{4}){3}-[\\da-f]{12})${escapeRegExp(extension)}$`,
+    'i'
+  ).exec(basename(staging))
+  if (!stagingMatch) return null
+  return { state, staging, target }
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function sameFile(left, right) {
+  const [leftStat, rightStat] = await Promise.all([stat(left), stat(right)])
+  // 一些网络/FUSE 文件系统对所有文件报告 ino=0；此时必须保守视为不同文件。
+  if (!leftStat.ino || !rightStat.ino) return false
+  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino
+}
+
 export async function recoverStagedOutputs(dir) {
   let entries
   try {
@@ -382,22 +492,78 @@ export async function recoverStagedOutputs(dir) {
     return []
   }
   const recovered = []
+  const transactions = new Map()
   for (const entry of entries) {
     if (!entry.isFile()) continue
-    const match = /^(.*\.(?:epub|pdf))\.msd-(new|backup)-[\da-f-]+$/i.exec(entry.name)
-    if (!match) continue
-    const [, outputName, kind] = match
+    const backupMatch = MERGE_TRANSACTION_BACKUP_RE.exec(entry.name)
+    if (!MERGE_TRANSACTION_RE.test(entry.name) && !backupMatch) continue
+    const journalPath = join(dir, entry.name)
+    try {
+      const info = mergeTransactionInfo(JSON.parse(await readFile(journalPath, 'utf8')), dir)
+      if (!info) continue
+      // writeAtomicTextFile 更新 journal 时会短暂留下旧 journal 的 backup。
+      // 同一事务只处理状态最高的一份，防止旧 writing 记录误删已验证的 prepared 暂存产物。
+      const canonicalName = backupMatch?.[1] ?? entry.name
+      const candidates = transactions.get(canonicalName) ?? []
+      candidates.push({ info, journalPath, primary: !backupMatch })
+      transactions.set(canonicalName, candidates)
+    } catch {
+      // 不完整/损坏 journal 缺乏足够证据，保留原件以避免误删用户数据。
+    }
+  }
+  const stateRank = { writing: 0, prepared: 1, installed: 2 }
+  for (const candidates of transactions.values()) {
+    const selected = candidates.reduce((best, candidate) => {
+      if (stateRank[candidate.info.state] > stateRank[best.info.state]) return candidate
+      return candidate.primary && !best.primary ? candidate : best
+    })
+    const { info } = selected
+    const discardJournals = async () => {
+      await Promise.all(candidates.map(({ journalPath }) => discardStagedFile(journalPath)))
+    }
+    try {
+      if (info.state === 'writing') {
+        // 写入阶段尚未完成媒体校验，遗留文件绝不作为正式产物恢复。
+        if (await pathExists(info.staging)) await discardStagedFile(info.staging)
+        await discardJournals()
+        continue
+      }
+      if (
+        info.state === 'prepared' &&
+        !(await pathExists(info.target)) &&
+        (await pathExists(info.staging))
+      ) {
+        // 暂存已在写 journal 前校验；安装使用无覆盖原子操作，绝不替换后来出现的文件。
+        if (await installStagedFileIfAbsent(info.staging, info.target)) recovered.push(info.target)
+      }
+      if (await pathExists(info.target)) {
+        if (await pathExists(info.staging)) {
+          // prepared/installed 都可能在 link 落位、unlink 暂存前崩溃；仅同 inode 才可清理。
+          if (await sameFile(info.target, info.staging)) await discardStagedFile(info.staging)
+          else continue // 同名目标由外部创建，保留本事务证据，不做破坏性清理。
+        }
+        await discardJournals()
+      }
+    } catch {
+      // 锁定或权限错误时保留日志和关联文件，下次扫描继续恢复。
+    }
+  }
+  // EPUB/PDF 保持原有的严格 UUID 暂存恢复；MP4 仅接受上方事务日志。
+  for (const entry of entries) {
+    if (!entry.isFile()) continue
+    const staged = stagedEbookInfo(entry.name)
+    if (!staged) continue
     const artifact = join(dir, entry.name)
-    const output = join(dir, outputName)
-    if (kind === 'backup' && !(await pathExists(output))) {
-      try {
+    const output = join(dir, staged.outputName)
+    try {
+      if (staged.kind === 'backup' && !(await pathExists(output))) {
         await withLockRetry(() => rename(artifact, output))
         recovered.push(output)
-      } catch {
-        // 锁定时保留 backup，下次扫描还可继续恢复
+      } else {
+        await discardStagedFile(artifact)
       }
-    } else {
-      await discardStagedFile(artifact)
+    } catch {
+      // 锁定时保留 EPUB/PDF 暂存件，下次扫描可继续恢复。
     }
   }
   return recovered
