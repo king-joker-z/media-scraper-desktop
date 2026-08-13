@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -226,6 +226,65 @@ test('漫画改名支持名称交换，且不留下临时目录', async () => {
     assert.equal(report.failed.length, 0)
     assert.equal(await readFile(join(root, '漫画A', '第1话', 'b.png'), 'utf8'), TINY_PNG.toString())
     assert.equal(await readFile(join(root, '漫画B', '第1话', 'a.png'), 'utf8'), TINY_PNG.toString())
+  })
+})
+
+test('原样 EPUB 合并完成后立即释放源图句柄，Windows 可立刻改名和删除', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '句柄释放漫画')
+    const chapter = join(comic, '第1话')
+    await mkdir(chapter, { recursive: true })
+    const source = join(chapter, '1.png')
+    await writeFile(source, TINY_PNG)
+    const taskCenter = createTaskCenter()
+
+    const report = await mergeComics(root, {
+      relDirs: ['句柄释放漫画'],
+      format: 'epub',
+      raw: true,
+      taskCenter,
+      taskId: 'comic-raw-handle-release',
+      concurrency: 1
+    })
+    assert.equal(report.failed.length, 0)
+    // Windows 上未关闭的 ReadStream 会让 rename/rm 报 EPERM；这里直接验证合并 Promise
+    // resolve 即意味着源图流已 close，后续删源不可能把它扫描成“新增页”。
+    const moved = join(chapter, '1-moved.png')
+    await rename(source, moved)
+    await rm(moved)
+
+    const state = JSON.parse(await readFile(join(comic, '.comic-merge.json'), 'utf8'))
+    assert.deepEqual(state.chapters[0].images, ['第1话/1.png'])
+  })
+})
+
+test('漫画删源仅依据已提交清单，不删除合并后出现的新图片', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '删源快照漫画')
+    const chapter = join(comic, '第1话')
+    await mkdir(chapter, { recursive: true })
+    await writeFile(join(chapter, '1.png'), TINY_PNG)
+    const taskCenter = createTaskCenter()
+    const merged = await mergeComics(root, {
+      relDirs: ['删源快照漫画'],
+      format: 'epub',
+      taskCenter,
+      taskId: 'comic-delete-snapshot-merge',
+      concurrency: 1
+    })
+    assert.equal(merged.failed.length, 0)
+    const newPage = join(chapter, '2.png')
+    await writeFile(newPage, TINY_PNG)
+
+    const deleted = await deleteComicSources(root, {
+      relDirs: ['删源快照漫画'],
+      taskCenter,
+      taskId: 'comic-delete-snapshot-delete',
+      concurrency: 1,
+      deleteFn: async (target) => rm(target, { force: true })
+    })
+    assert.equal(deleted.deletedCount, 1)
+    assert.equal(await readFile(newPage, 'utf8'), TINY_PNG.toString())
   })
 })
 

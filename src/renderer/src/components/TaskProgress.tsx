@@ -96,7 +96,9 @@ function TaskProgress(): React.JSX.Element | null {
                 {finished
                   ? task.type === 'cancelled'
                     ? '已取消'
-                    : '完成'
+                    : task.failed > 0 && task.completed === 0
+                      ? '失败'
+                      : '完成'
                   : indeterminate
                     ? '进行中…'
                     : `${task.completed}/${task.total}`}

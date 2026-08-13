@@ -102,6 +102,8 @@ function MergePage({
     [items]
   )
   const notEnoughSpace = freeBytes > 0 && estimated > freeBytes
+  const unreadableItems = useMemo(() => items.filter((item) => !item.media), [items])
+  const cannotMerge = unreadableItems.length > 0
 
   const execute = async (): Promise<void> => {
     if (!workspace) return
@@ -185,7 +187,10 @@ function MergePage({
             {loading ? '读取中…' : '扫描视频'}
           </button>
           {items.length >= 2 && !result && (
-            <button disabled={merging || notEnoughSpace} onClick={() => setConfirming(true)}>
+            <button
+              disabled={merging || notEnoughSpace || cannotMerge}
+              onClick={() => setConfirming(true)}
+            >
               {merging ? '合并中…' : `执行合并（${items.length} 段）`}
             </button>
           )}
@@ -228,17 +233,21 @@ function MergePage({
                   片段：{items.length} 段 · 总时长 {(totalDurationMs / 60000).toFixed(1)} 分钟
                 </span>
                 <span>
-                  {compatibility.compatible ? (
+                  {cannotMerge ? (
+                    <b className="danger-text">⚠️ 存在无法读取媒体信息的片段，不能安全合并</b>
+                  ) : compatibility.compatible ? (
                     <b className="ok-text">✅ 参数一致，无重编码拼接（快、无损）</b>
                   ) : (
-                    <b className="danger-text">⚠️ 参数不一致，将转码统一后合并</b>
+                    <b className="danger-text">
+                      ⚠️ 参数不一致，将转码统一到最高分辨率代表片段的分辨率与帧率后合并
+                    </b>
                   )}
                 </span>
                 <span>
                   预计输出 {formatBytes(estimated)} · 磁盘可用 {formatBytes(freeBytes)}
                   {notEnoughSpace && <b className="danger-text">（空间不足！）</b>}
                 </span>
-                {!compatibility.compatible && (
+                {!compatibility.compatible && !cannotMerge && (
                   <details>
                     <summary className="muted">
                       查看 {compatibility.reasons.length} 处参数差异
@@ -254,6 +263,13 @@ function MergePage({
             </section>
           )}
 
+          {cannotMerge && (
+            <section className="warning" role="alert">
+              <h3>请先排除无法读取的视频</h3>
+              <p>以下片段无法读取媒体信息，已禁止合并，避免生成异常输出：</p>
+              <p className="muted">{unreadableItems.map((item) => item.name).join('、')}</p>
+            </section>
+          )}
           <p className="muted">
             拖动 ⠿
             调整拼接顺序；点右侧「参与」可将单个视频置灰排除（不参与本次合并），再点恢复。当前参与{' '}
@@ -288,22 +304,51 @@ function MergePage({
             {result.verifyNote}
             {result.transcoded && '（已转码统一参数）'}
           </p>
+          {result.nvencFallbackReason && (
+            <section className="warning merge-nvenc-fallback" role="alert">
+              <h3>已自动回退 CPU 编码</h3>
+              <p>
+                你已开启 NVIDIA NVENC，但本次合并的能力检测未通过，因此没有使用 GPU，已改用 CPU x264
+                完成转码。
+              </p>
+              <p className="muted" style={{ userSelect: 'text' }}>
+                检测原因：{result.nvencFallbackReason}
+              </p>
+            </section>
+          )}
           {result.outputPath && (
             <p className="muted" style={{ userSelect: 'text' }}>
               输出：{result.outputPath}
             </p>
           )}
           {result.error && <p className="danger-text">{result.error}</p>}
-          {result.verified && (
-            <div className="actions">
-              <button className="danger-button" onClick={() => setConfirmingDelete(true)}>
-                删除源视频（{items.length} 个）
-              </button>
-              <button className="secondary" onClick={scan}>
-                保留并刷新列表
-              </button>
-            </div>
-          )}
+          <div className="actions">
+            {result.verified ? (
+              <>
+                <button className="danger-button" onClick={() => setConfirmingDelete(true)}>
+                  删除源视频（{items.length} 个）
+                </button>
+                <button className="secondary" onClick={scan}>
+                  保留并刷新列表
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  disabled={merging || notEnoughSpace || cannotMerge}
+                  onClick={() => {
+                    setResult(null)
+                    setConfirming(true)
+                  }}
+                >
+                  重试合并
+                </button>
+                <button className="secondary" onClick={scan} disabled={merging}>
+                  重新扫描
+                </button>
+              </>
+            )}
+          </div>
         </section>
       )}
 

@@ -39,6 +39,9 @@ const RAW_JPEG_QUALITY = 92
 const COVER_WIDTH = 400
 
 const PDF_DIRECT_EXTS = new Set(['jpg', 'jpeg', 'png'])
+const throwIfAborted = (signal) => {
+  if (signal?.aborted) throw new Error('已取消')
+}
 
 const extOf = (name) => {
   const index = name.lastIndexOf('.')
@@ -295,12 +298,22 @@ export async function mergeOneComic(
 /**
  * 批量合并（TaskCenter 并发，一项一部漫画）。
  * @param {string} root
- * @param {{relDirs: string[], format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, taskCenter: object, taskId: string, concurrency?: number, onProgress?: (progress: {completed: number, total: number, current: string, done?: boolean, cancelled?: boolean}) => void}} options
+ * @param {{relDirs: string[], format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, taskCenter: object, taskId: string, concurrency?: number, signal?: AbortSignal, onProgress?: (progress: {completed: number, total: number, current: string, done?: boolean, cancelled?: boolean}) => void}} options
  * @returns {Promise<import('../../../shared/types').ComicMergeReport>}
  */
 export async function mergeComics(
   root,
-  { relDirs, format, raw = false, rebuild = false, taskCenter, taskId, concurrency = 5, onProgress }
+  {
+    relDirs,
+    format,
+    raw = false,
+    rebuild = false,
+    taskCenter,
+    taskId,
+    concurrency = 5,
+    signal,
+    onProgress
+  }
 ) {
   const startedAt = Date.now()
   const report = { taskId, cancelled: false, format, merged: [], failed: [], durationMs: 0 }
@@ -311,14 +324,15 @@ export async function mergeComics(
   }
 
   // 预先扫描一次以获得稳定的页数总量；这让数千页长漫画能显示实际页进度，而非只显示“第几本”。
-  const plans = await Promise.all(
-    relDirs.map(async (relDir) => {
-      const comic = await scanComic(root, relDir)
-      const update = !rebuild && comic.merged?.format === format
-      const chapters = update ? comic.newChapters : comic.chapters
-      return { relDir, total: chapters.reduce((sum, chapter) => sum + chapter.images.length, 0) }
-    })
-  )
+  const plans = []
+  // 扫描本身也是大量目录 I/O；顺序预扫描既避免抢占资源管理器，又使取消从任务创建前就生效。
+  for (const relDir of relDirs) {
+    throwIfAborted(signal)
+    const comic = await scanComic(root, relDir)
+    const update = !rebuild && comic.merged?.format === format
+    const chapters = update ? comic.newChapters : comic.chapters
+    plans.push({ relDir, total: chapters.reduce((sum, chapter) => sum + chapter.images.length, 0) })
+  }
   const totalPages = plans.reduce((sum, plan) => sum + plan.total, 0)
   const completedByComic = new Map()
   const reportProgress = (relDir, progress) => {
@@ -339,6 +353,7 @@ export async function mergeComics(
     // 单部漫画内部已经顺序处理图片；同时处理多部超大漫画会争抢磁盘与内存。
     // EPUB 至多 2 本并行，PDF 强制单本，优先保证 Windows 的稳定性。
     concurrency: format === 'pdf' ? 1 : Math.min(2, concurrency),
+    signal,
     worker: async (relDir, signal) => {
       if (signal?.aborted) throw new Error('已取消')
       const item = await mergeOneComic(root, relDir, {
@@ -381,14 +396,15 @@ export async function deleteComicSources(
   root,
   { relDirs, taskCenter, taskId, concurrency = 5, deleteFn }
 ) {
-  // 展开为「图片绝对路径」清单（只删清单已覆盖的章节图片，产物/清单/封面保留）
+  // 只依据成功提交的清单构建删除快照，绝不能把删除期间扫描到的残留页/新下载页混入。
   const targets = []
   for (const relDir of relDirs) {
     const comic = await scanComic(root, relDir)
-    const mergedDirs = new Set((comic.merged?.chapters ?? []).map((chapter) => chapter.relDir))
-    for (const chapter of comic.chapters) {
-      if (!mergedDirs.has(chapter.relDir)) continue
-      for (const image of chapter.images) targets.push(join(root, relDir, image))
+    for (const chapter of comic.merged?.chapters ?? []) {
+      for (const image of chapter.images) {
+        const target = join(root, relDir, image)
+        if (await pathExists(target)) targets.push(target)
+      }
     }
   }
 
@@ -400,6 +416,8 @@ export async function deleteComicSources(
     worker: async (target, signal) => {
       if (signal?.aborted) throw new Error('已取消')
       await deleteFn(target)
+      // shell.trashItem 在 Windows 上可能“已移动后仍报锁错误”；删除成功的唯一标准是源路径消失。
+      if (await pathExists(target)) throw new Error('删除后文件仍存在，可能被其他程序占用')
     }
   })
 

@@ -3,8 +3,13 @@ declare module './merge.mjs' {
   import type { TaskCenter } from '../../core/task-center.mjs'
 
   export function mergeWorkDir(
-    items: { path: string }[],
-    target: { width: number; height: number; fps: number; pixFmt: string } | null
+    items: {
+      path: string
+      media?: Pick<MediaInfo, 'sizeBytes' | 'durationMs'> | null
+      sourceMtimeMs?: number
+    }[],
+    target: { width: number; height: number; fps: number; pixFmt: string } | null,
+    encoder?: 'cpu' | 'nvenc'
   ): string
 
   export function mergeVideos(options: {
@@ -15,6 +20,8 @@ declare module './merge.mjs' {
     ffprobePath: string
     onProgress?: (percent: number, stage: string) => void
     signal?: AbortSignal
+    nvencEnabled?: boolean
+    probeNvenc?: (ffmpegPath: string) => Promise<{ available: boolean; reason?: string }>
   }): Promise<MergeResult>
 
   export function deleteMergeSources(

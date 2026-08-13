@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mergeVideos, mergeWorkDir } from '../src/main/modules/merge/merge.mjs'
@@ -87,19 +87,29 @@ test('mergeVideos transcodes incompatible clips to unified params', async () => 
     assert.equal(result.verified, true)
     assert.equal(result.transcoded, true)
     const out = await probeMedia(result.outputPath, resolveFfprobePath())
-    assert.equal(out.width, 320) // 统一到首个片段
-    assert.equal(out.height, 240)
+    assert.equal(out.width, 640) // 保留全组最高分辨率，不被首段低清素材拉低
+    assert.equal(out.height, 480)
     assert.ok(Math.abs(out.durationMs - 4000) < 2000)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
 })
 
-test('mergeWorkDir is deterministic per item set and target', () => {
+test('mergeWorkDir is deterministic per item set, target, encoder and source version', () => {
   const items = [{ path: '/a/1.mp4' }, { path: '/a/2.mp4' }]
+  const versionedItems = [
+    { path: '/a/1.mp4', sourceMtimeMs: 100 },
+    { path: '/a/2.mp4', sourceMtimeMs: 200 }
+  ]
+  const updatedItems = [
+    { path: '/a/1.mp4', sourceMtimeMs: 101 },
+    { path: '/a/2.mp4', sourceMtimeMs: 200 }
+  ]
   const target = { width: 1920, height: 1080, fps: 30, pixFmt: 'yuv420p' }
   assert.equal(mergeWorkDir(items, target), mergeWorkDir(items, target))
   assert.notEqual(mergeWorkDir(items, target), mergeWorkDir([{ path: '/a/9.mp4' }], target))
+  assert.notEqual(mergeWorkDir(items, target, 'nvenc'), mergeWorkDir(items, target, 'cpu'))
+  assert.notEqual(mergeWorkDir(versionedItems, target), mergeWorkDir(updatedItems, target))
 })
 
 test('merge keeps workdir on cancel for resume and cleans on success', async () => {
@@ -117,7 +127,10 @@ test('merge keeps workdir on cancel for resume and cleans on success', async () 
       )
     }
     const target = checkCompatibility(clips).target
-    const workDir = mergeWorkDir(clips, target)
+    const versionedClips = await Promise.all(
+      clips.map(async (clip) => ({ ...clip, sourceMtimeMs: (await stat(clip.path)).mtimeMs }))
+    )
+    const workDir = mergeWorkDir(versionedClips, target, 'cpu')
 
     // 第一次：中途取消 → 临时目录保留
     const abort = new AbortController()
@@ -128,7 +141,8 @@ test('merge keeps workdir on cancel for resume and cleans on success', async () 
       outputName: 'out.mp4',
       ffmpegPath: resolveFfmpegPath(),
       ffprobePath: resolveFfprobePath(),
-      signal: abort.signal
+      signal: abort.signal,
+      nvencEnabled: false
     })
     assert.equal(first.cancelled, true)
     assert.equal(await pathExists(workDir), true)
@@ -139,10 +153,148 @@ test('merge keeps workdir on cancel for resume and cleans on success', async () 
       outputDir: dir,
       outputName: 'out.mp4',
       ffmpegPath: resolveFfmpegPath(),
-      ffprobePath: resolveFfprobePath()
+      ffprobePath: resolveFfprobePath(),
+      nvencEnabled: false
     })
     assert.equal(second.verified, true)
     assert.equal(await pathExists(workDir), false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos refuses to merge items with unreadable media information', async () => {
+  const result = await mergeVideos({
+    items: [
+      { path: '/not-used/a.mp4', name: '正常', media: null },
+      { path: '/not-used/b.mp4', name: '异常', media: null }
+    ],
+    outputDir: tmpdir(),
+    outputName: 'never-created.mp4',
+    ffmpegPath: resolveFfmpegPath(),
+    ffprobePath: resolveFfprobePath()
+  })
+  assert.equal(result.verified, false)
+  assert.match(result.verifyNote, /合并前检查失败/)
+  assert.equal(result.error, '正常、异常')
+})
+
+test('mergeVideos falls back to CPU when NVENC capability probe rejects', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { size: '640x480' }))
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'probe-error.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      nvencEnabled: true,
+      probeNvenc: async () => {
+        throw new Error('探测器异常')
+      }
+    })
+    assert.equal(result.verified, true)
+    assert.equal(result.videoEncoder, 'cpu')
+    assert.match(result.nvencFallbackReason, /探测器异常/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos transcodes a silent clip by adding a compatible silent audio track', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const silent = await probeItem(
+      await makeClip(join(dir, 'silent.mp4'), { size: '320x240', withAudio: false })
+    )
+    const voiced = await probeItem(await makeClip(join(dir, 'voiced.mp4'), { size: '640x480' }))
+    const result = await mergeVideos({
+      items: [silent, voiced],
+      outputDir: dir,
+      outputName: 'mixed-audio.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath()
+    })
+    assert.equal(result.verified, true)
+    const output = await probeMedia(result.outputPath, resolveFfprobePath())
+    assert.equal(output.audioCodec, 'aac')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos falls back to CPU only when NVENC capability probe fails', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { size: '640x480' }))
+    let probeCount = 0
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'fallback.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      nvencEnabled: true,
+      probeNvenc: async () => {
+        probeCount += 1
+        return { available: false, reason: '未检测到 NVENC' }
+      }
+    })
+    assert.equal(probeCount, 1)
+    assert.equal(result.verified, true)
+    assert.equal(result.videoEncoder, 'cpu')
+    assert.equal(result.nvencFallbackReason, '未检测到 NVENC')
+    assert.match(result.verifyNote, /CPU x264/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos does not probe NVENC for stream-copy merges', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4')))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4')))
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'copy.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      nvencEnabled: true,
+      probeNvenc: async () => {
+        throw new Error('无重编码拼接不应探测 NVENC')
+      }
+    })
+    assert.equal(result.verified, true)
+    assert.equal(result.transcoded, false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos 在验证通过前不暴露正式输出文件', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { seconds: 2 }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { seconds: 2 }))
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'staged.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath()
+    })
+    assert.equal(result.verified, true)
+    assert.equal(await pathExists(join(dir, 'staged.mp4')), true)
+    const entries = await readdir(dir)
+    assert.equal(
+      entries.some((name) => name.startsWith('staged.msd-new-')),
+      false
+    )
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

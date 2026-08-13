@@ -41,6 +41,13 @@ test('runPooled abort 后进程被终止且 reject AbortError', async () => {
   })
 })
 
+test('spawnManaged 处理 spawn error 后注册表清空', async () => {
+  const before = activeProcessCount()
+  await assert.rejects(() => spawnManaged('__msd_missing_command__', []))
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(activeProcessCount(), before)
+})
+
 test('spawnManaged 完成后注册表清空', async () => {
   const before = activeProcessCount()
   const { code } = await spawnManaged(node, ['-e', 'process.exit(0)'])

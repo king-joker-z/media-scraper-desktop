@@ -30,6 +30,7 @@ export const PROVIDER_PRESETS = [
 
 export const THEME_OPTIONS = ['system', 'light', 'dark']
 export const THEME_PALETTE_OPTIONS = ['ocean', 'violet', 'forest', 'sunset']
+const DEFAULT_NVENC_ENABLED = process.platform === 'win32'
 
 /** 最近工作区最多记忆条数 */
 export const MAX_RECENT_WORKSPACES = 8
@@ -58,6 +59,7 @@ export const DEFAULT_SETTINGS = {
   concurrency: DEFAULT_CONCURRENCY,
   scanConcurrency: DEFAULT_SCAN_CONCURRENCY,
   ffmpegPoolSize: DEFAULT_FFMPEG_POOL_SIZE,
+  nvencEnabled: DEFAULT_NVENC_ENABLED,
   theme: 'system',
   themePalette: 'ocean',
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
@@ -145,6 +147,13 @@ export function normalizeSettings(raw) {
       input.scanConcurrency ?? DEFAULT_SETTINGS.scanConcurrency
     ),
     ffmpegPoolSize: clampFfmpegPoolSize(input.ffmpegPoolSize ?? DEFAULT_SETTINGS.ffmpegPoolSize),
+    // 兼容上一版本的三态编码器设置：仅显式 cpu 等价于关闭；其余模式跟随平台默认。
+    nvencEnabled:
+      typeof input.nvencEnabled === 'boolean'
+        ? input.nvencEnabled
+        : input.videoEncoder === 'cpu'
+          ? false
+          : DEFAULT_SETTINGS.nvencEnabled,
     theme: THEME_OPTIONS.includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     themePalette: THEME_PALETTE_OPTIONS.includes(input.themePalette)
       ? input.themePalette

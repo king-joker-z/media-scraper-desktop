@@ -50,6 +50,7 @@ src/renderer/           ← React UI：无 Node 权限，一切经 window.api
 8. **进程注册表**（`core/process-registry.mjs`）：全部子进程经 `trackChild` 登记，取消/退出时统一收尾——POSIX 发 SIGTERM、Windows 向 stdin 写 `q`（ffmpeg 优雅退出，来得及写 mp4 moov），宽限期后兜底 SIGKILL。`before-quit` 轮询等活跃进程归零（上限 3s）再强杀。
 9. **LRU 有界缓存**（`core/lru-cache.mjs`）：probe 缓存、AI 命名缓存、文件哈希缓存统一用 `createLruCache(cap)`，防长期使用后 Map 无界增长。
 10. **漫画合并与追更**（`modules/comic/`）：工作区一级目录为漫画、子目录为章节，按数字感知自然顺序打包 EPUB/PDF；`.comic-merge.json` 保存章节快照，只有新增章节时增量追加，已有章节变更或切换格式必须全量重建。EPUB 通过 `yazl` / `yauzl` 按页流式创建、增量时流式复制旧条目，避免数千页图片/整书 ZIP 同时驻留内存；原样 EPUB 直接流式收录源图。产物必须经暂存写入与结构校验后才安全替换，扫描会恢复断电遗留的备份。默认优化为限宽 1600 + mozjpeg q85；PDF 使用 `pdf-lib`，仍为全量加载/保存模型，因此超大 PDF 合并限制为单本并行。合并完成后可删除已纳入清单的源图，隐藏封面 `.comic-cover.jpg` 与清单保留以支持漫画库和后续追更。
+11. **视频合并与 NVENC**（`modules/merge/merge.mjs` + `core/nvenc.mjs`）：仅在参数不一致需转码时使用硬件编码；Windows 默认允许 NVENC、macOS 默认关闭。先以随包 FFmpeg 做实际 `h264_nvenc` 烟测，失败/异常回退 CPU x264，并在进度和结果 UI 显示回退原因。目标取最高分辨率代表片段的尺寸与 FPS，固定 H.264 输出 `yuv420p`；无媒体信息的片段拒绝执行，无声段补 AAC 静音轨。断点目录键必须包含编码器、目标、源路径/大小/时长与执行前 mtime；暂存输出的删除也必须走 `fs-ops` 锁重试。
 
 ## 目录速查
 
@@ -92,7 +93,7 @@ src/renderer/           ← React UI：无 Node 权限，一切经 window.api
 - **Windows 瞬态文件锁**：杀软/索引器会短暂锁住刚写入的文件，`fs-ops.mjs` 的 `withLockRetry` 已对删除/移动/安全替换做重试。大 EPUB/PDF 不得直接覆盖目标：必须使用同目录 `.msd-new-*` 暂存、校验后将旧产物移至 `.msd-backup-*`、再落位新产物；失败优先恢复旧产物，扫描时通过 `recoverStagedOutputs()` 处理断电残留。
 - **图片缓存**：封面保存是同路径覆盖写，渲染端 `<img>` 需配合 URL 版本参数 + 协议层 `no-store`，否则显示旧图。漫画删源后依赖 `.comic-cover.jpg` 继续在漫画库显示封面。
 - **macOS 隔离属性**：本机下载的 DMG 首次打开可能报「已损坏」，属 Gatekeeper quarantine（ad-hoc 签名），`xattr -cr` 可解。
-- **合并断点续传**：中间段就绪判定必须校验时长（±1s），否则上次取消留下的截断段会被误判为可复用，导致输出时长校验失败。
+- **合并断点续传**：中间段就绪判定必须校验时长（±1s），否则上次取消留下的截断段会被误判为可复用，导致输出时长校验失败；缓存键还必须包含每个源文件执行前读取的 mtime，防原路径覆盖但大小/时长相同的素材复用旧段。
 - **合并产物再参与合并**：扫描合并候选时必须用 `isMergeOutputName` 排除 `*-merged.mp4`。
 - **漫画增量边界**：增量仅支持「新增完整章节」。已合并章节增删图片、调整顺序、切换 EPUB/PDF、改变图片优化策略时必须全量重建；删源后新增章节仍可追加，旧章节由现有产物保留。EPUB 增量是流式重建容器并复制旧条目，不是直接在旧 ZIP 尾部追加；PDF 的 `pdf-lib` 增量会重写整份文档，不适合超大漫画。
 - **CI artifact 配额**：私有仓 Actions 存储有限，workflow 已加「只保留最新 4 个 artifact」修剪步骤 + 7 天过期；新增上传步骤时沿用 `retention-days` 并不要删修剪步骤。
@@ -106,3 +107,4 @@ src/renderer/           ← React UI：无 Node 权限，一切经 window.api
 - artifact 配额保护：仅保留最新 4 个 + `retention-days: 7`，每个构建 job 末尾自动修剪旧 artifact。
 - 打 `v*` tag → 构建产物自动上传 GitHub Release（`--publish always`）；分支/PR 构建显式 `--publish never`，防撞同名草稿 Release 资产 422。
 - macOS 当前为 ad-hoc 签名（`identity: null`），无公证；Windows NSIS 为辅助安装模式（可选路径），图标 `build/icon.ico`。
+- 每次功能变更完成后：先运行 `lint`、`typecheck`、`test`；若开发实例未运行则以 `unset ELECTRON_RUN_AS_NODE && npm run dev` 本地启动供用户测试。用户明确要求发布时，在验证通过后以中文提交信息提交并推送当前分支到 GitHub，触发对应 Actions 构建；不得跳过 hooks 或强推。

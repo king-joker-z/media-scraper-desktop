@@ -157,6 +157,12 @@ test('theme, palette and recentWorkspaces persist and reload', async () => {
   })
 })
 
+test('NVENC 开关尊重显式值，并兼容旧版 CPU 关闭设置', () => {
+  assert.equal(normalizeSettings({ nvencEnabled: true }).nvencEnabled, true)
+  assert.equal(normalizeSettings({ nvencEnabled: false }).nvencEnabled, false)
+  assert.equal(normalizeSettings({ videoEncoder: 'cpu' }).nvencEnabled, false)
+})
+
 test('invalid palette falls back to ocean', () => {
   assert.equal(normalizeSettings({ themePalette: 'unknown' }).themePalette, 'ocean')
 })

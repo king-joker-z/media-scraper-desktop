@@ -8,6 +8,7 @@ declare module './ffmpeg-pool.mjs' {
     signal?: AbortSignal
     maxBuffer?: number
     killGraceMs?: number
+    gracefulQuit?: 'ffmpeg' | 'none'
   }
 
   /** 设置池大小（运行时动态调整） */
@@ -40,6 +41,7 @@ declare module './ffmpeg-pool.mjs' {
     onStdout?: (text: string) => void
     onStderr?: (text: string) => void
     killGraceMs?: number
+    gracefulQuit?: 'ffmpeg' | 'none'
   }
 
   export interface SpawnResult {

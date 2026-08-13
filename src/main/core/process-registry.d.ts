@@ -5,6 +5,8 @@ declare module './process-registry.mjs' {
     signal?: AbortSignal
     /** abort 后 SIGTERM 的宽限期（毫秒），超时升级 SIGKILL，默认 800 */
     killGraceMs?: number
+    /** Windows 下仅 ffmpeg 通过 stdin q 优雅收尾；其他子进程直接终止。 */
+    gracefulQuit?: 'ffmpeg' | 'none'
   }
 
   /** 注册子进程并挂接生命周期清理（退出即移除引用，abort 时 TERM→KILL 兜底） */

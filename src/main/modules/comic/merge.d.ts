@@ -31,6 +31,7 @@ declare module './merge.mjs' {
       taskCenter: TaskCenter
       taskId: string
       concurrency?: number
+      signal?: AbortSignal
       onProgress?: (progress: {
         completed: number
         total: number

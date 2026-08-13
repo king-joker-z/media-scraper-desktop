@@ -105,7 +105,11 @@ function drainQueue() {
  * 池限流的 execFile：获取许可后执行，完成后释放。
  * 与 execManaged 接口一致（收集 stdout/stderr、signal 可取消、进程注册管理）。
  */
-export function runPooled(cmd, args, { signal, maxBuffer = 16 * 1024 * 1024, killGraceMs } = {}) {
+export function runPooled(
+  cmd,
+  args,
+  { signal, maxBuffer = 16 * 1024 * 1024, killGraceMs, gracefulQuit = 'none' } = {}
+) {
   return acquire({ signal }).then(() => {
     return new Promise((resolve, reject) => {
       let child
@@ -130,7 +134,7 @@ export function runPooled(cmd, args, { signal, maxBuffer = 16 * 1024 * 1024, kil
         reject(error)
         return
       }
-      trackChild(child, { signal, killGraceMs })
+      trackChild(child, { signal, killGraceMs, gracefulQuit })
     })
   })
 }
@@ -140,10 +144,20 @@ export function runPooled(cmd, args, { signal, maxBuffer = 16 * 1024 * 1024, kil
  * 与 runPooled 共用同一许可池，保证「同时运行的 ffmpeg 进程数 ≤ 池大小」
  * 对所有执行路径一致成立；排队等待同样响应 signal 取消。
  */
-export async function spawnPooled(cmd, args, { signal, onStdout, onStderr, killGraceMs } = {}) {
+export async function spawnPooled(
+  cmd,
+  args,
+  { signal, onStdout, onStderr, killGraceMs, gracefulQuit = 'none' } = {}
+) {
   await acquire({ signal })
   try {
-    return await spawnManaged(cmd, args, { signal, onStdout, onStderr, killGraceMs })
+    return await spawnManaged(cmd, args, {
+      signal,
+      onStdout,
+      onStderr,
+      killGraceMs,
+      gracefulQuit
+    })
   } finally {
     release()
   }

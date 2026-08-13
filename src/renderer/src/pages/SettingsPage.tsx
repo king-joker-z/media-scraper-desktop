@@ -267,6 +267,24 @@ function SettingsPage(): React.JSX.Element {
       </section>
 
       <section className="settings-card">
+        <h2>视频硬件转码加速</h2>
+        <p className="muted">
+          仅在视频参数不一致、必须转码时生效。启用后会先验证 NVIDIA NVENC 可用性；FFmpeg、驱动或显卡
+          不支持时自动使用 CPU x264。仅视频编码由 GPU 加速，解码、缩放和补边仍由 CPU 完成；Windows
+          默认开启，macOS 默认关闭；素材参数一致时始终无重编码拼接。
+        </p>
+        <label className="confirm-check">
+          <input
+            className="check-input"
+            type="checkbox"
+            checked={settings.nvencEnabled}
+            onChange={(event) => persist({ nvencEnabled: event.target.checked })}
+          />
+          <span className="muted">启用 NVIDIA NVENC 硬件加速</span>
+        </label>
+      </section>
+
+      <section className="settings-card">
         <h2>删除方式</h2>
         <p className="muted">
           清理/去重/合并删源等用户数据删除默认移入系统回收站（误删可恢复）；关闭后为永久删除。

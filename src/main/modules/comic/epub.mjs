@@ -1,7 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import yazl from 'yazl'
 import yauzl from 'yauzl'
-import { writeReadableFile } from '../../core/fs-ops.mjs'
+import { createFileReadStream, writeReadableFile } from '../../core/fs-ops.mjs'
 
 /**
  * EPUB 3 漫画书构建器。
@@ -132,14 +132,45 @@ function addBookMetadata(zip, { title, chapterRanges, imageItems, pageCount }) {
   )
 }
 
+const waitForStreamClose = (stream) =>
+  new Promise((resolve) => {
+    if (stream.closed) {
+      resolve()
+      return
+    }
+    stream.once('close', resolve)
+  })
+
+/**
+ * 以受控 ReadStream 将原图交给 yazl。yazl 的 addFile 会在内部创建不可见的流，
+ * 取消/写入失败时无法由调用方主动关闭；Windows 因而可能短暂甚至持续锁住源图。
+ */
+function addSourceFile(zip, sourcePath, imagePath, activeStreams) {
+  zip.addReadStreamLazy(imagePath, { compress: false }, (callback) => {
+    const stream = createFileReadStream(sourcePath)
+    activeStreams.add(stream)
+    stream.once('close', () => activeStreams.delete(stream))
+    stream.once('error', (error) => zip.outputStream.destroy(error))
+    callback(null, stream)
+  })
+}
+
 async function writeZip(outputPath, populate) {
   const zip = new yazl.ZipFile()
+  const activeStreams = new Set()
+  // yazl 仅 emit error，不会自动销毁 outputStream；没有监听器会变成未处理的 EventEmitter 错误。
+  zip.on('error', (error) => zip.outputStream.destroy(error))
   const writing = writeReadableFile(outputPath, zip.outputStream)
   try {
-    await populate(zip)
+    await populate(zip, activeStreams)
     zip.end()
     await writing
+    await Promise.all([...activeStreams].map(waitForStreamClose))
   } catch (error) {
+    // 先中止全部输入流并等待 close，再销毁 ZIP 输出流；避免 Windows 上暂存清理/删源
+    // 紧随异常发生时仍有某张原图被 yazl 的读取链持有句柄。
+    for (const stream of activeStreams) stream.destroy(error)
+    await Promise.all([...activeStreams].map(waitForStreamClose))
     zip.outputStream.destroy(error)
     await writing.catch(() => {})
     throw error
@@ -161,7 +192,8 @@ async function addChapters(
     onProgress,
     totalPages,
     initialRanges = [],
-    initialImages = []
+    initialImages = [],
+    activeStreams
   }
 ) {
   const chapterRanges = [...initialRanges]
@@ -178,8 +210,9 @@ async function addChapters(
       completedPages += 1
       const id = pageId(pageIndex)
       const imagePath = `OEBPS/images/${id}.${prepared.ext}`
-      // 原样模式仅登记源文件路径，yazl 在输出阶段按需读取，避免将数千张原图堆入 JS 堆。
-      if (prepared.sourcePath) zip.addFile(prepared.sourcePath, imagePath, { compress: false })
+      // 原样模式按需读取源图，并追踪每条 ReadStream；失败或取消时必须先等待 close，
+      // 才能在 Windows 上安全删除源图或暂存产物。
+      if (prepared.sourcePath) addSourceFile(zip, prepared.sourcePath, imagePath, activeStreams)
       else zip.addBuffer(prepared.data, imagePath, { compress: false })
       zip.addBuffer(
         metadataBuffer(pageXhtml(id, prepared.ext, prepared.width, prepared.height, title)),
@@ -203,7 +236,7 @@ export async function createEpubFile({
   onProgress
 }) {
   const totalPages = chapters.reduce((sum, chapter) => sum + chapter.pages.length, 0)
-  await writeZip(outputPath, async (zip) => {
+  await writeZip(outputPath, async (zip, activeStreams) => {
     addBookPreamble(zip)
     const result = await addChapters(zip, {
       title,
@@ -211,7 +244,8 @@ export async function createEpubFile({
       preparePage,
       signal,
       onProgress,
-      totalPages
+      totalPages,
+      activeStreams
     })
     addBookMetadata(zip, { title, ...result })
   })
@@ -225,41 +259,54 @@ function listZipEntries(sourcePath) {
       (error, zip) => {
         if (error) return reject(error)
         const entries = []
-        zip.on('error', reject)
+        let settled = false
+        const fail = (reason) => {
+          if (settled) return
+          settled = true
+          zip.close()
+          reject(reason)
+        }
+        zip.once('error', fail)
         zip.on('entry', (entry) => {
-          if (/\/$/.test(entry.fileName)) {
+          try {
+            if (!/\/$/.test(entry.fileName)) entries.push(entry)
             zip.readEntry()
-            return
+          } catch (reason) {
+            fail(reason)
           }
-          entries.push(entry)
-          zip.readEntry()
         })
-        zip.on('end', () => resolve({ zip, entries }))
-        zip.readEntry()
+        zip.once('end', () => {
+          if (settled) return
+          settled = true
+          resolve({ zip, entries })
+        })
+        try {
+          zip.readEntry()
+        } catch (reason) {
+          fail(reason)
+        }
       }
     )
   })
 }
 
-function addExistingEntry(zip, sourceZip, entry) {
-  return new Promise((resolve, reject) => {
-    zip.addReadStreamLazy(
-      entry.fileName,
-      { compress: false, size: entry.uncompressedSize },
-      (callback) => {
-        sourceZip.openReadStream(entry, (error, stream) => {
-          if (error) {
-            callback(error)
-            reject(error)
-            return
-          }
-          stream.once('error', reject)
-          stream.once('end', resolve)
-          callback(null, stream)
-        })
-      }
-    )
-  })
+function addExistingEntry(zip, sourceZip, entry, activeStreams) {
+  zip.addReadStreamLazy(
+    entry.fileName,
+    { compress: false, size: entry.uncompressedSize },
+    (callback) => {
+      sourceZip.openReadStream(entry, (error, stream) => {
+        if (error) {
+          callback(error)
+          return
+        }
+        activeStreams.add(stream)
+        stream.once('close', () => activeStreams.delete(stream))
+        stream.once('error', (reason) => zip.outputStream.destroy(reason))
+        callback(null, stream)
+      })
+    }
+  )
 }
 
 /**
@@ -299,7 +346,7 @@ export async function appendEpubFile({
   }
   const totalPages = oldPages + newChapters.reduce((sum, chapter) => sum + chapter.pages.length, 0)
   try {
-    await writeZip(outputPath, async (zip) => {
+    await writeZip(outputPath, async (zip, activeStreams) => {
       addBookPreamble(zip)
       for (const entry of entries) {
         throwIfAborted(signal)
@@ -311,7 +358,7 @@ export async function appendEpubFile({
         ) {
           continue
         }
-        await addExistingEntry(zip, sourceZip, entry)
+        addExistingEntry(zip, sourceZip, entry, activeStreams)
       }
       const result = await addChapters(zip, {
         title,
@@ -322,7 +369,8 @@ export async function appendEpubFile({
         onProgress,
         totalPages,
         initialRanges,
-        initialImages: oldImages
+        initialImages: oldImages,
+        activeStreams
       })
       addBookMetadata(zip, { title, ...result })
     })

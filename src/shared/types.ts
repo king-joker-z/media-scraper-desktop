@@ -135,6 +135,8 @@ export interface AppSettings {
   scanConcurrency: number
   /** FFmpeg/FFprobe 进程池大小，1-8，默认 4（限制同时运行的媒体处理进程数） */
   ffmpegPoolSize: number
+  /** 启用 NVIDIA NVENC 视频转码加速（Windows 默认开，macOS 默认关） */
+  nvencEnabled: boolean
   /** 界面主题，默认跟随系统 */
   theme: ThemeMode
   /** 界面强调色方案，默认海洋蓝 */
@@ -335,7 +337,7 @@ export interface MergeCompatibility {
   compatible: boolean
   /** 不兼容原因（中文可读） */
   reasons: string[]
-  /** 转码统一目标参数（取首个片段） */
+  /** 转码统一目标参数（取最高分辨率代表片段的分辨率与帧率） */
   target: {
     width: number
     height: number
@@ -360,6 +362,10 @@ export interface MergeResult {
   /** 校验结论描述 */
   verifyNote: string
   transcoded: boolean
+  /** 本次视频路径：copy 为无重编码拼接；cpu/nvenc 为统一参数转码 */
+  videoEncoder?: 'copy' | 'cpu' | 'nvenc'
+  /** 用户开启 NVENC 但能力探测失败时的回退原因；供 UI 明确警示 */
+  nvencFallbackReason?: string
   error?: string
 }
 

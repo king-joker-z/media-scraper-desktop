@@ -789,6 +789,7 @@ function registerIpcHandlers(): void {
         const emit = (type: TaskEvent['type'], percent: number, stage: string): void =>
           emitTask(taskId, '视频合并', { type, total: 100, completed: percent, current: stage })
         emit('start', 0, '准备合并')
+        const settings = await settingsStore.get()
         const result = await mergeVideos({
           items: items.map((item) => ({ path: item.path, name: item.name, media: item.media })),
           outputDir: safeRoot,
@@ -796,9 +797,22 @@ function registerIpcHandlers(): void {
           ffmpegPath: resolveFfmpegPath(),
           ffprobePath: resolveFfprobePath(),
           signal,
+          nvencEnabled: settings.nvencEnabled,
           onProgress: (percent, stage) => emit('progress', percent, stage)
         })
-        emit(result.cancelled ? 'cancelled' : 'done', 100, result.verifyNote)
+        if (result.cancelled) {
+          emit('cancelled', 100, result.verifyNote)
+        } else if (result.verified) {
+          emit('done', 100, result.verifyNote)
+        } else {
+          emitTask(taskId, '视频合并', {
+            type: 'done',
+            total: 100,
+            completed: 0,
+            failed: 1,
+            current: result.error || result.verifyNote
+          })
+        }
         return result
       })
   )
@@ -918,7 +932,7 @@ function registerIpcHandlers(): void {
       format: ComicFormat,
       options: { raw?: boolean; rebuild?: boolean } = {}
     ) =>
-      runExclusive('comic-mutate', '漫画工作区操作', async (taskId) => {
+      runExclusiveAbort('comic-mutate', '漫画工作区操作', async (signal, taskId) => {
         const safeRoot = requireComicRoot(root)
         relDirs.forEach((relDir) => requireComicDir(safeRoot, relDir))
         const settings = await settingsStore.get()
@@ -930,6 +944,7 @@ function registerIpcHandlers(): void {
           taskCenter,
           taskId,
           concurrency: settings.concurrency,
+          signal,
           onProgress: ({ completed, total, current, done, cancelled }) => {
             emitTask(`${taskId}-pages`, '漫画页处理进度', {
               type: cancelled ? 'cancelled' : done ? 'done' : 'progress',
@@ -950,7 +965,7 @@ function registerIpcHandlers(): void {
         return report
       })
   )
-  ipcMain.handle('comic:cancel', async () => cancelSlot('comic-mutate'))
+  ipcMain.handle('comic:cancel', async () => abortSlot('comic-mutate'))
   ipcMain.handle(
     'comic:rename',
     async (_event, root: string, items: Array<{ relDir: string; newName: string }>) =>
@@ -1137,7 +1152,8 @@ app.whenReady().then(async () => {
 })
 
 // 退出前收尾：取消全部在途任务（在途 ffmpeg 经 AbortSignal 被杀），
-// 强杀残留子进程防死占用，自动清理截帧缓存与合并临时目录（操作日志保留不自动清），完成后退出
+// 强杀残留子进程防死占用。合并断点目录必须保留，避免退出时大量递归 I/O 争用，
+// 并维持「取消后可续传」语义；用户可在存储管理中显式清理。
 let quitting = false
 app.on('before-quit', (event) => {
   if (quitting || installingUpdate) return
@@ -1158,7 +1174,7 @@ app.on('before-quit', (event) => {
       // 兜底强杀残留子进程（ffmpeg/ffprobe），防退出后孤儿进程死占用 CPU/内存
       if (activeProcessCount() > 0) killAllActiveProcesses()
     }
-    await Promise.all([cleanFramesCache(), cleanMergeTempDirs()])
+    await cleanFramesCache()
     app.quit()
   })()
 })

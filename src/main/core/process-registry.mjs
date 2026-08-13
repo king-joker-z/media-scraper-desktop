@@ -18,20 +18,23 @@ const KILL_GRACE_MS = 1500
  * @param {object} [options]
  * @param {AbortSignal} [options.signal]
  * @param {number} [options.killGraceMs]
+ * @param {'ffmpeg'|'none'} [options.gracefulQuit] Windows 下是否通过 stdin 发送 ffmpeg 的 q 命令
  */
-export function trackChild(child, { signal, killGraceMs = KILL_GRACE_MS } = {}) {
+export function trackChild(
+  child,
+  { signal, killGraceMs = KILL_GRACE_MS, gracefulQuit = 'none' } = {}
+) {
   activeChildren.add(child)
   let killTimer = null
   const onAbort = () => {
     let gracefulGraceMs = killGraceMs
-    if (process.platform === 'win32') {
-      // Windows 上 POSIX 信号全部退化为 TerminateProcess 强杀，ffmpeg 没有收尾机会
-      // （mp4 moov atom 写不出 → 输出文件损坏）。ffmpeg 唯一跨平台优雅退出途径是
-      // 监听 stdin 的 'q' 命令，写出尾部索引后自行正常退出；写失败（非 ffmpeg 进程）无碍，
-      // 由下方强杀定时器兜底。优雅路径需要更长的收尾窗口（写 moov 可能数百 ms）。
+    if (process.platform === 'win32' && gracefulQuit === 'ffmpeg') {
+      // Windows 上信号会退化为强杀；仅 ffmpeg 支持 stdin q 的跨平台优雅收尾。
+      // ffprobe 等短命令不应因此空等 10 秒并延迟句柄释放。
       try {
         if (child.stdin && !child.stdin.destroyed && child.stdin.writable) {
           child.stdin.write('q')
+          child.stdin.end()
           gracefulGraceMs = Math.max(killGraceMs, 10_000)
         }
       } catch {
@@ -90,15 +93,28 @@ export function killAllActiveProcesses() {
  * spawn 托管版：长进程/流式输出场景，onStdout/onStderr 持续消费防缓冲堆积。
  * @returns {Promise<{code: number | null, signal: string | null, cancelled: boolean}>}
  */
-export function spawnManaged(cmd, args, { signal, onStdout, onStderr, killGraceMs } = {}) {
+export function spawnManaged(
+  cmd,
+  args,
+  { signal, onStdout, onStderr, killGraceMs, gracefulQuit = 'none' } = {}
+) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { windowsHide: true })
-    trackChild(child, { signal, killGraceMs })
+    trackChild(child, { signal, killGraceMs, gracefulQuit })
     child.stdout?.on('data', (chunk) => onStdout?.(chunk.toString()))
     child.stderr?.on('data', (chunk) => onStderr?.(chunk.toString()))
-    child.on('error', reject)
-    child.on('close', (code, signalName) => {
-      resolve({ code, signal: signalName, cancelled: Boolean(signal?.aborted) })
-    })
+    let settled = false
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      child.removeListener('error', onError)
+      child.removeListener('close', onClose)
+      fn(value)
+    }
+    const onError = (error) => finish(reject, error)
+    const onClose = (code, signalName) =>
+      finish(resolve, { code, signal: signalName, cancelled: Boolean(signal?.aborted) })
+    child.once('error', onError)
+    child.once('close', onClose)
   })
 }

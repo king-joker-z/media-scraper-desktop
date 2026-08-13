@@ -15,12 +15,42 @@ const COMPARE_FIELDS = [
 ]
 
 /**
- * 判定所选片段能否无重编码拼接：与首个片段逐项比对。
+ * 选择转码目标：以最高分辨率的同一条素材作为代表，连同其帧率一起使用。
+ * 不能把来自不同素材的最大分辨率和最大帧率拼成不存在的 4K60 目标；这会无谓补帧、放大画面。
+ * 固定 H.264/MP4 输出为 8-bit 4:2:0，保证 libx264 与 h264_nvenc 的兼容性；HDR/10-bit 保留需单独走 HEVC 策略。
+ */
+export function selectQualityTarget(mediaItems) {
+  const valid = mediaItems.filter((media) => media?.width > 0 && media?.height > 0)
+  if (valid.length === 0) return { width: 1920, height: 1080, fps: 30, pixFmt: 'yuv420p' }
+  const best = valid.reduce((current, media) => {
+    const currentPixels = current.width * current.height
+    const mediaPixels = media.width * media.height
+    if (mediaPixels !== currentPixels) return mediaPixels > currentPixels ? media : current
+    return (media.fps || 0) > (current.fps || 0) ? media : current
+  })
+  return {
+    width: best.width,
+    height: best.height,
+    fps: best.fps > 0 ? best.fps : 30,
+    pixFmt: 'yuv420p'
+  }
+}
+
+/**
+ * 判定所选片段能否无重编码拼接：与首个片段逐项比对；需要转码时选择最高分辨率代表片段的目标。
  * @param {Array<{media: object|null}>} items 按合并顺序排列
  * @returns {{ compatible: boolean, reasons: string[], target: object|null }}
  */
 export function checkCompatibility(items) {
   const probed = items.filter((item) => item.media)
+  const unreadable = items.filter((item) => !item.media)
+  if (unreadable.length > 0) {
+    return {
+      compatible: false,
+      reasons: unreadable.map((item) => `「${item.name}」媒体信息读取失败，不能安全合并`),
+      target: probed.length > 0 ? selectQualityTarget(probed.map((item) => item.media)) : null
+    }
+  }
   if (probed.length <= 1) {
     return { compatible: true, reasons: [], target: null }
   }
@@ -43,15 +73,7 @@ export function checkCompatibility(items) {
   return {
     compatible: unique.length === 0,
     reasons: unique,
-    target:
-      unique.length === 0
-        ? null
-        : {
-            width: first.width,
-            height: first.height,
-            fps: first.fps || 30,
-            pixFmt: first.pixFmt || 'yuv420p'
-          }
+    target: unique.length === 0 ? null : selectQualityTarget(probed.map((item) => item.media))
   }
 }
 
@@ -120,24 +142,47 @@ export function buildConcatCopyArgs(listPath, outputPath) {
 }
 
 /** 单段转码为统一参数的中间 MP4（与最终容器一致，避免 ADTS/位流过滤器问题） */
-export function buildTranscodeArgs(inputPath, target, outputPath) {
+export function buildTranscodeArgs(
+  inputPath,
+  target,
+  outputPath,
+  { encoder = 'cpu', hasAudio = true } = {}
+) {
+  const useNvenc = encoder === 'nvenc'
+  const videoArgs = useNvenc
+    ? [
+        '-c:v',
+        'h264_nvenc',
+        // P5 在 40 系列上兼顾吞吐与画质；CQ 18 接近原 CPU 路径 CRF 18 的高质量目标。
+        '-preset',
+        'p5',
+        '-tune',
+        'hq',
+        '-rc',
+        'vbr',
+        '-cq',
+        '18',
+        '-b:v',
+        '0'
+      ]
+    : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18']
   return [
     '-v',
     'error',
     '-i',
     inputPath,
+    ...(hasAudio ? [] : ['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo']),
+    '-map',
+    '0:v:0',
+    '-map',
+    hasAudio ? '0:a:0' : '1:a:0',
     '-vf',
     `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
     '-r',
     String(target.fps),
     '-pix_fmt',
     target.pixFmt,
-    '-c:v',
-    'libx264',
-    '-preset',
-    'veryfast',
-    '-crf',
-    '18',
+    ...videoArgs,
     '-c:a',
     'aac',
     '-b:a',
@@ -146,6 +191,7 @@ export function buildTranscodeArgs(inputPath, target, outputPath) {
     '44100',
     '-ac',
     '2',
+    ...(hasAudio ? [] : ['-shortest']),
     '-y',
     outputPath
   ]
@@ -171,7 +217,7 @@ export function buildConcatSegmentsArgs(listPath, outputPath) {
   ]
 }
 
-/** 合并输出校验：时长容差 ±2s；全部源有音轨时输出必须含音轨 */
+/** 合并输出校验：时长容差 ±2s；全部源有音轨时输出必须含音轨。 */
 export function verifyMergeOutput(outputMedia, items) {
   if (!outputMedia) return { ok: false, note: '输出文件无法读取' }
   if (!outputMedia.videoCodec) return { ok: false, note: '输出缺少视频流' }
@@ -187,8 +233,9 @@ export function verifyMergeOutput(outputMedia, items) {
   if (allHadAudio && !outputMedia.audioCodec) {
     return { ok: false, note: '输出丢失音轨' }
   }
+  const audioNote = outputMedia.audioCodec ? '音视频流完整' : '视频流完整（源片段均无音轨）'
   return {
     ok: true,
-    note: `校验通过：时长 ${(outputMedia.durationMs / 1000).toFixed(1)}s，音视频流完整`
+    note: `校验通过：时长 ${(outputMedia.durationMs / 1000).toFixed(1)}s，${audioNote}`
   }
 }

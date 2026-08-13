@@ -288,7 +288,11 @@ export async function readBinaryFile(target) {
  * 调用方必须在 finally 中调用 discardStagedFile，或提交后由 commitStagedFile 自动清理。
  */
 export function createStagingPath(target) {
-  return `${target}.msd-new-${randomUUID()}`
+  // 暂存文件仍保留原扩展名：ffmpeg 等依赖扩展名推断封装格式的工具可直接写入，
+  // 同时 .msd-new 标记保证扫描/资源管理器不会将其当成正式产物。
+  const extension = extname(target)
+  const stem = extension ? target.slice(0, -extension.length) : target
+  return `${stem}.msd-new-${randomUUID()}${extension}`
 }
 
 /** 将可读流完整写入指定暂存文件，保留背压；适合 EPUB 等数 GB 级产物。 */
@@ -300,12 +304,18 @@ export async function writeReadableFile(target, readable) {
 
 /** 删除未提交的暂存文件；取消或构建失败时使用，绝不影响正式产物。 */
 export async function discardStagedFile(target) {
-  await rm(target, { force: true }).catch(() => {})
+  // 与提交/删除统一采用 Windows 文件锁重试；调用方可选择忽略最终失败，但不能放弃瞬态重试。
+  await withLockRetry(() => rm(target, { force: true }))
 }
 
 /** 获取文件字节数（不存在时抛出，避免调用方将不完整产物误判成功）。 */
 export async function fileSize(target) {
   return (await stat(target)).size
+}
+
+/** 读取文件最后修改时间（毫秒）；用于断点缓存与源文件版本校验。 */
+export async function fileMtimeMs(target) {
+  return (await stat(target)).mtimeMs
 }
 
 /** 为 media:// 等只读协议创建可指定字节区间的文件流，保持文件访问入口集中。 */
