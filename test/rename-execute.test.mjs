@@ -74,6 +74,23 @@ test('ext-only mode changes extension without touching stem or poster', async ()
   })
 })
 
+test('ext-only mode rejects unsafe Windows names before any write', async () => {
+  await withTempDir(async (root) => {
+    await writeFile(join(root, 'movie.mkv'), 'v')
+    for (const pair of [
+      { videoRel: 'movie.mkv', posterRel: null, newStem: 'CON', newExt: '.mp4' },
+      { videoRel: 'movie.mkv', posterRel: null, newStem: 'movie', newExt: '.mp4 ' },
+      { videoRel: 'movie.mkv', posterRel: null, newStem: 'movie', newExt: '.mp4:bad' }
+    ]) {
+      await assert.rejects(
+        executeRename(root, [pair], { taskCenter: center(), taskId: 'r-ext-invalid' }),
+        /命名校验未通过/
+      )
+    }
+    assert.equal(await pathExists(join(root, 'movie.mkv')), true)
+  })
+})
+
 test('validation failure blocks any write', async () => {
   await withTempDir(async (root) => {
     await mkdir(join(root, 'sub'))

@@ -1,4 +1,4 @@
-import { basename, isAbsolute, relative, resolve, sep } from 'node:path'
+import { basename, isAbsolute, relative, resolve, sep, win32 } from 'node:path'
 
 /**
  * 主进程文件边界校验：IPC 传来的相对路径只能落在指定根目录内。
@@ -8,7 +8,16 @@ export function resolveInsideRoot(root, relativePath) {
   if (typeof relativePath !== 'string' || !relativePath.trim()) {
     throw new Error('路径不能为空')
   }
-  if (isAbsolute(relativePath)) throw new Error('不允许使用绝对路径')
+  // 以 / 或 \\ 开头、盘符前缀（含 C:foo）在 Windows 会被 resolve() 解释为盘符/根路径，
+  // 必须在解析前统一拒绝，不能只依赖当前平台的 path.isAbsolute()。
+  if (
+    /^[\\/]/.test(relativePath) ||
+    /^[a-zA-Z]:/.test(relativePath) ||
+    isAbsolute(relativePath) ||
+    win32.isAbsolute(relativePath)
+  ) {
+    throw new Error('不允许使用绝对路径')
+  }
   const resolvedRoot = resolve(root)
   const target = resolve(resolvedRoot, relativePath)
   const diff = relative(resolvedRoot, target)

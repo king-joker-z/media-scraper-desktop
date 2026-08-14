@@ -148,6 +148,12 @@ const requireFileInRoots = (filePath: string, roots: string[], label: string): s
   if (!isMediaPathAllowed(filePath, roots)) throw new Error(`${label}不在允许范围内`)
   return filePath
 }
+const requireComicOutput = (target: string): string => {
+  const safeTarget = requireFileInRoots(target, comicRoot ? [comicRoot] : [], '漫画产物')
+  if (!['.epub', '.pdf'].includes(extname(safeTarget).toLowerCase()))
+    throw new Error('只允许打开 EPUB 或 PDF')
+  return safeTarget
+}
 
 /**
  * 路径归一化（白名单比较用）：统一为正斜杠、去尾部分隔符、盘符统一大写。
@@ -1104,11 +1110,12 @@ function registerIpcHandlers(): void {
   })
   // 系统默认应用打开文件（漫画库打开 EPUB/PDF）
   ipcMain.handle('shell:open-path', async (_event, target: string) => {
-    const safeTarget = requireFileInRoots(target, comicRoot ? [comicRoot] : [], '漫画产物')
-    if (!['.epub', '.pdf'].includes(extname(safeTarget).toLowerCase()))
-      throw new Error('只允许打开 EPUB 或 PDF')
-    const error = await shell.openPath(safeTarget)
+    const error = await shell.openPath(requireComicOutput(target))
     if (error) throw new Error(error)
+  })
+  // 在系统文件管理器中定位漫画产物（Windows Explorer / macOS Finder）。
+  ipcMain.handle('shell:reveal-path', async (_event, target: string) => {
+    shell.showItemInFolder(requireComicOutput(target))
   })
   // 一键撤销（F2）：按日志反向恢复重命名/NFO 归档
   ipcMain.handle('op-logs:undo', async (_event, file: string) =>

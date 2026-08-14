@@ -60,10 +60,11 @@ function ComicLibraryPage({
   }
 
   const revealComic = async (relDir: string, outputName: string): Promise<void> => {
+    setError('')
     try {
-      await window.api.revealOpLog(joinPath(workspace, joinPath(relDir, outputName)))
-    } catch {
-      // 定位失败静默（文件被移走等）
+      await window.api.revealPath(joinPath(workspace, joinPath(relDir, outputName)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
     }
   }
 

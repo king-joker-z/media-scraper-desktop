@@ -38,6 +38,7 @@ declare global {
       selectWorkspace: (module?: AppModule) => Promise<string | null>
       useWorkspace: (path: string, module?: AppModule) => Promise<string>
       openPath: (target: string) => Promise<void>
+      revealPath: (target: string) => Promise<void>
       pathForFile: (file: File) => string
       scanPlan: (root: string) => Promise<ScanPlan>
       getWorkspaceFingerprint: (root: string) => Promise<string>

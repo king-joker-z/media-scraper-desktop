@@ -40,6 +40,8 @@ const api = {
     ipcRenderer.invoke('workspace:use', path, module),
   /** 系统默认应用打开文件（漫画库打开 EPUB/PDF） */
   openPath: (target: string): Promise<void> => ipcRenderer.invoke('shell:open-path', target),
+  /** 在系统文件管理器中定位漫画 EPUB/PDF 产物。 */
+  revealPath: (target: string): Promise<void> => ipcRenderer.invoke('shell:reveal-path', target),
   /** 取拖拽文件的绝对路径（Electron 39 移除了 File.path，必须走 webUtils） */
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
   scanPlan: (root: string): Promise<ScanPlan> => ipcRenderer.invoke('workspace:scan-plan', root),

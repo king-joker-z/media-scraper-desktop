@@ -8,7 +8,12 @@ import {
   writeTextFile
 } from '../../core/fs-ops.mjs'
 import { collectFailures, finishReport } from '../../core/task-report.mjs'
-import { validateStems } from '../../../shared/rename-rules.mjs'
+import {
+  ILLEGAL_NAME_RE,
+  TRAILING_DOT_SPACE_RE,
+  validateStems,
+  WINDOWS_RESERVED_NAME_RE
+} from '../../../shared/rename-rules.mjs'
 
 /**
  * 两阶段改名（冻结稿 §5）：
@@ -29,7 +34,12 @@ export async function executeRename(
   { taskCenter, taskId, concurrency = 5, journalPath }
 ) {
   const startedAt = Date.now()
-  const errors = validateStems(pairs.filter((p) => !p.newExt))
+  const errors = validateStems(pairs)
+  for (const pair of pairs) {
+    if (!pair.newExt) continue
+    const extensionError = validateTargetExtension(pair.newExt)
+    if (extensionError) errors[pair.videoRel] = extensionError
+  }
   if (Object.keys(errors).length > 0) {
     const [rel, message] = Object.entries(errors)[0]
     throw new Error(`命名校验未通过：${rel} —— ${message}`)
@@ -130,6 +140,24 @@ export async function executeRename(
   }
 
   return finishReport(report, startedAt, cancelled)
+}
+
+/**
+ * 仅改扩展名也必须通过 Windows 文件名规则：禁止路径分隔符、非法字符、空白/点号结尾。
+ * 扩展名只接受常规 ASCII 字母数字形式，避免 IPC 输入直接拼接为危险目标名。
+ */
+function validateTargetExtension(extension) {
+  if (typeof extension !== 'string' || !/^\.[A-Za-z0-9]{1,16}$/.test(extension)) {
+    return '扩展名无效，只允许 . 后跟 1–16 位英文字母或数字'
+  }
+  if (
+    ILLEGAL_NAME_RE.test(extension) ||
+    TRAILING_DOT_SPACE_RE.test(extension) ||
+    WINDOWS_RESERVED_NAME_RE.test(extension)
+  ) {
+    return '扩展名不符合 Windows 文件名规则'
+  }
+  return null
 }
 
 /** 写恢复 journal（只记录恢复所需的最小字段） */
