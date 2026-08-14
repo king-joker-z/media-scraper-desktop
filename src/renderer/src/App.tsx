@@ -164,7 +164,7 @@ function App(): React.JSX.Element {
     window.api
       .getSettings()
       .then(async (settings) => {
-        applyTheme(settings.theme, settings.themePalette)
+        applyTheme(settings.theme, settings.themePalette, settings.customAccent || '#1687d9')
         setRecents({
           video: settings.recentWorkspaces,
           comic: settings.comicRecentWorkspaces
@@ -397,11 +397,14 @@ function App(): React.JSX.Element {
               <span className="module-card-name">{MODULE_META[key].name}</span>
               <span className="module-card-desc">
                 {key === 'video'
-                  ? '清理 · 合并 · 重命名 · 封面 · 归档 · 去重 · 体检'
-                  : '章节合并 EPUB/PDF · 追更增量追加 · 漫画库'}
+                  ? '为本地视频完成清理、合并、命名与归档。'
+                  : '将章节整理为 EPUB / PDF，并持续增量追更。'}
+              </span>
+              <span className="module-card-capabilities" aria-hidden="true">
+                {key === 'video' ? '清理 · 合并 · 重命名 · 归档' : '章节合并 · EPUB / PDF · 漫画库'}
               </span>
               <span className="module-card-enter">
-                进入工作台 <span aria-hidden="true">→</span>
+                进入{MODULE_META[key].name} <span aria-hidden="true">→</span>
               </span>
             </button>
           ))}

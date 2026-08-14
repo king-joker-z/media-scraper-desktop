@@ -26,8 +26,18 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
   { key: 'graphite', label: '石墨灰', description: '低饱和中性，适合长时间专注' },
   { key: 'berry', label: '莓果红', description: '克制鲜明，适合重点操作提示' },
   { key: 'amber', label: '琥珀金', description: '沉稳明亮，兼顾辨识与温度' },
-  { key: 'jade', label: '青瓷色', description: '清爽平衡，降低视觉疲劳' }
+  { key: 'jade', label: '青瓷色', description: '清爽平衡，降低视觉疲劳' },
+  { key: 'sky', label: '晴空蓝', description: '通透明快，适合长时间浏览素材' },
+  { key: 'mint', label: '薄荷绿', description: '轻盈干净，营造舒展的工作节奏' },
+  { key: 'lemon', label: '柠檬黄', description: '明亮活泼，让关键操作更易发现' },
+  { key: 'rose', label: '樱花粉', description: '柔和轻快，为界面增添温暖层次' }
 ]
+
+const CUSTOM_PALETTE: { key: ThemePalette; label: string; description: string } = {
+  key: 'custom',
+  label: '自定义强调色',
+  description: '通过系统色轮选择并实时预览'
+}
 
 const UPDATE_STATE_LABELS: Record<UpdateStatus['state'], string> = {
   idle: '尚未检查',
@@ -41,6 +51,8 @@ const UPDATE_STATE_LABELS: Record<UpdateStatus['state'], string> = {
 
 function SettingsPage(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
+  // 色彩选择器使用本地值驱动，防止异步 settings IPC 回包短暂覆盖吸管刚选中的颜色。
+  const [customAccent, setCustomAccent] = useState('#1687d9')
   const [editingId, setEditingId] = useState<string>('')
   const [newModel, setNewModel] = useState('')
   const [newProvider, setNewProvider] = useState({ name: '', baseUrl: '' })
@@ -48,6 +60,8 @@ function SettingsPage(): React.JSX.Element {
   const [saved, setSaved] = useState(false)
   // 「已保存」提示的定时器句柄（persist 内 clearTimeout 复用，防快速连续操作堆叠定时器）
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // 色轮拖动会连续触发 input；短暂防抖后再落盘，既支持实时预览也避免频繁写 settings.json。
+  const colorSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // 文本输入本地草稿，失焦才写盘，避免每击键一次 settings.json 写入
   const [drafts, setDrafts] = useState<Record<string, { baseUrl?: string; token?: string }>>({})
   const [promptDraft, setPromptDraft] = useState<string | null>(null)
@@ -68,6 +82,7 @@ function SettingsPage(): React.JSX.Element {
   useEffect(() => {
     window.api.getSettings().then((next) => {
       setSettings(next)
+      setCustomAccent(next.customAccent || '#1687d9')
       setEditingId(next.activeProviderId)
     })
     refreshStorage()
@@ -115,6 +130,22 @@ function SettingsPage(): React.JSX.Element {
 
   const editing: AiProviderConfig =
     settings.aiProviders.find((p) => p.id === editingId) ?? settings.aiProviders[0]
+
+  const applyCustomAccent = (nextCustomAccent: string, saveNow = false): void => {
+    setCustomAccent(nextCustomAccent)
+    applyTheme(settings.theme, 'custom', nextCustomAccent)
+    setSettings((current) =>
+      current ? { ...current, themePalette: 'custom', customAccent: nextCustomAccent } : current
+    )
+    clearTimeout(colorSaveTimerRef.current)
+    if (saveNow) {
+      void persist({ themePalette: 'custom', customAccent: nextCustomAccent })
+      return
+    }
+    colorSaveTimerRef.current = setTimeout(() => {
+      void persist({ themePalette: 'custom', customAccent: nextCustomAccent })
+    }, 220)
+  }
 
   const patchProvider = (id: string, patch: Partial<AiProviderConfig>): void => {
     persist({
@@ -195,7 +226,7 @@ function SettingsPage(): React.JSX.Element {
               key={tab.key}
               className={`mode-tab ${settings.theme === tab.key ? 'active' : ''}`}
               onClick={() => {
-                applyTheme(tab.key, settings.themePalette)
+                applyTheme(tab.key, settings.themePalette, customAccent)
                 persist({ theme: tab.key })
               }}
             >
@@ -203,13 +234,15 @@ function SettingsPage(): React.JSX.Element {
             </button>
           ))}
         </div>
-        <div className="palette-grid" aria-label="强调色方案">
+        <p className="settings-hint">选择一套预设，或用色轮创建只属于你的强调色。</p>
+        <div className="palette-grid" aria-label="预设强调色方案">
           {PALETTE_OPTIONS.map((palette) => (
             <button
               key={palette.key}
               className={`palette-option ${settings.themePalette === palette.key ? 'active' : ''}`}
+              aria-pressed={settings.themePalette === palette.key}
               onClick={() => {
-                applyTheme(settings.theme, palette.key)
+                applyTheme(settings.theme, palette.key, customAccent)
                 persist({ themePalette: palette.key })
               }}
             >
@@ -220,6 +253,30 @@ function SettingsPage(): React.JSX.Element {
               </span>
             </button>
           ))}
+        </div>
+        <div className={`custom-palette ${settings.themePalette === 'custom' ? 'active' : ''}`}>
+          <div className="custom-palette-copy">
+            <span
+              className="palette-swatch palette-swatch-custom"
+              style={{ background: customAccent }}
+              aria-hidden="true"
+            />
+            <span>
+              <b>{CUSTOM_PALETTE.label}</b>
+              <small>{CUSTOM_PALETTE.description}</small>
+            </span>
+          </div>
+          <label className="custom-color-picker">
+            <span className="sr-only">选择自定义强调色</span>
+            <input
+              type="color"
+              value={customAccent}
+              aria-label="选择自定义强调色"
+              onInput={(event) => applyCustomAccent(event.currentTarget.value)}
+              onChange={(event) => applyCustomAccent(event.currentTarget.value, true)}
+            />
+            <output>{customAccent.toUpperCase()}</output>
+          </label>
         </div>
       </section>
 

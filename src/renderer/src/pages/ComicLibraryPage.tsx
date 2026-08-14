@@ -43,11 +43,22 @@ function ComicLibraryPage({
   // 页面可见时对比工作区指纹：有变化自动重扫
   useWorkspaceSync(workspace, active, refresh)
 
+  const allMergedComics = useMemo(
+    () => (result?.comics ?? []).filter((comic) => comic.merged),
+    [result]
+  )
+
   const mergedComics = useMemo(() => {
-    const list = (result?.comics ?? []).filter((comic) => comic.merged)
     const key = keyword.trim().toLowerCase()
-    return key ? list.filter((comic) => comic.name.toLowerCase().includes(key)) : list
-  }, [result, keyword])
+    return key
+      ? allMergedComics.filter((comic) => comic.name.toLowerCase().includes(key))
+      : allMergedComics
+  }, [allMergedComics, keyword])
+
+  const updateCount = useMemo(
+    () => allMergedComics.filter((comic) => comic.newChapters.length > 0).length,
+    [allMergedComics]
+  )
 
   const openComic = async (relDir: string, outputName: string): Promise<void> => {
     setNotice('')
@@ -70,75 +81,96 @@ function ComicLibraryPage({
 
   return (
     <div className="page">
-      <header className="page-header">
+      <header className="page-header comic-library-header">
         <div>
-          <p className="eyebrow">漫画库</p>
-          <h1>已合并漫画</h1>
-          <p className="muted">海报墙浏览已合并的 EPUB/PDF 产物，点击用系统默认应用打开阅读。</p>
+          <p className="eyebrow">漫画书房 / 已归档</p>
+          <h1>你的数字书架</h1>
+          <p className="muted">浏览已整理的 EPUB 与 PDF；选择一本，即可交给系统阅读器继续阅读。</p>
         </div>
         <div className="actions">
           <button className="secondary" onClick={onChooseWorkspace}>
             选择工作区
           </button>
           <button className="secondary" onClick={refresh} disabled={!workspace || loading}>
-            {loading ? '加载中…' : '刷新'}
+            {loading ? '加载中…' : '刷新书架'}
           </button>
-          <button className="secondary" onClick={onOpenMerge}>
-            去合并
-          </button>
+          <button onClick={onOpenMerge}>整理漫画</button>
         </div>
       </header>
 
-      <section className="path-card">
-        <span>漫画工作区</span>
-        <strong>{workspace || '尚未选择目录'}</strong>
+      <section className="comic-library-overview" aria-label="漫画库概览">
+        <div className="comic-library-workspace">
+          <span>当前书房</span>
+          <strong title={workspace || undefined}>{workspace || '尚未选择目录'}</strong>
+        </div>
+        <div className="comic-library-stat">
+          <strong>{allMergedComics.length}</strong>
+          <span>已归档</span>
+        </div>
+        <div className={`comic-library-stat ${updateCount > 0 ? 'has-updates' : ''}`}>
+          <strong>{updateCount}</strong>
+          <span>等待追更</span>
+        </div>
       </section>
 
       {error && <ErrorBanner message={error} />}
       {notice && <p className="notice-inline">{notice}</p>}
 
-      {loaded && mergedComics.length > 0 && (
-        <div className="library-toolbar">
-          <input
-            placeholder={`搜索 ${mergedComics.length} 部漫画…`}
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-          />
+      {loaded && allMergedComics.length > 0 && (
+        <div className="library-toolbar comic-library-toolbar">
+          <label className="comic-search-field">
+            <span className="sr-only">搜索漫画</span>
+            <input
+              placeholder={`搜索 ${allMergedComics.length} 部漫画…`}
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+            />
+          </label>
+          <span className="comic-library-result-count" aria-live="polite">
+            {keyword ? `找到 ${mergedComics.length} 部` : `共 ${allMergedComics.length} 部`}
+          </span>
         </div>
       )}
 
       {mergedComics.length > 0 && (
         <VirtualGrid
+          className="comic-shelf"
           items={mergedComics}
+          minItemWidth={176}
+          metaHeight={122}
+          thumbnailRatio={3 / 4}
           renderItem={(comic, style) => (
-            <div key={comic.relDir} className="video-card comic-card" style={style}>
+            <article key={comic.relDir} className="comic-card" style={style}>
               <button
                 className="comic-card-main"
                 onClick={() => void openComic(comic.relDir, comic.merged!.outputName)}
                 title="用系统默认应用打开"
+                aria-label={`打开《${comic.name}》`}
               >
-                <span className="video-thumb comic-thumb">
+                <span className="comic-thumb">
                   {comic.coverRel ? (
                     <img
                       src={mediaUrl(joinPath(workspace, joinPath(comic.relDir, comic.coverRel)))}
-                      alt={comic.name}
+                      alt=""
                       loading="lazy"
                     />
                   ) : (
-                    <span className="comic-cover-empty" aria-label="暂无封面" />
-                  )}
-                  <span className="comic-format-badge">{comic.merged!.format.toUpperCase()}</span>
-                </span>
-                <span className="video-meta">
-                  <b>{comic.name}</b>
-                  <span className="muted">
-                    {comic.merged!.chapters.length} 章 · {formatBytes(comic.merged!.outputBytes)}
-                  </span>
-                  {comic.newChapters.length > 0 && (
-                    <span className="comic-badge comic-badge-new">
-                      有 {comic.newChapters.length} 章更新
+                    <span className="comic-cover-empty" aria-label="暂无封面">
+                      暂无封面
                     </span>
                   )}
+                  <span className="comic-format-badge">{comic.merged!.format.toUpperCase()}</span>
+                  {comic.newChapters.length > 0 && (
+                    <span className="comic-card-update">+{comic.newChapters.length}</span>
+                  )}
+                </span>
+                <span className="comic-card-meta">
+                  <b title={comic.name}>{comic.name}</b>
+                  <span>
+                    {comic.merged!.chapters.length} 章 <i aria-hidden="true">·</i>{' '}
+                    {formatBytes(comic.merged!.outputBytes)}
+                  </span>
+                  <span className="comic-card-hint">点击打开阅读</span>
                 </span>
               </button>
               <div className="comic-card-actions">
@@ -146,23 +178,34 @@ function ComicLibraryPage({
                   className="secondary"
                   onClick={() => void revealComic(comic.relDir, comic.merged!.outputName)}
                 >
-                  定位
+                  在文件夹中显示
                 </button>
                 {comic.newChapters.length > 0 && (
-                  <button className="secondary" onClick={onOpenMerge}>
-                    去更新
+                  <button className="secondary comic-update-button" onClick={onOpenMerge}>
+                    追更
                   </button>
                 )}
               </div>
-            </div>
+            </article>
           )}
         />
       )}
 
-      {loaded && mergedComics.length === 0 && (
-        <section className="empty">
-          <h2>漫画库为空</h2>
-          <p>先到「漫画合并」把漫画章节打包成 EPUB/PDF，这里就会变成书架。</p>
+      {loaded && allMergedComics.length > 0 && mergedComics.length === 0 && (
+        <section className="empty comic-library-empty">
+          <h2>没有匹配的漫画</h2>
+          <p>换一个名称试试，或清空搜索回到完整书架。</p>
+          <button className="secondary" onClick={() => setKeyword('')}>
+            清空搜索
+          </button>
+        </section>
+      )}
+
+      {loaded && allMergedComics.length === 0 && (
+        <section className="empty comic-library-empty">
+          <h2>书架还是空的</h2>
+          <p>把章节整理成 EPUB 或 PDF 后，它们会带着封面出现在这里。</p>
+          <button onClick={onOpenMerge}>去整理漫画</button>
         </section>
       )}
       {!loaded && (

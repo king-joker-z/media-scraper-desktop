@@ -140,19 +140,21 @@ test('atomic write creates .bak backup after first successful write', async () =
   })
 })
 
-test('theme, palette and recentWorkspaces persist and reload', async () => {
+test('theme, custom palette and recentWorkspaces persist and reload', async () => {
   await withTempDir(async (dir) => {
     const file = join(dir, 'settings.json')
     const store = createSettingsStore(file)
     await store.update({
       theme: 'dark',
-      themePalette: 'violet',
+      themePalette: 'custom',
+      customAccent: '#f2c230',
       recentWorkspaces: ['/path/a', '/path/b']
     })
     const reloaded = createSettingsStore(file)
     const settings = await reloaded.get()
     assert.equal(settings.theme, 'dark')
-    assert.equal(settings.themePalette, 'violet')
+    assert.equal(settings.themePalette, 'custom')
+    assert.equal(settings.customAccent, '#f2c230')
     assert.deepEqual(settings.recentWorkspaces, ['/path/a', '/path/b'])
   })
 })
@@ -182,6 +184,35 @@ test('NVENC 开关尊重显式值，并兼容旧版 CPU 关闭设置', () => {
   assert.equal(normalizeSettings({ nvencEnabled: true }).nvencEnabled, true)
   assert.equal(normalizeSettings({ nvencEnabled: false }).nvencEnabled, false)
   assert.equal(normalizeSettings({ videoEncoder: 'cpu' }).nvencEnabled, false)
+})
+
+test('custom palette preserves a valid custom accent and normalizes invalid values', () => {
+  const custom = normalizeSettings({ themePalette: 'custom', customAccent: '#Ab12Cd' })
+  assert.equal(custom.themePalette, 'custom')
+  assert.equal(custom.customAccent, '#ab12cd')
+  assert.equal(
+    normalizeSettings({ themePalette: 'custom', customAccent: '#bad' }).customAccent,
+    '#1687d9'
+  )
+})
+
+test('all selectable preset palettes remain valid', () => {
+  for (const palette of [
+    'ocean',
+    'violet',
+    'forest',
+    'sunset',
+    'graphite',
+    'berry',
+    'amber',
+    'jade',
+    'sky',
+    'mint',
+    'lemon',
+    'rose'
+  ]) {
+    assert.equal(normalizeSettings({ themePalette: palette }).themePalette, palette)
+  }
 })
 
 test('invalid palette falls back to ocean', () => {

@@ -37,7 +37,12 @@ export const THEME_PALETTE_OPTIONS = [
   'graphite',
   'berry',
   'amber',
-  'jade'
+  'jade',
+  'sky',
+  'mint',
+  'lemon',
+  'rose',
+  'custom'
 ]
 const DEFAULT_NVENC_ENABLED = process.platform === 'win32'
 
@@ -71,6 +76,7 @@ export const DEFAULT_SETTINGS = {
   nvencEnabled: DEFAULT_NVENC_ENABLED,
   theme: 'system',
   themePalette: 'ocean',
+  customAccent: '#1687d9',
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
     ...preset,
     token: '',
@@ -102,6 +108,13 @@ export function pushRecentWorkspace(list, workspace) {
 
 const sanitizeModels = (models, fallback) =>
   Array.isArray(models) ? models.filter((m) => typeof m === 'string' && m.trim()) : fallback
+
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
+
+const normalizeCustomAccent = (value) =>
+  typeof value === 'string' && HEX_COLOR_PATTERN.test(value)
+    ? value.toLowerCase()
+    : DEFAULT_SETTINGS.customAccent
 
 function normalizeProvider(raw, preset) {
   const input = raw && typeof raw === 'object' ? raw : {}
@@ -176,6 +189,7 @@ export function normalizeSettings(raw) {
     themePalette: THEME_PALETTE_OPTIONS.includes(input.themePalette)
       ? input.themePalette
       : DEFAULT_SETTINGS.themePalette,
+    customAccent: normalizeCustomAccent(input.customAccent),
     aiProviders,
     activeProviderId,
     promptTemplate:

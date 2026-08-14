@@ -6,8 +6,10 @@ interface VirtualGridProps<T> {
   minItemWidth?: number
   /** 卡片间距，默认 14 */
   gap?: number
-  /** 卡片文字区高度（缩略图 16:9 之外的固定部分），默认 58 */
+  /** 卡片文字区高度（缩略图之外的固定部分），默认 58 */
   metaHeight?: number
+  /** 缩略图宽高比，默认 16 / 9 */
+  thumbnailRatio?: number
   /** 视口上下额外渲染的行数，默认 3 */
   overscan?: number
   className?: string
@@ -23,6 +25,7 @@ function VirtualGrid<T>({
   minItemWidth = 210,
   gap = 14,
   metaHeight = 58,
+  thumbnailRatio = 16 / 9,
   overscan = 3,
   className,
   renderItem
@@ -43,7 +46,7 @@ function VirtualGrid<T>({
 
   const columns = Math.max(1, Math.floor((width + gap) / (minItemWidth + gap)))
   const colWidth = width > 0 ? (width - gap * (columns - 1)) / columns : minItemWidth
-  const rowHeight = Math.round((colWidth * 9) / 16 + metaHeight)
+  const rowHeight = Math.round(colWidth / thumbnailRatio + metaHeight)
   const rows = Math.ceil(items.length / columns)
 
   // 监听页面滚动容器，计算可见行窗口（rAF 节流）

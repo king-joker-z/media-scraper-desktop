@@ -121,7 +121,19 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 
 /** 强调色方案：仅改变品牌色与交互强调，不改变内容层级 */
 export type ThemePalette =
-  'ocean' | 'violet' | 'forest' | 'sunset' | 'graphite' | 'berry' | 'amber' | 'jade'
+  | 'ocean'
+  | 'violet'
+  | 'forest'
+  | 'sunset'
+  | 'graphite'
+  | 'berry'
+  | 'amber'
+  | 'jade'
+  | 'sky'
+  | 'mint'
+  | 'lemon'
+  | 'rose'
+  | 'custom'
 
 export interface AppSettings {
   /** 当前激活的功能模块（null = 启动时显示模块选择页） */
@@ -144,6 +156,8 @@ export interface AppSettings {
   theme: ThemeMode
   /** 界面强调色方案，默认海洋蓝 */
   themePalette: ThemePalette
+  /** 自定义强调色（#RRGGBB），仅在 custom 方案下使用 */
+  customAccent: string
   aiProviders: AiProviderConfig[]
   activeProviderId: string
   /** AI 重命名 prompt 模板，支持 {{parentFolder}} {{fileName}} */
