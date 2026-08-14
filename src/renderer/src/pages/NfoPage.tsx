@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NfoPlan, NfoReport } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
-import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 function NfoPage({
   active,
@@ -21,34 +20,57 @@ function NfoPage({
   const [confirming, setConfirming] = useState(false)
   const [report, setReport] = useState<NfoReport | null>(null)
   const [error, setError] = useState('')
+  // 页面常驻挂载时，演员名只在同一工作区内保留用户输入；切换目录后应采用新目录名。
+  const currentWorkspaceRef = useRef(workspace)
+  const actorWorkspaceRef = useRef('')
 
-  const scan = async (): Promise<void> => {
+  useEffect(() => {
+    currentWorkspaceRef.current = workspace
+    actorWorkspaceRef.current = ''
+  }, [workspace])
+
+  const scan = useCallback(async (): Promise<void> => {
     if (!workspace) return
     setLoading(true)
     setError('')
     setReport(null)
     try {
       const next = await window.api.createNfoPlan(workspace)
+      // 扫描期间可能已切换目录；旧工作区结果不得覆盖当前计划或演员名。
+      if (currentWorkspaceRef.current !== workspace) return
+      // React 的 state 更新函数会延后执行，必须先将“是否同一工作区”的判断固定在局部变量中。
+      const keepCustomActor = actorWorkspaceRef.current === workspace
+      actorWorkspaceRef.current = workspace
       setPlan(next)
-      setActorName((prev) => prev || next.actorDefault)
+      setActorName((prev) => (keepCustomActor && prev ? prev : next.actorDefault))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (currentWorkspaceRef.current === workspace)
+        setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (currentWorkspaceRef.current === workspace) setLoading(false)
     }
-  }
+  }, [workspace])
 
-  // 页面可见时对比工作区指纹：有变化自动重扫
-  useWorkspaceSync(workspace, active, scan)
+  // NFO 计划不能依赖通用指纹同步：拖入或选择目录后，页面可见时必须立即生成。
+  // 延后到任务队列执行，避免在 effect 同步阶段更新 React 状态；清理函数会取消已失效的目录任务。
+  useEffect(() => {
+    if (!active || !workspace) return
+    const timer = window.setTimeout(() => {
+      void scan()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [active, workspace, scan])
 
+  // 页面常驻时，旧工作区的计划不可在新目录中展示或继续执行。
+  const activePlan = plan?.root === workspace ? plan : null
   const targets = useMemo(() => {
-    if (!plan) return []
-    return plan.items.filter((item) => includeConflicts || !item.conflict)
-  }, [plan, includeConflicts])
-  const conflictCount = plan?.items.filter((item) => item.conflict).length ?? 0
+    if (!activePlan) return []
+    return activePlan.items.filter((item) => includeConflicts || !item.conflict)
+  }, [activePlan, includeConflicts])
+  const conflictCount = activePlan?.items.filter((item) => item.conflict).length ?? 0
 
   const execute = async (): Promise<void> => {
-    if (!workspace || !plan) return
+    if (!workspace || !activePlan) return
     setConfirming(false)
     setExecuting(true)
     setError('')
@@ -84,7 +106,7 @@ function NfoPage({
           >
             {loading ? '扫描中…' : '生成归档计划'}
           </button>
-          {plan && targets.length > 0 && (
+          {activePlan && targets.length > 0 && (
             <button disabled={executing || !actorName.trim()} onClick={() => setConfirming(true)}>
               {executing ? '执行中…' : `执行归档（${targets.length}）`}
             </button>
@@ -138,7 +160,7 @@ function NfoPage({
         </section>
       )}
 
-      {plan && (
+      {activePlan && (
         <>
           <section className="settings-card">
             <label className="field">
@@ -190,14 +212,14 @@ function NfoPage({
         </>
       )}
 
-      {!plan && !report && (
+      {!activePlan && !report && (
         <section className="empty">
           <h2>扫描后开始</h2>
           <p>选择工作区并点击「生成归档计划」。归档不删除任何文件。</p>
         </section>
       )}
 
-      {confirming && (
+      {confirming && activePlan && (
         <ConfirmDialog
           title="确认执行 NFO 归档"
           deleteCount={0}
