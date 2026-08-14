@@ -24,7 +24,7 @@ declare module './frames.mjs' {
     videoPath: string,
     jobs: Array<{ seconds: number; target: string }>
   ): string[]
-  /** 单进程批量截帧：返回成功生成的帧路径（缺帧时点被剔除，全失败才抛错） */
+  /** 逐帧批量截帧：单个时点失败会被剔除，全部失败才抛错。 */
   export function captureFrames(
     videoPath: string,
     jobs: Array<{ seconds: number; target: string }>,

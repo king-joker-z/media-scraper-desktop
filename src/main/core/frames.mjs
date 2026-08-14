@@ -103,8 +103,12 @@ export function buildMultiCaptureArgs(videoPath, jobs) {
 }
 
 /**
- * 单进程批量截帧：返回成功生成的帧路径（越过末尾/损坏时点产生的缺帧被容忍剔除）；
- * 一帧都没产出才抛错。支持 AbortSignal 取消。
+ * 批量截帧：逐帧使用单输入 FFmpeg 调用，返回成功生成的帧路径。
+ *
+ * 不复用同一视频作为多个 FFmpeg 输入：部分容错较差的 MP4 在多输入模式下会报
+ * "Invalid sample size"，即使单输入的手动截帧完全正常。候选帧采用输入侧快速 seek，
+ * 每个进程耗时很短；外层视频任务和 FFmpeg 池仍负责全局并发控制。
+ * 单个时点失败不会让其余候选帧失败；只有全部时点都失败才抛错。支持 AbortSignal 取消。
  */
 export async function captureFrames(
   videoPath,
@@ -114,13 +118,25 @@ export async function captureFrames(
 ) {
   if (jobs.length === 0) return []
   await mkdir(dirname(jobs[0].target), { recursive: true })
-  await runPooled(ffmpegPath, buildMultiCaptureArgs(videoPath, jobs), { signal })
   const frames = []
+  const errors = []
   for (const job of jobs) {
-    if (await pathExists(job.target)) frames.push(job.target)
+    if (signal?.aborted) {
+      const error = new Error('已取消')
+      error.name = 'AbortError'
+      throw error
+    }
+    try {
+      await captureFrame(videoPath, job.seconds, job.target, ffmpegPath, { signal, fast: true })
+      frames.push(job.target)
+    } catch (error) {
+      if (signal?.aborted || error?.name === 'AbortError') throw error
+      errors.push(error)
+    }
   }
   if (frames.length === 0) {
-    throw new Error(`截帧未生成任何图片：${videoPath}`)
+    const detail = errors.at(-1)?.message
+    throw new Error(`截帧未生成任何图片：${videoPath}${detail ? `（${detail}）` : ''}`)
   }
   return frames
 }

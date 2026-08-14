@@ -28,8 +28,10 @@ function PosterDetail({
   onClose: () => void
 }): React.JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
-  // 详情页只展示已有候选；批量截帧失败后不得自动重试并锁住手动截帧。
-  const [busy, setBusy] = useState(false)
+  // 候选生成与手动截帧是独立操作：候选失败/耗时不能锁住用户在播放器当前时点截帧。
+  const [generating, setGenerating] = useState(false)
+  const [capturingCurrent, setCapturingCurrent] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
 
@@ -42,7 +44,7 @@ function PosterDetail({
   const captureCurrent = async (): Promise<void> => {
     const player = videoRef.current
     if (!player) return
-    setBusy(true)
+    setCapturingCurrent(true)
     setError('')
     try {
       const frame = await window.api.capturePosterAt(video.path, player.currentTime)
@@ -51,12 +53,12 @@ function PosterDetail({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setBusy(false)
+      setCapturingCurrent(false)
     }
   }
 
   const regenerate = async (): Promise<void> => {
-    setBusy(true)
+    setGenerating(true)
     setError('')
     try {
       const { frames, scores: nextScores } = await generate()
@@ -64,7 +66,7 @@ function PosterDetail({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setBusy(false)
+      setGenerating(false)
     }
   }
 
@@ -73,7 +75,7 @@ function PosterDetail({
   const save = async (): Promise<void> => {
     if (!selection || !dirty) return
     setConfirming(false)
-    setBusy(true)
+    setSaving(true)
     setError('')
     try {
       const result = await window.api.savePoster({
@@ -84,7 +86,8 @@ function PosterDetail({
       onSaved(result.saved)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
-      setBusy(false)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -121,23 +124,27 @@ function PosterDetail({
         <video ref={videoRef} src={mediaUrl(video.path)} controls className="detail-player" />
         <div className="detail-actions">
           {candidates.length === 0 && (
-            <button className="secondary" disabled={busy} onClick={regenerate}>
-              生成候选帧
+            <button className="secondary" disabled={generating || saving} onClick={regenerate}>
+              {generating ? '生成候选帧中…' : '生成候选帧'}
             </button>
           )}
-          <button className="secondary" disabled={busy} onClick={captureCurrent}>
-            截取当前帧
+          <button
+            className="secondary"
+            disabled={capturingCurrent || saving}
+            onClick={captureCurrent}
+          >
+            {capturingCurrent ? '截取中…' : '截取当前帧'}
           </button>
           <button
-            disabled={!dirty || busy}
+            disabled={!dirty || saving}
             onClick={() => (video.posterPath ? setConfirming(true) : save())}
           >
-            {busy ? '处理中…' : dirty ? '保存封面' : '无改动'}
+            {saving ? '保存中…' : dirty ? '保存封面' : '无改动'}
           </button>
         </div>
         {error && <p className="danger-text">{error}</p>}
         <div className="candidate-strip">
-          {busy && allFrames.length === 0 && <p className="muted">正在截取候选帧…</p>}
+          {generating && allFrames.length === 0 && <p className="muted">正在截取候选帧…</p>}
           {allFrames.map((frame) => (
             <button
               key={frame}
