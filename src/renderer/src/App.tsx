@@ -11,6 +11,7 @@ import RenamePage from './pages/RenamePage'
 import SettingsPage from './pages/SettingsPage'
 import TaskCenter from './components/TaskCenter'
 import TaskProgress from './components/TaskProgress'
+import ErrorBanner from './components/ErrorBanner'
 import ErrorBoundary from './components/ErrorBoundary'
 import { prunePlayPositions } from './utils/media'
 import { applyTheme } from './utils/theme'
@@ -151,6 +152,7 @@ function App(): React.JSX.Element {
   const [recents, setRecents] = useState<Record<AppModule, string[]>>({ video: [], comic: [] })
   const [showRecents, setShowRecents] = useState(false)
   const [dropActive, setDropActive] = useState(false)
+  const [appError, setAppError] = useState('')
   const dragDepth = useRef(0)
 
   const workspace = module ? workspaces[module] : ''
@@ -184,7 +186,9 @@ function App(): React.JSX.Element {
           setPage(MODULE_META[settings.activeModule].home)
         }
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        setAppError(`应用初始化失败：${error instanceof Error ? error.message : String(error)}`)
+      })
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().catch(() => {})
     }
@@ -230,8 +234,10 @@ function App(): React.JSX.Element {
         const valid = await window.api.useWorkspace(path, module)
         setWorkspaces((prev) => ({ ...prev, [module]: valid }))
         refreshRecents()
-      } catch {
-        // 无效目录（不存在/不可读）忽略
+      } catch (error) {
+        setAppError(
+          `无法打开工作区“${basenameOf(path)}”：${error instanceof Error ? error.message : String(error)}`
+        )
       }
     },
     [module, refreshRecents]
@@ -496,6 +502,7 @@ function App(): React.JSX.Element {
         跳到主要内容
       </a>
       <main id="main-content" className="content" tabIndex={-1}>
+        {appError && <ErrorBanner message={appError} />}
         {modulePages.map((item) => (
           <div key={item.key} className={`page-host ${page === item.key ? '' : 'page-hidden'}`}>
             <ErrorBoundary>{item.element}</ErrorBoundary>

@@ -3097,6 +3097,15 @@ button.danger-button {
   color: var(--label-secondary);
   font-size: 11px;
 }
+.task-error {
+  max-height: 5.2em;
+  overflow: auto;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
 .task-count {
   padding: 2px 6px;
   border-radius: 999px;

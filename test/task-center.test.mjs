@@ -95,6 +95,23 @@ test('item errors are collected without aborting the whole run', async () => {
   assert.equal(events.at(-1).type, 'done')
 })
 
+test('item errors preserve useful details for the task center', async () => {
+  const events = []
+  const center = createTaskCenter({ emit: (event) => events.push(event) })
+
+  await center.run({
+    taskId: 't-object-error',
+    label: '错误详情测试',
+    items: ['broken'],
+    worker: async () => {
+      throw { code: 'EACCES', reason: '文件被占用' }
+    }
+  })
+
+  const errorEvent = events.find((event) => event.type === 'item-error')
+  assert.equal(errorEvent.error, '{"code":"EACCES","reason":"文件被占用"}')
+})
+
 test('empty item list completes immediately', async () => {
   const center = createTaskCenter()
   const result = await center.run({

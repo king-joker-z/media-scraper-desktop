@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import ErrorBanner from './ErrorBanner'
 
 /** 渲染进程兜底：任何页面组件抛错时展示恢复界面而不是白屏 */
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -17,7 +18,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
       return (
         <div className="error-boundary">
           <h1>界面出现异常</h1>
-          <p className="muted">{this.state.error.message}</p>
+          <ErrorBanner message={`界面错误：${this.state.error.message}`} />
+          <p className="muted">你可以复制错误详情用于反馈，或尝试恢复当前页面。</p>
           <button onClick={() => this.setState({ error: null })}>尝试恢复</button>
           <button className="secondary" onClick={() => window.location.reload()}>
             重新加载界面

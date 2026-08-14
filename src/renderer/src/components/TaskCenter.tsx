@@ -101,9 +101,14 @@ function TaskCenter(): React.JSX.Element {
                         {event.completed}/{event.total}
                       </span>
                     </div>
-                    <span className="task-label" title={event.current}>
+                    <span className="task-label" title={event.current ?? event.label}>
                       {event.current ?? event.label}
                     </span>
+                    {event.error && (
+                      <span className="task-error" title={event.error}>
+                        原因：{event.error}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))

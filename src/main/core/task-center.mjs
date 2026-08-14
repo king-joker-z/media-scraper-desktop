@@ -16,6 +16,20 @@ const describeItem = (item) => {
   return String(item)
 }
 
+/** 将底层异常规整成非空、可复制的文本，避免任务中心出现 [object Object]。 */
+const errorMessageOf = (error) => {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error) return error
+  if (error && typeof error === 'object') {
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return '未知错误（错误详情无法序列化）'
+    }
+  }
+  return String(error || '未知错误')
+}
+
 /**
  * 任务中心：统一并发调度（冻结稿 §2.4，默认 5、1–20 可配；视频合并单独限流）。
  * 纯 Node 实现、不依赖 Electron，通过 emit 回调向外推送 TaskEvent。
@@ -72,7 +86,7 @@ export function createTaskCenter({ emit } = {}) {
             return
           }
           failed += 1
-          const message = error instanceof Error ? error.message : String(error)
+          const message = errorMessageOf(error)
           results[index] = { ok: false, error: message }
           emit?.({ type: 'item-error', current, error: message, ...snapshot() })
         }

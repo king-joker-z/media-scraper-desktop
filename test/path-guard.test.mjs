@@ -24,7 +24,11 @@ test('resolveInsideRoot rejects Windows drive and root-relative path forms on ev
   for (const path of paths) {
     assert.throws(() => resolveInsideRoot('/workspace', path), /绝对路径/, path)
   }
-  assert.equal(basename(resolveInsideRoot('/workspace', 'nested\\video.mp4')), 'nested\\video.mp4')
+  const nestedBackslashPath = resolveInsideRoot('/workspace', 'nested\\video.mp4')
+  assert.equal(
+    relative(resolve('/workspace'), nestedBackslashPath),
+    process.platform === 'win32' ? join('nested', 'video.mp4') : 'nested\\video.mp4'
+  )
 })
 
 test('assertSafeFileName rejects nested and traversal output names', () => {

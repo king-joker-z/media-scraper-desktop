@@ -196,7 +196,13 @@ const createThrottledEmitter = (
     pending.clear()
   }
   return (event) => {
-    if (event.type === 'start' || event.type === 'done' || event.type === 'cancelled') {
+    // 失败事件必须立即送达：若与终态事件一起被节流合并，用户会只看到“结束”而丢失失败原因。
+    if (
+      event.type === 'start' ||
+      event.type === 'item-error' ||
+      event.type === 'done' ||
+      event.type === 'cancelled'
+    ) {
       if (pending.has(event.taskId)) {
         pending.delete(event.taskId)
       }
@@ -297,6 +303,11 @@ async function trackScan<T>(
   }
   try {
     return await fn(onProgress)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    // 扫描此前通常只发“结束”，IPC 虽会拒绝但任务中心没有失败原因。
+    emitTask(taskId, label, { type: 'item-error', current: '扫描失败', error: message })
+    throw error
   } finally {
     clearTimeout(timer)
     if (started) emit('done')
@@ -698,7 +709,15 @@ function registerIpcHandlers(): void {
           emit('cancelled', 0, '已取消')
         } else {
           // 先报告失败细节，再发送终态，确保全局进度条不会停留在“进行中”。
-          emit('item-error', 0, '失败')
+          const message = error instanceof Error ? error.message : String(error)
+          emitTask(taskId, label, {
+            type: 'item-error',
+            completed: 0,
+            failed: 1,
+            total: files.length,
+            current: 'AI 命名失败',
+            error: message
+          })
           emitTask(taskId, label, {
             type: 'done',
             completed: 0,
@@ -843,12 +862,21 @@ function registerIpcHandlers(): void {
             }
             // 失败诊断异步持久化，保留主进程返回的原始错误和阶段，避免 UI/IPC 边界吞掉细节。
             logOp('merge-failure', diagnostic)
+            const message = result.error || result.verifyNote
+            emitTask(taskId, '视频合并', {
+              type: 'item-error',
+              total: 100,
+              completed: 0,
+              failed: 1,
+              current: '合并失败',
+              error: message
+            })
             emitTask(taskId, '视频合并', {
               type: 'done',
               total: 100,
               completed: 0,
               failed: 1,
-              current: result.error || result.verifyNote
+              current: '失败'
             })
           }
           return result
