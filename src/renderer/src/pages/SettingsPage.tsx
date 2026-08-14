@@ -204,9 +204,14 @@ function SettingsPage(): React.JSX.Element {
     })
   }
 
-  const switchActive = (id: string): void => {
+  const selectProvider = (id: string): void => {
     setEditingId(id)
-    if (id !== settings.activeProviderId) persist({ activeProviderId: id })
+  }
+
+  const activateProvider = (): void => {
+    if (editing.id !== settings.activeProviderId) {
+      void persist({ activeProviderId: editing.id })
+    }
   }
 
   const addModel = (): void => {
@@ -528,7 +533,7 @@ function SettingsPage(): React.JSX.Element {
             <button
               key={provider.id}
               className={`mode-tab ${editingId === provider.id ? 'active' : ''}`}
-              onClick={() => switchActive(provider.id)}
+              onClick={() => selectProvider(provider.id)}
             >
               {provider.name}
               {provider.id === settings.activeProviderId && ' · 使用中'}
@@ -606,6 +611,11 @@ function SettingsPage(): React.JSX.Element {
                 }}
               />
             </label>
+            {editing.id !== settings.activeProviderId && (
+              <button className="secondary" onClick={activateProvider}>
+                设为当前使用的平台
+              </button>
+            )}
             {editing.id === 'deepseek' && (
               <label className="confirm-check">
                 <input

@@ -104,7 +104,7 @@ export interface RegexTemplate {
 
 /** AI 平台配置（OpenAI 兼容端点）。token 按平台独立保存，切换平台不清除。 */
 export interface AiProviderConfig {
-  /** 预设：openrouter / deepseek / aicodemirror；自定义为 custom-<timestamp> */
+  /** 预设：openrouter / deepseek / aicodemirror / linkai；自定义为 custom-<uuid> */
   id: string
   name: string
   /** OpenAI 兼容 baseUrl，如 https://api.deepseek.com */

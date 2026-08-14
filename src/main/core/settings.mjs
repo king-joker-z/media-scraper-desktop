@@ -25,6 +25,12 @@ export const PROVIDER_PRESETS = [
     name: 'AiCodeMirror',
     baseUrl: 'https://api.aicodemirror.ai/api/codex/backend-api/codex/v1',
     models: ['gpt-5.6-luna']
+  },
+  {
+    id: 'linkai',
+    name: 'LinkAI',
+    baseUrl: 'https://linkai.pics/v1',
+    models: ['linkai-auto']
   }
 ]
 
@@ -195,12 +201,19 @@ export function normalizeSettings(raw) {
           }
     )
   }
-  const aiProviders = (providers ?? DEFAULT_SETTINGS.aiProviders).map((rawProvider) =>
+  const configuredProviders = (providers ?? DEFAULT_SETTINGS.aiProviders).map((rawProvider) =>
     normalizeProvider(
       rawProvider,
       PROVIDER_PRESETS.find((p) => p.id === rawProvider?.id)
     )
   )
+  // 升级后补齐新内置平台，保留用户已有的平台顺序与自定义平台。
+  const aiProviders = [
+    ...configuredProviders,
+    ...PROVIDER_PRESETS.filter(
+      (preset) => !configuredProviders.some((provider) => provider.id === preset.id)
+    ).map((preset) => normalizeProvider(preset, preset))
+  ]
   const activeProviderId = aiProviders.some((p) => p.id === input.activeProviderId)
     ? input.activeProviderId
     : (aiProviders[0]?.id ?? 'openrouter')

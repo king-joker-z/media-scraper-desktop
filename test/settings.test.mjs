@@ -28,6 +28,10 @@ test('returns defaults when the settings file does not exist', async () => {
     assert.ok(ids.includes('openrouter'))
     assert.ok(ids.includes('deepseek'))
     assert.ok(ids.includes('aicodemirror'))
+    assert.ok(ids.includes('linkai'))
+    const linkai = settings.aiProviders.find((provider) => provider.id === 'linkai')
+    assert.equal(linkai.baseUrl, 'https://linkai.pics/v1')
+    assert.equal(linkai.selectedModel, 'linkai-auto')
     assert.ok(settings.promptTemplate.includes('文件名'))
     assert.ok(settings.regexTemplates.length >= 3)
   })
@@ -60,6 +64,39 @@ test('migrates legacy openRouter settings into providers', () => {
   assert.equal(openrouter.selectedModel, 'a/b')
   // 其他平台预设补齐
   assert.ok(migrated.aiProviders.find((p) => p.id === 'deepseek'))
+})
+
+test('旧设置升级后会补齐新增的内置 AI 平台', () => {
+  const upgraded = normalizeSettings({
+    aiProviders: [
+      {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        token: 'sk-or',
+        models: ['model-a'],
+        selectedModel: 'model-a'
+      },
+      {
+        id: 'custom-existing',
+        name: '我的平台',
+        baseUrl: 'https://example.com/v1',
+        token: 'sk-custom',
+        models: ['model-b'],
+        selectedModel: 'model-b'
+      }
+    ],
+    activeProviderId: 'custom-existing'
+  })
+  assert.equal(upgraded.activeProviderId, 'custom-existing')
+  assert.equal(
+    upgraded.aiProviders.find((provider) => provider.id === 'linkai').selectedModel,
+    'linkai-auto'
+  )
+  assert.equal(
+    upgraded.aiProviders.find((provider) => provider.id === 'custom-existing').token,
+    'sk-custom'
+  )
 })
 
 test('tokens persist per provider and survive platform switching', async () => {
@@ -238,7 +275,7 @@ test('normalizeSettings filters malformed providers and models', () => {
   assert.equal(ds.baseUrl, 'https://api.deepseek.com') // 尾斜杠清理
   assert.deepEqual(ds.models, ['m1'])
   assert.equal(ds.selectedModel, 'm1') // 非法 selectedModel 回退
-  // 无效 provider 被赋予自定义 id 兜底
-  assert.equal(normalized.aiProviders.length, 2)
+  // 无效 provider 被赋予自定义 id 兜底，随后补齐缺失的内置平台。
+  assert.equal(normalized.aiProviders.length, 5)
   assert.equal(normalized.activeProviderId, 'deepseek') // ghost 不存在，回退首个
 })

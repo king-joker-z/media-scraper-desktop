@@ -10,7 +10,8 @@ import {
   normalizeAiName,
   fetchWithRetry,
   requestAiNames,
-  readAiResponseContent
+  readAiResponseContent,
+  toFriendlyHttpError
 } from '../src/main/modules/rename/ai.mjs'
 
 test('chatCompletionsUrl appends endpoint without double-appending', () => {
@@ -90,6 +91,16 @@ test('requestAiNames caches results within the session', async () => {
   })
   assert.equal(calls, 4)
   assert.deepEqual(isolated, ['other-provider'])
+})
+
+test('503 会提示平台暂时不可用且保留平台响应摘要', async () => {
+  const error = await toFriendlyHttpError({
+    status: 503,
+    text: async () => '{"error":{"message":"Service temporarily unavailable"}}'
+  })
+  assert.match(error.message, /平台暂时不可用/)
+  assert.match(error.message, /HTTP 503/)
+  assert.match(error.message, /Service temporarily unavailable/)
 })
 
 test('fetchWithRetry stops promptly when externally cancelled', async () => {
