@@ -120,6 +120,20 @@ export interface AiProviderConfig {
 export type ThemeMode = 'system' | 'light' | 'dark'
 
 /** 强调色方案：仅改变品牌色与交互强调，不改变内容层级 */
+export type BackgroundFit = 'cover' | 'contain'
+
+/** 工作区背景材质：图片储存于应用数据目录，仅保存主进程导入后的安全路径。 */
+export interface BackgroundAppearance {
+  imagePath: string
+  /** 背景图可见度，0-100 */
+  imageOpacity: number
+  /** 背景图模糊半径（px），0-32 */
+  blur: number
+  /** 内容层遮罩不透明度，0-100；调至 0 可显示无蒙层原图 */
+  surfaceOpacity: number
+  fit: BackgroundFit
+}
+
 export type ThemePalette =
   | 'ocean'
   | 'violet'
@@ -158,6 +172,8 @@ export interface AppSettings {
   themePalette: ThemePalette
   /** 自定义强调色（#RRGGBB），仅在 custom 方案下使用 */
   customAccent: string
+  /** 工作台背景图片与材质参数 */
+  backgroundAppearance: BackgroundAppearance
   aiProviders: AiProviderConfig[]
   activeProviderId: string
   /** AI 重命名 prompt 模板，支持 {{parentFolder}} {{fileName}} */

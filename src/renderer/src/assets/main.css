@@ -61,6 +61,15 @@
   --radius-control: 10px;
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.08);
   --shadow-pop: 0 12px 28px rgba(16, 24, 40, 0.16), 0 2px 6px rgba(16, 24, 40, 0.08);
+  --workspace-background-image: none;
+  --workspace-background-opacity: 0;
+  --workspace-background-blur: 0px;
+  --workspace-surface-opacity: 1;
+  --workspace-background-size: cover;
+  /* 顶栏独立材质：不随内容层透明度下降，保证高彩背景下仍稳定可读。 */
+  --workspace-header-surface: #ffffff;
+  --workspace-header-border: #d8e0ea;
+  --workspace-header-shadow: rgba(24, 34, 48, 0.18);
   /* 为既有流程编排等组件保留统一语义别名。 */
   --surface: var(--bg-card);
   --surface-hover: var(--fill-quaternary);
@@ -85,6 +94,9 @@
     --fill-tertiary: #344054;
     --separator: #344054;
     --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.28);
+    --workspace-header-surface: #101828;
+    --workspace-header-border: #3a475b;
+    --workspace-header-shadow: rgba(0, 0, 0, 0.52);
   }
 }
 :root[data-theme='dark'] {
@@ -98,6 +110,9 @@
   --fill-tertiary: #344054;
   --separator: #344054;
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --workspace-header-surface: #101828;
+  --workspace-header-border: #3a475b;
+  --workspace-header-shadow: rgba(0, 0, 0, 0.52);
 }
 :root[data-palette='ocean'] {
   --accent: #1677ff;
@@ -269,9 +284,56 @@ h2 {
 }
 
 /* ---------- 应用骨架：侧边栏 + 内容区 ---------- */
+.workspace-with-background {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--bg-window);
+}
 .app-shell {
   display: flex;
   height: 100%;
+}
+/* 自定义背景只作用于右侧工作区，左侧导航始终使用其原有的稳定实色。 */
+.content {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+}
+.content::before {
+  position: absolute;
+  z-index: 0;
+  inset: calc(-1 * var(--workspace-background-blur));
+  content: '';
+  pointer-events: none;
+  opacity: var(--workspace-background-opacity);
+  background-image: var(--workspace-background-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: var(--workspace-background-size);
+  filter: blur(var(--workspace-background-blur));
+  transform: scale(1.04);
+}
+.content::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: '';
+  pointer-events: none;
+  background: color-mix(
+    in srgb,
+    var(--bg-window) calc(var(--workspace-surface-opacity) * 100%),
+    transparent
+  );
+}
+@media (prefers-reduced-transparency: reduce) {
+  .content::before {
+    opacity: 0 !important;
+  }
+  .content::after,
+  .content {
+    background: var(--bg-window);
+  }
 }
 .sidebar {
   width: 244px;
@@ -387,6 +449,8 @@ h2 {
 }
 /* 页面常驻挂载：切换仅隐藏不卸载（状态保留） */
 .page-host {
+  position: relative;
+  z-index: 2;
   height: 100%;
   overflow-y: auto;
 }
@@ -394,9 +458,11 @@ h2 {
   display: none;
 }
 .page {
+  --page-top-inset: 48px;
+  --page-inline-inset: 36px;
   max-width: 1080px;
   margin: 0 auto;
-  padding: 48px 36px 88px;
+  padding: var(--page-top-inset) var(--page-inline-inset) 88px;
 }
 .page-header {
   display: grid;
@@ -659,20 +725,35 @@ h2 {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
 }
-.custom-palette-copy {
+.custom-palette-select {
   display: flex;
   align-items: center;
-  gap: 10px;
   min-width: 0;
+  min-height: 44px;
+  gap: 10px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--label-primary);
+  text-align: left;
+  box-shadow: none;
 }
-.custom-palette-copy > span:last-child {
+.custom-palette-select:hover:not(:disabled) {
+  background: transparent;
+  color: var(--label-primary);
+}
+.custom-palette-select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+.custom-palette-select > span:last-child {
   display: grid;
   gap: 2px;
 }
-.custom-palette-copy b {
+.custom-palette-select b {
   font-size: 12px;
 }
-.custom-palette-copy small {
+.custom-palette-select small {
   color: var(--label-secondary);
   font-size: 10px;
   font-weight: 500;
@@ -755,6 +836,120 @@ h2 {
 }
 .palette-swatch-rose {
   background: linear-gradient(135deg, #ffa2c4, #c44775);
+}
+.background-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.background-settings-heading h2,
+.background-settings-heading p {
+  margin-top: 0;
+}
+.background-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+.background-preview {
+  position: relative;
+  min-height: 152px;
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  background: var(--fill-quaternary);
+}
+.background-preview img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: var(--workspace-background-size);
+  opacity: var(--workspace-background-opacity);
+  filter: blur(var(--workspace-background-blur));
+  transform: scale(1.04);
+}
+.background-preview-empty {
+  display: grid;
+  height: 152px;
+  place-items: center;
+  color: var(--label-secondary);
+  background: linear-gradient(135deg, var(--fill-quaternary), var(--bg-card));
+}
+.background-preview-surface {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  gap: 4px;
+  padding: 13px 15px;
+  border: 1px solid color-mix(in srgb, var(--separator) 76%, transparent);
+  border-radius: 10px;
+  color: var(--label-primary);
+  background: color-mix(
+    in srgb,
+    var(--bg-card) calc(var(--workspace-surface-opacity) * 100%),
+    transparent
+  );
+  box-shadow: var(--shadow-card);
+}
+.background-preview-surface span {
+  font-weight: 700;
+}
+.background-preview-surface small {
+  color: var(--label-secondary);
+}
+.appearance-slider {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 14px;
+  color: var(--label-secondary);
+  font-size: 13px;
+}
+.appearance-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.appearance-slider output {
+  color: var(--label-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.background-fit {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--label-secondary);
+  font-size: 13px;
+}
+.background-fit .mode-tabs {
+  display: flex;
+  gap: 6px;
+}
+@media (max-width: 640px) {
+  .background-settings-heading,
+  .background-fit {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .background-actions,
+  .background-fit .mode-tabs {
+    width: 100%;
+  }
+  .background-actions button,
+  .background-fit .mode-tab {
+    flex: 1;
+  }
+  .appearance-slider {
+    grid-template-columns: 1fr 48px;
+  }
+  .appearance-slider > span {
+    grid-column: 1 / -1;
+  }
 }
 .slider-row {
   display: flex;
@@ -2571,14 +2766,9 @@ h2 {
 .nav-icon {
   color: currentColor;
 }
+/* 覆盖旧版装饰底色，避免其不透明窗口色遮住右侧自定义背景层。 */
 .content {
-  background:
-    radial-gradient(
-      1100px 420px at 90% -20%,
-      color-mix(in srgb, var(--accent) 6%, transparent),
-      transparent 68%
-    ),
-    var(--bg-window);
+  background: transparent;
 }
 .page {
   max-width: 1180px;
@@ -3051,33 +3241,43 @@ h2 {
     height: 38px;
   }
   .page {
+    --page-top-inset: 38px;
+    --page-inline-inset: 32px;
     max-width: 1240px;
-    padding: 38px 32px 64px;
+    padding: var(--page-top-inset) var(--page-inline-inset) 64px;
   }
-  .page-header {
+  /*
+   * 彩色/高对比背景只作为环境层。标题区使用独立的高对比磨砂材质，
+   * 防止标题、说明和顶部操作直接与背景图案竞争，同时不遮挡下方背景。
+   */
+  .workspace-with-background .page-header {
     position: sticky;
     top: 0;
     z-index: 20;
-    height: 132px;
-    margin: -38px -32px 20px;
-    padding: 26px 32px 18px;
-    background: color-mix(in srgb, var(--bg-window) 93%, transparent);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border-bottom: 0;
+    min-height: 132px;
+    /* 使用页面内边距变量完整抵消四边距离，顶栏必定贴住滚动容器边界。 */
+    width: calc(100% + var(--page-inline-inset) * 2);
+    margin: calc(-1 * var(--page-top-inset)) calc(-1 * var(--page-inline-inset)) 20px;
+    padding: 26px var(--page-inline-inset) 18px;
+    border: 0;
+    border-bottom: 1px solid var(--workspace-header-border);
+    border-radius: 0;
+    /* 实色工作条完全隔离背景图；阴影与强调色细线提供清晰的内容分界。 */
+    background: var(--workspace-header-surface);
+    box-shadow: 0 10px 24px var(--workspace-header-shadow);
   }
-  .page-header::after {
+  .workspace-with-background .page-header::after {
     position: absolute;
-    right: 32px;
-    bottom: 0;
-    left: 32px;
-    height: 1px;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    height: 3px;
     content: '';
     background: linear-gradient(
       90deg,
-      color-mix(in srgb, var(--accent) 34%, transparent),
-      color-mix(in srgb, var(--separator) 84%, transparent) 22%,
-      transparent 100%
+      var(--accent),
+      color-mix(in srgb, var(--accent) 38%, var(--workspace-header-border)) 34%,
+      transparent 78%
     );
   }
   .page-header > div:first-child {
@@ -3098,11 +3298,15 @@ h2 {
   .page-header > .saved-badge {
     align-self: center;
   }
-  .settings-card,
-  .path-card,
-  .empty,
-  .placeholder-card,
-  .error-banner {
+  .workspace-with-background .settings-card,
+  .workspace-with-background .path-card,
+  .workspace-with-background .empty,
+  .workspace-with-background .placeholder-card,
+  .workspace-with-background .error-banner {
+    border-color: color-mix(in srgb, var(--separator) 88%, transparent);
+    box-shadow:
+      0 1px 2px color-mix(in srgb, var(--label-primary) 7%, transparent),
+      0 12px 28px color-mix(in srgb, var(--label-primary) 9%, transparent);
     border-radius: 12px;
   }
   .workspace-button,
@@ -3110,12 +3314,43 @@ h2 {
     border-radius: 8px;
   }
 }
+/* 顶栏必须在所有窗口宽度下全出血贴边；不能只放在宽屏媒体查询中。 */
+.workspace-with-background .page-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 132px;
+  width: calc(100% + var(--page-inline-inset) * 2);
+  margin: calc(-1 * var(--page-top-inset)) calc(-1 * var(--page-inline-inset)) 20px;
+  padding: 26px var(--page-inline-inset) 18px;
+  border: 0;
+  border-bottom: 1px solid var(--workspace-header-border);
+  border-radius: 0;
+  background: var(--workspace-header-surface);
+  box-shadow: 0 10px 24px var(--workspace-header-shadow);
+}
+.workspace-with-background .page-header::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 3px;
+  content: '';
+  background: linear-gradient(
+    90deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 38%, var(--workspace-header-border)) 34%,
+    transparent 78%
+  );
+}
 @media (max-width: 1100px) {
   .sidebar {
     width: 220px;
   }
   .page {
-    padding: 32px 24px 56px;
+    --page-top-inset: 32px;
+    --page-inline-inset: 24px;
+    padding: var(--page-top-inset) var(--page-inline-inset) 56px;
   }
   .rename-row {
     grid-template-columns: minmax(140px, 1fr) minmax(210px, 1.3fr) minmax(120px, 0.8fr);
@@ -3981,8 +4216,11 @@ body {
 }
 
 .page {
+  /* 此处是文件末尾实际生效的页面间距，必须同步更新全出血顶栏的反向偏移。 */
+  --page-top-inset: 42px;
+  --page-inline-inset: 44px;
   max-width: 1160px;
-  padding: 42px 44px 96px;
+  padding: var(--page-top-inset) var(--page-inline-inset) 96px;
 }
 
 .page-header {
@@ -4717,7 +4955,9 @@ body {
 
 @media (max-width: 760px) {
   .page {
-    padding: 28px 18px 56px;
+    --page-top-inset: 28px;
+    --page-inline-inset: 18px;
+    padding: var(--page-top-inset) var(--page-inline-inset) 56px;
   }
 
   .page-header {

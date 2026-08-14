@@ -34,7 +34,7 @@ declare module './fs-ops.mjs' {
   export function writeTextFile(target: string, content: string): Promise<string>
   /** 读文本文件（utf8） */
   export function readTextFile(target: string): Promise<string>
-  /** 读二进制文件（EPUB/PDF 等） */
+  /** 读二进制文件（图片、EPUB/PDF 等） */
   export function readBinaryFile(target: string): Promise<Buffer>
   /** 原子写入二进制文件（先 .part 后 rename） */
   export function writeBinaryFile(target: string, data: Uint8Array): Promise<void>

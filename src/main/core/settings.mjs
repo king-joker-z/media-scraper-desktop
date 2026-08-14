@@ -77,6 +77,13 @@ export const DEFAULT_SETTINGS = {
   theme: 'system',
   themePalette: 'ocean',
   customAccent: '#1687d9',
+  backgroundAppearance: {
+    imagePath: '',
+    imageOpacity: 32,
+    blur: 8,
+    surfaceOpacity: 35,
+    fit: 'cover'
+  },
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
     ...preset,
     token: '',
@@ -115,6 +122,32 @@ const normalizeCustomAccent = (value) =>
   typeof value === 'string' && HEX_COLOR_PATTERN.test(value)
     ? value.toLowerCase()
     : DEFAULT_SETTINGS.customAccent
+
+const clampInteger = (value, min, max, fallback) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback
+}
+
+const normalizeBackgroundAppearance = (value) => {
+  const input = value && typeof value === 'object' ? value : {}
+  return {
+    imagePath: typeof input.imagePath === 'string' ? input.imagePath : '',
+    imageOpacity: clampInteger(
+      input.imageOpacity,
+      0,
+      100,
+      DEFAULT_SETTINGS.backgroundAppearance.imageOpacity
+    ),
+    blur: clampInteger(input.blur, 0, 32, DEFAULT_SETTINGS.backgroundAppearance.blur),
+    surfaceOpacity: clampInteger(
+      input.surfaceOpacity,
+      0,
+      100,
+      DEFAULT_SETTINGS.backgroundAppearance.surfaceOpacity
+    ),
+    fit: input.fit === 'contain' ? 'contain' : 'cover'
+  }
+}
 
 function normalizeProvider(raw, preset) {
   const input = raw && typeof raw === 'object' ? raw : {}
@@ -190,6 +223,7 @@ export function normalizeSettings(raw) {
       ? input.themePalette
       : DEFAULT_SETTINGS.themePalette,
     customAccent: normalizeCustomAccent(input.customAccent),
+    backgroundAppearance: normalizeBackgroundAppearance(input.backgroundAppearance),
     aiProviders,
     activeProviderId,
     promptTemplate:

@@ -14,7 +14,7 @@ import TaskProgress from './components/TaskProgress'
 import ErrorBanner from './components/ErrorBanner'
 import ErrorBoundary from './components/ErrorBoundary'
 import { prunePlayPositions } from './utils/media'
-import { applyTheme } from './utils/theme'
+import { applyBackgroundAppearance, applyTheme, DEFAULT_BACKGROUND_APPEARANCE } from './utils/theme'
 import { basenameOf } from './utils/format'
 import type { AppModule } from '../../shared/types'
 
@@ -164,7 +164,10 @@ function App(): React.JSX.Element {
     window.api
       .getSettings()
       .then(async (settings) => {
+        // HMR 时预加载层可能暂时保留旧版返回值；缺少新外观字段时回退默认背景，避免阻断启动。
+        const backgroundAppearance = settings.backgroundAppearance ?? DEFAULT_BACKGROUND_APPEARANCE
         applyTheme(settings.theme, settings.themePalette, settings.customAccent || '#1687d9')
+        applyBackgroundAppearance(backgroundAppearance)
         setRecents({
           video: settings.recentWorkspaces,
           comic: settings.comicRecentWorkspaces
@@ -366,7 +369,7 @@ function App(): React.JSX.Element {
   // 模块选择页：启动（未记忆模块）或主动切换时展示
   if (!module) {
     return (
-      <div className="module-picker">
+      <div className="module-picker workspace-with-background">
         <a className="skip-link" href="#module-choice">
           跳到模块选择
         </a>
@@ -417,7 +420,7 @@ function App(): React.JSX.Element {
 
   return (
     <div
-      className="app-shell"
+      className="app-shell workspace-with-background"
       onDragEnter={onDragEnter}
       onDragLeave={onDragLeave}
       onDragOver={(event) => event.preventDefault()}

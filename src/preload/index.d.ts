@@ -134,6 +134,10 @@ declare global {
       getAppVersion: () => Promise<string>
       onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void
       getSettings: () => Promise<AppSettings>
+      /** 打开系统对话框并导入背景图到应用私有目录 */
+      selectBackgroundImage: () => Promise<string | null>
+      /** 清除当前背景图，同时删除应用私有副本 */
+      clearBackgroundImage: () => Promise<AppSettings>
       updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>
       listOpLogs: () => Promise<
         {

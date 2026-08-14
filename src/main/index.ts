@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, Notification, protocol } from 'electron'
 import { extname, join } from 'path'
+import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { tmpdir } from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -23,6 +24,7 @@ import { renameComicDirectories } from './modules/comic/rename.mjs'
 import {
   cleanMovePartials,
   createFileReadStream,
+  ensureDir,
   deleteToTrash,
   dirSizeBytes,
   diskFreeBytes,
@@ -31,6 +33,8 @@ import {
   permanentDelete,
   pathExists,
   recoverStagedOutputs,
+  readBinaryFile,
+  writeBinaryFile,
   setTrashImpl,
   isStagedOutputName
 } from './core/fs-ops.mjs'
@@ -68,6 +72,7 @@ import type {
 
 const settingsStore = createSettingsStore(join(app.getPath('userData'), 'settings.json'))
 const framesRoot = join(app.getPath('temp'), 'media-scraper-frames')
+const backgroundRoot = join(app.getPath('userData'), 'backgrounds')
 const opLogDir = join(app.getPath('userData'), 'op-logs')
 /** 重命名崩溃恢复 journal（msd_tmp_* 临时文件续跑依据） */
 const renameJournalPath = join(app.getPath('userData'), 'rename-journal.json')
@@ -161,7 +166,7 @@ const requireComicOutput = (target: string): string => {
  * 不归一化会导致白名单全部误判 403（封面/视频全挂）。
  */
 const isMediaAllowed = (filePath: string): boolean => {
-  const roots = [framesRoot]
+  const roots = [framesRoot, backgroundRoot]
   if (workspaceRoot) roots.push(workspaceRoot)
   if (comicRoot) roots.push(comicRoot)
   return isMediaPathAllowed(filePath, roots)
@@ -476,6 +481,48 @@ function registerIpcHandlers(): void {
     )
   })
   ipcMain.handle('settings:get', async () => settingsStore.get())
+  ipcMain.handle('background:select-image', async () => {
+    const result = await dialog.showOpenDialog({
+      title: '选择工作台背景图片',
+      properties: ['openFile'],
+      filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'] }]
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+
+    const source = result.filePaths[0]
+    const extension = extname(source).toLowerCase()
+    if (!['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif'].includes(extension)) {
+      throw new Error('请选择 JPG、PNG、WebP、GIF 或 AVIF 图片')
+    }
+    const data = await readBinaryFile(source)
+    const maxBytes = 15 * 1024 * 1024
+    if (data.byteLength > maxBytes) throw new Error('背景图片不能超过 15 MB')
+
+    // 原子写入会先落同目录暂存文件，首次导入前必须确保私有目录已存在。
+    await ensureDir(backgroundRoot)
+    const target = join(backgroundRoot, `${randomUUID()}${extension}`)
+    await writeBinaryFile(target, data)
+    const settings = await settingsStore.get()
+    const previous = settings.backgroundAppearance.imagePath
+    const updated = await settingsStore.update({
+      backgroundAppearance: { ...settings.backgroundAppearance, imagePath: target }
+    })
+    if (previous && isMediaPathAllowed(previous, [backgroundRoot])) {
+      await permanentDelete(previous).catch(() => {})
+    }
+    return updated.backgroundAppearance.imagePath
+  })
+  ipcMain.handle('background:clear-image', async () => {
+    const settings = await settingsStore.get()
+    const previous = settings.backgroundAppearance.imagePath
+    const updated = await settingsStore.update({
+      backgroundAppearance: { ...settings.backgroundAppearance, imagePath: '' }
+    })
+    if (previous && isMediaPathAllowed(previous, [backgroundRoot])) {
+      await permanentDelete(previous).catch(() => {})
+    }
+    return updated
+  })
   ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) => {
     const updated = await settingsStore.update(patch)
     // 运行时同步 FFmpeg 进程池大小

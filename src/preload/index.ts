@@ -147,6 +147,9 @@ const api = {
     return () => ipcRenderer.removeListener('update:status', listener)
   },
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
+  selectBackgroundImage: (): Promise<string | null> =>
+    ipcRenderer.invoke('background:select-image'),
+  clearBackgroundImage: (): Promise<AppSettings> => ipcRenderer.invoke('background:clear-image'),
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:update', patch),
   listOpLogs: (): Promise<

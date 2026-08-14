@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type {
   AiProviderConfig,
   AppSettings,
+  BackgroundAppearance,
   StorageCategory,
   StorageStats,
   ThemeMode,
@@ -10,7 +11,12 @@ import type {
 } from '../../../shared/types'
 import OpLogPanel from '../components/OpLogPanel'
 import { formatBytes } from '../utils/format'
-import { applyTheme } from '../utils/theme'
+import {
+  applyBackgroundAppearance,
+  applyTheme,
+  DEFAULT_BACKGROUND_APPEARANCE
+} from '../utils/theme'
+import { mediaUrl } from '../utils/media'
 
 const THEME_TABS: { key: ThemeMode; label: string }[] = [
   { key: 'system', label: '跟随系统' },
@@ -53,6 +59,8 @@ function SettingsPage(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   // 色彩选择器使用本地值驱动，防止异步 settings IPC 回包短暂覆盖吸管刚选中的颜色。
   const [customAccent, setCustomAccent] = useState('#1687d9')
+  const [backgroundNotice, setBackgroundNotice] = useState('')
+  const [backgroundBusy, setBackgroundBusy] = useState(false)
   const [editingId, setEditingId] = useState<string>('')
   const [newModel, setNewModel] = useState('')
   const [newProvider, setNewProvider] = useState({ name: '', baseUrl: '' })
@@ -81,9 +89,15 @@ function SettingsPage(): React.JSX.Element {
 
   useEffect(() => {
     window.api.getSettings().then((next) => {
-      setSettings(next)
-      setCustomAccent(next.customAccent || '#1687d9')
-      setEditingId(next.activeProviderId)
+      // HMR 时预加载层可能短暂仍返回旧版设置结构，渲染端先兜底以确保设置页可打开。
+      const nextSettings: AppSettings = {
+        ...next,
+        backgroundAppearance: next.backgroundAppearance ?? DEFAULT_BACKGROUND_APPEARANCE
+      }
+      setSettings(nextSettings)
+      setCustomAccent(nextSettings.customAccent || '#1687d9')
+      applyBackgroundAppearance(nextSettings.backgroundAppearance)
+      setEditingId(nextSettings.activeProviderId)
     })
     refreshStorage()
     window.api
@@ -145,6 +159,43 @@ function SettingsPage(): React.JSX.Element {
     colorSaveTimerRef.current = setTimeout(() => {
       void persist({ themePalette: 'custom', customAccent: nextCustomAccent })
     }, 220)
+  }
+
+  const applyBackground = (patch: Partial<BackgroundAppearance>, saveNow = false): void => {
+    const appearance = { ...settings.backgroundAppearance, ...patch }
+    applyBackgroundAppearance(appearance)
+    setSettings((current) => (current ? { ...current, backgroundAppearance: appearance } : current))
+    if (saveNow) void persist({ backgroundAppearance: appearance })
+  }
+
+  const selectBackgroundImage = async (): Promise<void> => {
+    setBackgroundBusy(true)
+    setBackgroundNotice('')
+    try {
+      const imagePath = await window.api.selectBackgroundImage()
+      if (!imagePath) return
+      applyBackground({ imagePath }, true)
+      setBackgroundNotice('背景图片已导入，仅保存于本机应用数据中。')
+    } catch (error) {
+      setBackgroundNotice(`导入失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setBackgroundBusy(false)
+    }
+  }
+
+  const clearBackgroundImage = async (): Promise<void> => {
+    setBackgroundBusy(true)
+    setBackgroundNotice('')
+    try {
+      const next = await window.api.clearBackgroundImage()
+      applyBackgroundAppearance(next.backgroundAppearance)
+      setSettings(next)
+      setBackgroundNotice('已恢复纯色工作台背景。')
+    } catch (error) {
+      setBackgroundNotice(`清除失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setBackgroundBusy(false)
+    }
   }
 
   const patchProvider = (id: string, patch: Partial<AiProviderConfig>): void => {
@@ -255,7 +306,12 @@ function SettingsPage(): React.JSX.Element {
           ))}
         </div>
         <div className={`custom-palette ${settings.themePalette === 'custom' ? 'active' : ''}`}>
-          <div className="custom-palette-copy">
+          <button
+            type="button"
+            className="custom-palette-select"
+            aria-pressed={settings.themePalette === 'custom'}
+            onClick={() => applyCustomAccent(customAccent, true)}
+          >
             <span
               className="palette-swatch palette-swatch-custom"
               style={{ background: customAccent }}
@@ -265,7 +321,7 @@ function SettingsPage(): React.JSX.Element {
               <b>{CUSTOM_PALETTE.label}</b>
               <small>{CUSTOM_PALETTE.description}</small>
             </span>
-          </div>
+          </button>
           <label className="custom-color-picker">
             <span className="sr-only">选择自定义强调色</span>
             <input
@@ -277,6 +333,104 @@ function SettingsPage(): React.JSX.Element {
             />
             <output>{customAccent.toUpperCase()}</output>
           </label>
+        </div>
+      </section>
+
+      <section className="settings-card background-settings">
+        <div className="background-settings-heading">
+          <div>
+            <h2>工作台背景</h2>
+            <p className="muted">图片会导入应用私有目录。内容层遮罩调至 0% 可显示无蒙层原图。</p>
+          </div>
+          <div className="background-actions">
+            <button
+              className="secondary"
+              onClick={() => void selectBackgroundImage()}
+              disabled={backgroundBusy}
+            >
+              {backgroundBusy ? '处理中…' : '选择图片'}
+            </button>
+            <button
+              className="secondary"
+              onClick={() => void clearBackgroundImage()}
+              disabled={backgroundBusy || !settings.backgroundAppearance.imagePath}
+            >
+              移除图片
+            </button>
+          </div>
+        </div>
+        <div className="background-preview" aria-label="工作台背景预览">
+          {settings.backgroundAppearance.imagePath ? (
+            <img src={mediaUrl(settings.backgroundAppearance.imagePath)} alt="当前工作台背景" />
+          ) : (
+            <div className="background-preview-empty">尚未选择图片</div>
+          )}
+          <div className="background-preview-surface" aria-hidden="true">
+            <span>媒体工作台</span>
+            <small>预览你的内容层可读性</small>
+          </div>
+        </div>
+        {backgroundNotice && <p className="notice-inline">{backgroundNotice}</p>}
+        <label className="appearance-slider">
+          <span>图片可见度</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={settings.backgroundAppearance.imageOpacity}
+            onInput={(event) =>
+              applyBackground({ imageOpacity: Number(event.currentTarget.value) })
+            }
+            onChange={(event) =>
+              applyBackground({ imageOpacity: Number(event.currentTarget.value) }, true)
+            }
+          />
+          <output>{settings.backgroundAppearance.imageOpacity}%</output>
+        </label>
+        <label className="appearance-slider">
+          <span>磨砂强度</span>
+          <input
+            type="range"
+            min={0}
+            max={32}
+            value={settings.backgroundAppearance.blur}
+            onInput={(event) => applyBackground({ blur: Number(event.currentTarget.value) })}
+            onChange={(event) => applyBackground({ blur: Number(event.currentTarget.value) }, true)}
+          />
+          <output>{settings.backgroundAppearance.blur}px</output>
+        </label>
+        <label className="appearance-slider">
+          <span>内容层不透明度</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={settings.backgroundAppearance.surfaceOpacity}
+            onInput={(event) =>
+              applyBackground({ surfaceOpacity: Number(event.currentTarget.value) })
+            }
+            onChange={(event) =>
+              applyBackground({ surfaceOpacity: Number(event.currentTarget.value) }, true)
+            }
+          />
+          <output>{settings.backgroundAppearance.surfaceOpacity}%</output>
+        </label>
+        <div className="background-fit" role="group" aria-label="背景图片适配方式">
+          <span>图片适配</span>
+          <div className="mode-tabs">
+            <button
+              className={`mode-tab ${settings.backgroundAppearance.fit === 'cover' ? 'active' : ''}`}
+              onClick={() => applyBackground({ fit: 'cover' }, true)}
+            >
+              铺满裁切
+            </button>
+            <button
+              className={`mode-tab ${settings.backgroundAppearance.fit === 'contain' ? 'active' : ''}`}
+              onClick={() => applyBackground({ fit: 'contain' }, true)}
+            >
+              完整显示
+            </button>
+          </div>
         </div>
       </section>
 
