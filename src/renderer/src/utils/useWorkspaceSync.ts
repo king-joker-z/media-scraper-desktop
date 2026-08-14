@@ -30,7 +30,8 @@ export function useWorkspaceSync(
           busy.current = true
           lastFingerprint.current = fingerprint
           try {
-            await scanRef.current()
+            // 指纹请求返回后工作区仍可能已切换，扫描前再次阻止过期结果写回页面状态。
+            if (alive && version === runVersion.current) await scanRef.current()
           } finally {
             // 已切换工作区时，不能由旧任务重置新一轮扫描的 busy 标记。
             if (version === runVersion.current) busy.current = false

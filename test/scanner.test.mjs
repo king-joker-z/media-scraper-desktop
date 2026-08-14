@@ -59,22 +59,17 @@ test('frozen example: 保留匹配对、删除孤儿图与其他文件、生成�
       assert.equal(plan.summary.videos, 3)
       assert.equal(plan.summary.images, 4)
       assert.equal(plan.summary.otherFiles, 1)
-
-      // 视频全部保留
       assert.deepEqual(
         names(plan.keep.filter((item) => item.kind === 'video')),
         ['Movie A.mp4', 'Movie B.mp4', join('sub', 'Movie C.mp4')].sort()
       )
-      // 匹配图保留并标注 posterFor
       const posters = plan.keep.filter((item) => item.kind === 'image')
       assert.equal(posters.length, 3)
       assert.equal(
         posters.find((p) => p.relativePath === 'Movie B-poster.jpg').posterFor,
         'Movie B.mp4'
       )
-      // 孤儿图与其他文件进入删除候选
       assert.deepEqual(names(plan.deleteItems), ['Orphan.jpg', 'notes.nfo'].sort())
-      // 子目录保留项生成上移预览
       assert.deepEqual(
         plan.moves.map((m) => m.from).sort(),
         [join('sub', 'Movie C.mp4'), join('sub', 'Movie C.png')].sort()
@@ -126,7 +121,6 @@ test('matching is restricted to the same directory level', async () => {
     },
     async (root) => {
       const plan = await createScanPlan(root)
-      // 不同层不匹配：图片删除，视频保留但无 poster
       assert.equal(plan.keep.length, 1)
       assert.equal(plan.keep[0].relativePath, 'A.mp4')
       assert.equal(plan.deleteItems.length, 1)
@@ -159,7 +153,7 @@ test('one video with multiple images: exact same name wins when no -poster exist
     {
       'W.mp4': 'v',
       'W.jpg': 'i',
-      'W .jpg': 'i' // 归一化后同为 w，但词干不完全相同
+      'W .jpg': 'i'
     },
     async (root) => {
       const plan = await createScanPlan(root)
@@ -179,7 +173,6 @@ test('one video with multiple indistinguishable images goes to pendingPick', asy
     },
     async (root) => {
       const plan = await createScanPlan(root)
-      // 视频保留，但两张图都不删也不留，等待人工选择
       assert.equal(plan.keep.length, 1)
       assert.equal(plan.keep[0].kind, 'video')
       assert.equal(plan.deleteItems.length, 0)
@@ -200,7 +193,6 @@ test('one image matching multiple videos is an ambiguity conflict', async () => 
     },
     async (root) => {
       const plan = await createScanPlan(root)
-      // 两个视频都保留但都没有 poster；图片歧义删除
       assert.equal(plan.keep.length, 2)
       assert.ok(plan.keep.every((item) => item.kind === 'video'))
       assert.equal(plan.deleteItems.length, 1)
@@ -248,24 +240,37 @@ test('computeFingerprint changes on content change, stable otherwise', async () 
     },
     async (root) => {
       const fp1 = await computeFingerprint(root)
-      assert.equal(await computeFingerprint(root), fp1) // 稳定
-
-      // 内容变化 → 指纹变化
+      assert.equal(await computeFingerprint(root), fp1)
       const { writeFile: wf, utimes } = await import('node:fs/promises')
       await wf(join(root, 'B.mp4'), 'new')
       const fp2 = await computeFingerprint(root)
       assert.notEqual(fp2, fp1)
-
-      // 仅修改 mtime 也变化
       await utimes(join(root, 'B.mp4'), new Date(), new Date(Date.now() + 10000))
       assert.notEqual(await computeFingerprint(root), fp2)
-
-      // 隐藏文件变化不影响指纹（与扫描口径一致）
       const fp3 = await computeFingerprint(root)
       await wf(join(root, '.hidden-file'), 'changed-content-longer')
       assert.equal(await computeFingerprint(root), fp3)
     }
   )
+})
+
+test('fingerprint traversals are cached independently for concurrent workspaces', async () => {
+  const first = await mkdtemp(join(tmpdir(), 'msd-scan-first-'))
+  const second = await mkdtemp(join(tmpdir(), 'msd-scan-second-'))
+  try {
+    await writeFile(join(first, 'First.mp4'), 'v')
+    await writeFile(join(first, 'First.jpg'), 'i')
+    await writeFile(join(second, 'Second.mp4'), 'v')
+    await writeFile(join(second, 'Second.jpg'), 'i')
+    await Promise.all([computeFingerprint(first), computeFingerprint(second)])
+    await rm(join(first, 'First.mp4'))
+    const plan = await createScanPlan(first)
+    assert.equal(plan.summary.videos, 1)
+    assert.deepEqual(names(plan.keep.filter((item) => item.kind === 'video')), ['First.mp4'])
+  } finally {
+    await rm(first, { recursive: true, force: true })
+    await rm(second, { recursive: true, force: true })
+  }
 })
 
 test('scan plan is read-only and never touches the filesystem', async () => {
@@ -277,7 +282,6 @@ test('scan plan is read-only and never touches the filesystem', async () => {
     },
     async (root) => {
       await createScanPlan(root)
-      // 所有文件原样存在
       const { access } = await import('node:fs/promises')
       await access(join(root, 'Movie A.mp4'))
       await access(join(root, 'Orphan.jpg'))

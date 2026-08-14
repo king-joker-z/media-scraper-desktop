@@ -95,7 +95,7 @@ function ComicMergePage({
   // 正则仅作为实时预览叠加在手工名称草稿之上：不会因输入过程改写草稿，清空查找条件即可恢复。
   const { previewNames, regexError } = useMemo(() => {
     const drafts = comicNames
-    if (!regexPattern) return { previewNames: drafts, regexError: '' }
+    if (!regexPattern || !result) return { previewNames: drafts, regexError: '' }
     try {
       // 提前构造以识别非法表达式；实际替换仍复用共享规则。
       new RegExp(regexPattern, 'g')

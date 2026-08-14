@@ -188,11 +188,18 @@ async function walkWorkspace(root, onProgress, { concurrency = DEFAULT_WALK_CONC
 // 超过 TTL 的暂存视为过期（文件可能已变化），重新遍历。
 const STASH_TTL_MS = 5000
 
-let lastWalk = null // { root, at, fingerprint, records, skippedHidden }
+// root -> { at, fingerprint, records, skippedHidden }：按工作区隔离暂存，避免并发扫描
+// 不同工作区时相互覆盖，造成紧随指纹计算的扫描重复遍历。
+const walkStash = new Map()
+const WALK_STASH_MAX = 8
 
 // root -> { fingerprint, plan }：指纹未变的重复扫描直接复用计划，各模块共享同一份结果
 const planCache = new Map()
 const PLAN_CACHE_MAX = 8
+
+const trimCache = (cache, max) => {
+  while (cache.size > max) cache.delete(cache.keys().next().value)
+}
 
 const fingerprintOf = (records) => {
   const hash = createHash('md5')
@@ -213,13 +220,15 @@ const fingerprintOf = (records) => {
 export async function computeFingerprint(root, { onProgress, concurrency } = {}) {
   const { records, skippedHidden } = await walkWorkspace(root, onProgress, { concurrency })
   const fingerprint = fingerprintOf(records)
-  lastWalk = { root, at: Date.now(), fingerprint, records, skippedHidden }
+  walkStash.delete(root)
+  walkStash.set(root, { at: Date.now(), fingerprint, records, skippedHidden })
+  trimCache(walkStash, WALK_STASH_MAX)
   return fingerprint
 }
 
 /** 强制刷新与测试用：清空扫描缓存 */
 export function invalidateScanCache() {
-  lastWalk = null
+  walkStash.clear()
   planCache.clear()
 }
 
@@ -236,16 +245,18 @@ export async function createScanPlan(root, { onProgress, concurrency } = {}) {
   let records
   let skippedHidden
   let fingerprint
-  if (lastWalk && lastWalk.root === root && Date.now() - lastWalk.at < STASH_TTL_MS) {
-    // 复用指纹计算时的遍历结果，省掉一次全量递归
-    ;({ records, skippedHidden, fingerprint } = lastWalk)
+  const stashed = walkStash.get(root)
+  if (stashed && Date.now() - stashed.at < STASH_TTL_MS) {
+    // 复用同一工作区指纹计算时的遍历结果，省掉一次全量递归。
+    ;({ records, skippedHidden, fingerprint } = stashed)
+    walkStash.delete(root)
   } else {
+    walkStash.delete(root)
     const walked = await walkWorkspace(root, onProgress, { concurrency })
     records = walked.records
     skippedHidden = walked.skippedHidden
     fingerprint = fingerprintOf(records)
   }
-  lastWalk = null
 
   const cached = planCache.get(root)
   if (cached && cached.fingerprint === fingerprint) return cached.plan
