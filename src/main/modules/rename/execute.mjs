@@ -178,7 +178,7 @@ async function writeJournal(journalPath, ops) {
 
 /**
  * 崩溃恢复：按 journal 把残留的 msd_tmp_* 临时文件续跑到目标名。
- * 临时文件已不存在（阶段一未执行到该项就中断）的条目跳过；journal 处理后删除。
+ * 临时文件已不存在（阶段一未执行到该项就中断）的条目跳过；恢复失败的条目保留在 journal 中供下次重试。
  * 返回 { recovered, skipped }；journal 不存在/损坏时返回 null。
  */
 export async function recoverRenameJournal(journalPath) {
@@ -189,6 +189,7 @@ export async function recoverRenameJournal(journalPath) {
     return null
   }
   const ops = Array.isArray(journal?.ops) ? journal.ops : []
+  const retryOps = []
   let recovered = 0
   let skipped = 0
   for (const op of ops) {
@@ -204,9 +205,15 @@ export async function recoverRenameJournal(journalPath) {
       await renameWithCollision(op.temp, op.finalName)
       recovered += 1
     } catch {
-      skipped += 1 // 恢复失败保留临时文件，journal 删除后由扫描暴露给用户
+      skipped += 1
+      // Windows 文件锁、权限或网络盘瞬态故障下，下次启动仍应能继续恢复。
+      retryOps.push(op)
     }
   }
-  await permanentDelete(journalPath).catch(() => {})
+  if (retryOps.length > 0) {
+    await writeJournal(journalPath, retryOps)
+  } else {
+    await permanentDelete(journalPath).catch(() => {})
+  }
   return { recovered, skipped }
 }

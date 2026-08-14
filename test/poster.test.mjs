@@ -89,6 +89,32 @@ test('savePoster converts frame to <stem>-poster.jpg and removes old poster', as
   })
 })
 
+test('savePoster aborts before committing or deleting files', async () => {
+  await withTempDir(async (root) => {
+    const video = join(root, 'Movie.mp4')
+    const oldPoster = join(root, 'Movie-old.jpg')
+    const frame = join(root, 'candidate.jpg')
+    await writeFile(video, 'v')
+    await writeFile(oldPoster, 'old')
+    await writeFile(frame, Buffer.from(PNG_BASE64, 'base64'))
+    const controller = new AbortController()
+    controller.abort()
+
+    await assert.rejects(
+      savePoster({
+        videoPath: video,
+        chosenFramePath: frame,
+        oldPosterPath: oldPoster,
+        signal: controller.signal
+      }),
+      /已取消/
+    )
+    assert.equal(await pathExists(oldPoster), true)
+    assert.equal(await pathExists(join(root, 'Movie-poster.jpg')), false)
+    assert.equal(await pathExists(frame), true)
+  })
+})
+
 test('savePoster is a no-op when choosing the current poster itself', async () => {
   await withTempDir(async (root) => {
     const video = join(root, 'Movie.mp4')

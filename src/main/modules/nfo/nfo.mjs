@@ -48,6 +48,11 @@ export function renderNfoXml({ title, posterName, actorName }) {
  */
 export async function createNfoPlan(root, { onProgress } = {}) {
   const videos = await listPosterVideos(root, { onProgress })
+  const stemCounts = new Map()
+  for (const video of videos) {
+    const stem = basename(video.name, extname(video.name))
+    stemCounts.set(stem, (stemCounts.get(stem) ?? 0) + 1)
+  }
   const items = []
   for (const video of videos) {
     const stem = basename(video.name, extname(video.name))
@@ -58,7 +63,8 @@ export async function createNfoPlan(root, { onProgress } = {}) {
       stem,
       posterRel: video.posterRelativePath,
       targetDir: stem,
-      conflict: existing.length > 0
+      // 同 stem 的不同扩展名会共享目录和 NFO，必须像已有目录一样作为冲突项拒绝默认执行。
+      conflict: existing.length > 0 || (stemCounts.get(stem) ?? 0) > 1
     })
   }
   return { root, items, actorDefault: basename(root) }
@@ -93,7 +99,10 @@ export async function executeNfoPlan(
     signal,
     worker: async (item, itemSignal) => {
       if (itemSignal?.aborted) throw new Error('已取消')
+      if (item.conflict) throw new Error('目标目录存在冲突，请重新扫描并跳过该项')
       const targetDir = join(root, item.targetDir)
+      if ((await listDirNames(targetDir)).length > 0)
+        throw new Error('目标目录已发生变化，请重新扫描后再执行')
       const originalVideo = join(root, item.videoRel)
       const originalPoster = item.posterRel ? join(root, item.posterRel) : null
       let videoFinal = null

@@ -29,9 +29,9 @@ import {
   dirSizeBytes,
   diskFreeBytes,
   fileSize,
+  isDirectory,
   listDirNames,
   permanentDelete,
-  pathExists,
   recoverStagedOutputs,
   readBinaryFile,
   writeBinaryFile,
@@ -459,9 +459,9 @@ function registerIpcHandlers(): void {
     if (selected) await registerWorkspace(selected, module)
     return selected
   })
-  // 渲染端恢复/拖拽工作区：校验目录存在后注册（media:// 白名单 + 最近列表）
+  // 渲染端恢复/拖拽工作区：仅允许可访问的目录注册（media:// 白名单 + 最近列表）。
   ipcMain.handle('workspace:use', async (_event, root: string, module: AppModule = 'video') => {
-    if (!(await pathExists(root))) throw new Error('目录不存在或不可读')
+    if (!(await isDirectory(root))) throw new Error('请选择存在且可读的目录')
     await registerWorkspace(root, module)
     return root
   })
@@ -472,12 +472,17 @@ function registerIpcHandlers(): void {
       createScanPlan(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
     )
   })
-  // 指纹仅为只读的 UI 刷新提示：不改变 media:// 白名单，也不作为任何写操作授权。
-  // 页面常驻切换时可能带着上一轮 workspace 触发尾随 fingerprint，允许其自然失败并由渲染端忽略。
+  // 指纹仅为已登记工作区的只读 UI 刷新提示，不可借由 IPC 遍历任意本地目录。
   ipcMain.handle('workspace:fingerprint', async (_event, root: string) => {
+    let safeRoot: string
+    try {
+      safeRoot = requireVideoRoot(root)
+    } catch {
+      safeRoot = requireComicRoot(root)
+    }
     const settings = await settingsStore.get()
     return trackScan('检查工作区变化', (onProgress) =>
-      computeFingerprint(root, { onProgress, concurrency: settings.scanConcurrency })
+      computeFingerprint(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
     )
   })
   ipcMain.handle('settings:get', async () => settingsStore.get())
@@ -624,32 +629,35 @@ function registerIpcHandlers(): void {
       }
     })
   )
-  ipcMain.handle('poster:capture-at', async (_event, videoPath: string, seconds: number) => {
-    const safeVideo = requireFileInRoots(
-      videoPath,
-      workspaceRoot ? [workspaceRoot] : [],
-      '视频文件'
-    )
-    if (!Number.isFinite(seconds) || seconds < 0) throw new Error('截帧时间无效')
-    return captureAt(safeVideo, seconds, framesRoot, { ffmpegPath: resolveFfmpegPath() })
-  })
+  ipcMain.handle('poster:capture-at', async (_event, videoPath: string, seconds: number) =>
+    runExclusive('poster', '封面', async () => {
+      const safeVideo = requireFileInRoots(
+        videoPath,
+        workspaceRoot ? [workspaceRoot] : [],
+        '视频文件'
+      )
+      if (!Number.isFinite(seconds) || seconds < 0) throw new Error('截帧时间无效')
+      return captureAt(safeVideo, seconds, framesRoot, { ffmpegPath: resolveFfmpegPath() })
+    })
+  )
   ipcMain.handle(
     'poster:save',
     async (
       _event,
       payload: { videoPath: string; chosenFramePath: string; oldPosterPath: string | null }
-    ) => {
-      requireFileInRoots(payload.videoPath, workspaceRoot ? [workspaceRoot] : [], '视频文件')
-      requireFileInRoots(
-        payload.chosenFramePath,
-        [framesRoot, ...(workspaceRoot ? [workspaceRoot] : [])],
-        '封面来源'
-      )
-      if (payload.oldPosterPath)
-        requireFileInRoots(payload.oldPosterPath, workspaceRoot ? [workspaceRoot] : [], '旧封面')
-      const settings = await settingsStore.get()
-      return savePoster({ ...payload, deleteFn: deleteFnOf(settings) })
-    }
+    ) =>
+      runExclusive('poster', '封面', async () => {
+        requireFileInRoots(payload.videoPath, workspaceRoot ? [workspaceRoot] : [], '视频文件')
+        requireFileInRoots(
+          payload.chosenFramePath,
+          [framesRoot, ...(workspaceRoot ? [workspaceRoot] : [])],
+          '封面来源'
+        )
+        if (payload.oldPosterPath)
+          requireFileInRoots(payload.oldPosterPath, workspaceRoot ? [workspaceRoot] : [], '旧封面')
+        const settings = await settingsStore.get()
+        return savePoster({ ...payload, deleteFn: deleteFnOf(settings) })
+      })
   )
   ipcMain.handle(
     'poster:save-batch',
@@ -672,7 +680,7 @@ function registerIpcHandlers(): void {
           concurrency: settings.concurrency,
           worker: async (item, signal) => {
             if (signal.aborted) throw new Error('已取消')
-            const saved = await savePoster({ ...item, deleteFn: deleteFnOf(settings) })
+            const saved = await savePoster({ ...item, deleteFn: deleteFnOf(settings), signal })
             return { relativePath: item.relativePath, saved: saved.saved }
           }
         })

@@ -202,10 +202,9 @@ function App(): React.JSX.Element {
   const switchModule = useCallback((next: AppModule | null): void => {
     setModule(next)
     setShowRecents(false)
-    if (next) {
-      setPage(MODULE_META[next].home)
-      window.api.updateSettings({ activeModule: next }).catch(() => {})
-    }
+    if (next) setPage(MODULE_META[next].home)
+    // null 代表用户主动回到模块选择页，必须持久化，避免下次启动又自动进入旧模块。
+    window.api.updateSettings({ activeModule: next }).catch(() => {})
   }, [])
 
   const refreshRecents = useCallback((): void => {

@@ -26,6 +26,7 @@ declare module './poster.mjs' {
     chosenFramePath: string
     oldPosterPath?: string | null
     deleteFn?: (target: string) => Promise<void>
+    signal?: AbortSignal
   }): Promise<{ saved: string; deletedOld: string[] }>
   export function cleanupFrames(framesRoot: string, videoPath?: string): Promise<void>
   export function videoStem(videoPath: string): string

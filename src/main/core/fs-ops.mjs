@@ -39,6 +39,15 @@ export async function pathExists(target) {
   }
 }
 
+/** 路径存在且为目录才返回 true；工作区登记等场景不能把普通文件误作目录。 */
+export async function isDirectory(target) {
+  try {
+    return (await stat(target)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 /* ---------------- Windows 文件锁定重试 ---------------- */
 
 // Windows 特有：播放器占用、Defender 实时扫描、缩略图进程、网盘同步客户端都会短暂
@@ -123,9 +132,10 @@ export async function moveFile(from, to, { onProgress, signal } = {}) {
     await withLockRetry(() => rename(from, to))
   } catch (error) {
     if (error?.code !== 'EXDEV') throw error
-    // 跨设备：先复制到同目录临时文件再 rename 落位——取消/崩溃只残留 .msd-part
+    // 跨设备：先复制到同目录唯一临时文件再 rename 落位——取消/崩溃只残留 .msd-part
     // 临时件（可安全重试或清理），绝不会留下名为目标文件的不完整副本。
-    const partPath = `${to}.msd-part`
+    // 必须带 UUID：多个任务同时落向同一目标时，固定 .msd-part 会互相截断或误删。
+    const partPath = `${to}.${randomUUID()}.msd-part`
     try {
       const srcStat = await stat(from)
       const total = srcStat.size
@@ -143,7 +153,7 @@ export async function moveFile(from, to, { onProgress, signal } = {}) {
             yield chunk
           }
         },
-        createWriteStream(partPath, { highWaterMark: COPY_HIGH_WATER_MARK })
+        createWriteStream(partPath, { flags: 'wx', highWaterMark: COPY_HIGH_WATER_MARK })
       )
       const dstStat = await stat(partPath)
       if (srcStat.size !== dstStat.size) {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DedupeScanResult, DupItem, MediaInfo, SimilarDupItem } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
@@ -18,6 +18,7 @@ const mediaBadge = (media: MediaInfo | null, size: number): string => {
 }
 
 function DedupePage({
+  active,
   workspace,
   onChooseWorkspace
 }: {
@@ -26,6 +27,7 @@ function DedupePage({
   onChooseWorkspace: () => Promise<void>
 }): React.JSX.Element {
   const [result, setResult] = useState<DedupeScanResult | null>(null)
+  const [resultWorkspace, setResultWorkspace] = useState('')
   const [loading, setLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -36,16 +38,27 @@ function DedupePage({
   const [previewRel, setPreviewRel] = useState<string | null>(null)
   // 快速模式：仅完全重复（跳过全量 ffprobe 与相似聚类，大工作区首扫从分钟级降到秒级）
   const [fastMode, setFastMode] = useState(false)
+  const workspaceRef = useRef(workspace)
+
+  useEffect(() => {
+    workspaceRef.current = workspace
+  }, [workspace])
+
+  // 常驻页面保留旧状态，但只有与当前工作区匹配的扫描结果、勾选与预览才允许显示或执行。
+  const currentResult = resultWorkspace === workspace ? result : null
 
   // 注意：去重扫描要逐文件算哈希 + 探测，成本高，刻意不接自动重扫，由用户手动触发
   const scan = async (): Promise<void> => {
-    if (!workspace) return
+    const scanWorkspace = workspace
+    if (!scanWorkspace) return
     setLoading(true)
     setError('')
     setNotice('')
     try {
-      const next = await window.api.scanDuplicates(workspace, !fastMode)
+      const next = await window.api.scanDuplicates(scanWorkspace, !fastMode)
+      if (workspaceRef.current !== scanWorkspace) return
       setResult(next)
+      setResultWorkspace(scanWorkspace)
       // 默认勾选：完全重复组中除「建议保留」（质量最高）外的所有副本
       setChecked(
         new Set(
@@ -57,19 +70,23 @@ function DedupePage({
         )
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (workspaceRef.current === scanWorkspace)
+        setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (workspaceRef.current === scanWorkspace) setLoading(false)
     }
   }
 
   const checkedBytes = useMemo(() => {
-    if (!result) return 0
-    const all = [...result.exact.flatMap((g) => g.items), ...result.similar.flatMap((g) => g.items)]
+    if (!currentResult) return 0
+    const all = [
+      ...currentResult.exact.flatMap((g) => g.items),
+      ...currentResult.similar.flatMap((g) => g.items)
+    ]
     return all
       .filter((item) => checked.has(item.relativePath))
       .reduce((sum, item) => sum + item.size, 0)
-  }, [result, checked])
+  }, [currentResult, checked])
 
   const toggle = (rel: string): void => {
     setChecked((prev) => {
@@ -81,21 +98,25 @@ function DedupePage({
   }
 
   const execute = async (): Promise<void> => {
-    if (!workspace) return
+    const deleteWorkspace = workspace
+    if (!deleteWorkspace || !currentResult) return
+    const deletePaths = [...checked]
     setConfirming(false)
     setDeleting(true)
     setError('')
     try {
-      const report = await window.api.deleteDuplicates(workspace, [...checked])
+      const report = await window.api.deleteDuplicates(deleteWorkspace, deletePaths)
+      if (workspaceRef.current !== deleteWorkspace) return
       setNotice(
         `已删除 ${report.deletedCount} 个重复文件（释放 ${formatBytes(checkedBytes)}）` +
           (report.failed.length ? `，失败 ${report.failed.length} 个` : '')
       )
       await scan()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (workspaceRef.current === deleteWorkspace)
+        setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setDeleting(false)
+      if (workspaceRef.current === deleteWorkspace) setDeleting(false)
     }
   }
 
@@ -136,7 +157,7 @@ function DedupePage({
 
   return (
     <div className="page">
-      <header className="page-header">
+      <header className="page-header" aria-hidden={!active}>
         <div>
           <p className="eyebrow">视频去重</p>
           <h1>重复视频检测</h1>
@@ -169,13 +190,11 @@ function DedupePage({
             <button className="secondary" onClick={() => void window.api.cancelDedupeDelete()}>
               取消删除
             </button>
-          ) : (
-            checked.size > 0 && (
-              <button className="danger-button" onClick={() => setConfirming(true)}>
-                {`删除选中（${checked.size}）`}
-              </button>
-            )
-          )}
+          ) : currentResult && checked.size > 0 ? (
+            <button className="danger-button" onClick={() => setConfirming(true)}>
+              {`删除选中（${checked.size}）`}
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -194,13 +213,13 @@ function DedupePage({
         </section>
       )}
 
-      {result && result.exact.length === 0 && result.similar.length === 0 && (
+      {currentResult && currentResult.exact.length === 0 && currentResult.similar.length === 0 && (
         <section className="empty">
           <h2>没有发现重复视频 🎉</h2>
           <p>当前工作区内没有内容相同或相似的视频文件。</p>
         </section>
       )}
-      {!result && (
+      {!currentResult && (
         <section className="empty">
           <h2>准备检测</h2>
           <p>
@@ -210,11 +229,11 @@ function DedupePage({
         </section>
       )}
 
-      {result && result.exact.length > 0 && (
+      {currentResult && currentResult.exact.length > 0 && (
         <section className="settings-card">
-          <h2>完全重复（{result.exact.length} 组）</h2>
+          <h2>完全重复（{currentResult.exact.length} 组）</h2>
           <p className="muted">内容指纹完全相同，默认勾选除「建议保留」（质量最高）外的副本。</p>
-          {result.exact.map((group, index) => (
+          {currentResult.exact.map((group, index) => (
             <div key={group.hash} className="dup-group">
               <h3>
                 重复组 {index + 1}
@@ -229,13 +248,13 @@ function DedupePage({
         </section>
       )}
 
-      {result && result.similar.length > 0 && (
+      {currentResult && currentResult.similar.length > 0 && (
         <section className="settings-card">
-          <h2>相似重复（{result.similar.length} 组）</h2>
+          <h2>相似重复（{currentResult.similar.length} 组）</h2>
           <p className="muted">
             同一影片的不同压制版本（同分辨率、时长相近但内容指纹不同）。默认不勾选，请人工确认后选择删除。
           </p>
-          {result.similar.map((group) => (
+          {currentResult.similar.map((group) => (
             <div key={group.key + group.keepRel} className="dup-group">
               <h3>
                 {group.key}
@@ -260,7 +279,7 @@ function DedupePage({
         />
       )}
 
-      {previewRel && workspace && (
+      {currentResult && previewRel && workspace && (
         <VideoModal
           path={joinPath(workspace, previewRel)}
           title={previewRel}

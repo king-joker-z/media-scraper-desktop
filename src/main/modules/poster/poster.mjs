@@ -205,7 +205,8 @@ export async function savePoster({
   videoPath,
   chosenFramePath,
   oldPosterPath,
-  deleteFn = permanentDelete
+  deleteFn = permanentDelete,
+  signal
 }) {
   const dir = dirname(videoPath)
   const target = join(dir, posterFinalName(videoPath))
@@ -217,20 +218,24 @@ export async function savePoster({
   }
 
   // 先转到同目录暂存文件，验证生成成功后再安全替换，规避 Windows 文件锁导致旧封面丢失。
+  // 转码本身不可中断，但取消后绝不继续提交、删除旧封面或清理候选帧。
+  if (signal?.aborted) throw new Error('已取消')
   const stagingPath = createStagingPath(target)
   try {
     await convertToJpg(chosenFramePath, stagingPath)
+    if (signal?.aborted) throw new Error('已取消')
     await commitStagedFile(stagingPath, target)
   } catch (error) {
     await discardStagedFile(stagingPath)
     throw error
   }
+  if (signal?.aborted) return { saved: target, deletedOld }
   if (oldPosterPath && resolve(oldPosterPath) !== resolve(target)) {
     await deleteFn(oldPosterPath)
     deletedOld.push(oldPosterPath)
   }
-  // 候选帧为应用缓存，写入成功后可安全永久清理。
-  await permanentDelete(dirname(chosenFramePath))
+  // 候选帧为应用缓存，写入成功后可安全清理；调用层按视频串行化，避免与截帧并发互删。
+  if (!signal?.aborted) await permanentDelete(dirname(chosenFramePath))
   return { saved: target, deletedOld }
 }
 

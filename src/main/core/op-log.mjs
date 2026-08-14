@@ -1,4 +1,5 @@
 import { readdir, readFile, rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { writeAtomicTextFile } from './fs-ops.mjs'
 
@@ -31,7 +32,8 @@ export async function pruneOpLogs(dir, keep = OP_LOG_KEEP) {
 
 export async function writeOpLog(dir, module, payload) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const file = join(dir, `${stamp}-${module}.json`)
+  // 日志异步写入且跨模块可并行，同一毫秒不能复用同名文件，否则会丢失撤销依据。
+  const file = join(dir, `${stamp}-${module}-${randomUUID()}.json`)
   await writeAtomicTextFile(
     file,
     JSON.stringify({ module, finishedAt: new Date().toISOString(), ...payload }, null, 2)

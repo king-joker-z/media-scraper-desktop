@@ -14,7 +14,6 @@ function NfoPage({
 }): React.JSX.Element {
   const [plan, setPlan] = useState<NfoPlan | null>(null)
   const [actorName, setActorName] = useState('')
-  const [includeConflicts, setIncludeConflicts] = useState(false)
   const [loading, setLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -65,8 +64,9 @@ function NfoPage({
   const activePlan = plan?.root === workspace ? plan : null
   const targets = useMemo(() => {
     if (!activePlan) return []
-    return activePlan.items.filter((item) => includeConflicts || !item.conflict)
-  }, [activePlan, includeConflicts])
+    // 冲突项（含同 stem 不同扩展名）会共享 NFO，执行层也会二次拒绝，不能强制纳入。
+    return activePlan.items.filter((item) => !item.conflict)
+  }, [activePlan])
   const conflictCount = activePlan?.items.filter((item) => item.conflict).length ?? 0
 
   const execute = async (): Promise<void> => {
@@ -168,15 +168,10 @@ function NfoPage({
               <input value={actorName} onChange={(event) => setActorName(event.target.value)} />
             </label>
             {conflictCount > 0 && (
-              <label className="confirm-check">
-                <input
-                  className="check-input"
-                  type="checkbox"
-                  checked={includeConflicts}
-                  onChange={(event) => setIncludeConflicts(event.target.checked)}
-                />
-                包含 {conflictCount} 个目标目录已存在且非空的冲突项（移入时重名自动加序号）
-              </label>
+              <p className="danger-text">
+                已跳过 {conflictCount} 个冲突项（目标目录已存在，或存在同名不同扩展名的视频）
+                {'·'} 请改名或手动处理后重新扫描。
+              </p>
             )}
           </section>
 

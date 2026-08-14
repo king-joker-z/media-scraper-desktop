@@ -24,6 +24,21 @@ test('writeOpLog + listOpLogs roundtrip with summary', async () => {
   }
 })
 
+test('writeOpLog keeps concurrent same-module operations as independent files', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-oplog-'))
+  try {
+    const files = await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        writeOpLog(dir, 'rename', { report: { index }, summary: `改名 ${index}` })
+      )
+    )
+    assert.equal(new Set(files).size, 20)
+    assert.equal((await listOpLogs(dir, 50)).length, 20)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('markOpLogUndone atomically keeps a readable undo marker', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'msd-oplog-'))
   try {

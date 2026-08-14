@@ -6,6 +6,7 @@ declare module './fs-ops.mjs' {
     signal?: AbortSignal
   }
   export function pathExists(target: string): Promise<boolean>
+  export function isDirectory(target: string): Promise<boolean>
   export function permanentDelete(target: string): Promise<void>
   /** 注入回收站实现（主进程启动时调用） */
   export function setTrashImpl(fn: ((target: string) => Promise<void>) | null): void

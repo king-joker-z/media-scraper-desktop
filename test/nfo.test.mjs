@@ -61,6 +61,27 @@ test('createNfoPlan detects target dir conflicts', async () => {
   })
 })
 
+test('createNfoPlan marks same-stem videos with different extensions as conflicts', async () => {
+  await withTempDir(async (root) => {
+    await writeFile(join(root, 'Movie.mp4'), 'mp4')
+    await writeFile(join(root, 'Movie.mkv'), 'mkv')
+
+    const plan = await createNfoPlan(root)
+    assert.equal(plan.items.length, 2)
+    assert.ok(plan.items.every((item) => item.conflict))
+
+    const report = await executeNfoPlan(root, plan.items, '演员', {
+      taskCenter: createTaskCenter(),
+      taskId: 'nfo-same-stem',
+      concurrency: 2
+    })
+    assert.equal(report.archivedCount, 0)
+    assert.equal(report.failed.length, 2)
+    assert.equal(await pathExists(join(root, 'Movie.mp4')), true)
+    assert.equal(await pathExists(join(root, 'Movie.mkv')), true)
+  })
+})
+
 test('executeNfoPlan archives video+poster+nfo into per-video folder', async () => {
   await withTempDir(async (root) => {
     await writeFile(join(root, 'Movie.mp4'), 'v')
