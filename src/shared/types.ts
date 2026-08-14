@@ -120,7 +120,8 @@ export interface AiProviderConfig {
 export type ThemeMode = 'system' | 'light' | 'dark'
 
 /** 强调色方案：仅改变品牌色与交互强调，不改变内容层级 */
-export type ThemePalette = 'ocean' | 'violet' | 'forest' | 'sunset'
+export type ThemePalette =
+  'ocean' | 'violet' | 'forest' | 'sunset' | 'graphite' | 'berry' | 'amber' | 'jade'
 
 export interface AppSettings {
   /** 当前激活的功能模块（null = 启动时显示模块选择页） */

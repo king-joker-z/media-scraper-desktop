@@ -22,7 +22,11 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
   { key: 'ocean', label: '海洋蓝', description: '专注、清晰，适合日常整理' },
   { key: 'violet', label: '暮光紫', description: '更具创作感的深邃强调色' },
   { key: 'forest', label: '森林绿', description: '低干扰、舒缓的任务氛围' },
-  { key: 'sunset', label: '日落橙', description: '鲜明温暖，突出操作反馈' }
+  { key: 'sunset', label: '日落橙', description: '鲜明温暖，突出操作反馈' },
+  { key: 'graphite', label: '石墨灰', description: '低饱和中性，适合长时间专注' },
+  { key: 'berry', label: '莓果红', description: '克制鲜明，适合重点操作提示' },
+  { key: 'amber', label: '琥珀金', description: '沉稳明亮，兼顾辨识与温度' },
+  { key: 'jade', label: '青瓷色', description: '清爽平衡，降低视觉疲劳' }
 ]
 
 const UPDATE_STATE_LABELS: Record<UpdateStatus['state'], string> = {

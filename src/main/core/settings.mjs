@@ -29,7 +29,16 @@ export const PROVIDER_PRESETS = [
 ]
 
 export const THEME_OPTIONS = ['system', 'light', 'dark']
-export const THEME_PALETTE_OPTIONS = ['ocean', 'violet', 'forest', 'sunset']
+export const THEME_PALETTE_OPTIONS = [
+  'ocean',
+  'violet',
+  'forest',
+  'sunset',
+  'graphite',
+  'berry',
+  'amber',
+  'jade'
+]
 const DEFAULT_NVENC_ENABLED = process.platform === 'win32'
 
 /** 最近工作区最多记忆条数 */
