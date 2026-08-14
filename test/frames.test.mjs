@@ -19,9 +19,9 @@ import { pathExists } from '../src/main/core/fs-ops.mjs'
 
 const execFileAsync = promisify(execFile)
 
-test('buildFrameTimestamps returns 10/30/50/70/90% points in seconds', () => {
-  assert.deepEqual(buildFrameTimestamps(100_000), [10, 30, 50, 70, 90])
-  assert.deepEqual(buildFrameTimestamps(10_000, 3), [1, 3, 5])
+test('buildFrameTimestamps keeps the first frame plus distributed candidates', () => {
+  assert.deepEqual(buildFrameTimestamps(100_000), [0, 25, 50, 75, 90])
+  assert.deepEqual(buildFrameTimestamps(10_000, 3), [0, 2.5, 5])
   assert.deepEqual(buildFrameTimestamps(0), [0, 0, 0, 0, 0])
 })
 
@@ -128,6 +128,8 @@ test('buildMultiCaptureArgs emits one -ss/-i pair per job and per-output maps', 
   assert.equal(args.filter((a) => a === '/o/a.jpg').length, 1)
   assert.equal(args.filter((a) => a === '/o/b.jpg').length, 1)
   assert.equal(args.filter((a) => a === '/o/c.jpg').length, 1)
+  // execFile 在 Windows 不经 shell，滤镜表达式不能依赖 shell 去除单引号。
+  assert.ok(args.includes('scale=w=min(1920\\,iw):h=-2'))
   // 顺序：先全部输入，再全部输出映射
   assert.equal(args.indexOf('-i') < args.indexOf('-map'), true)
 })

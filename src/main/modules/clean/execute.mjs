@@ -22,6 +22,57 @@ import { collectFailures, finishReport } from '../../core/task-report.mjs'
  * @param {number} [options.concurrency] 并发数
  * @param {(target: string) => Promise<void>} [options.deleteFn] 删除实现（默认永久删除；可按设置注入回收站删除）
  */
+/**
+ * 仅解散文件夹：保留全部可见文件原样，将子目录内容上移到工作区根；
+ * 不删除、不转码、不改 poster。重名仍通过 moveWithCollision 追加序号，隐藏项保持不动。
+ */
+export async function executeDissolveFolders(
+  plan,
+  { taskCenter, taskId, concurrency = 5, signal, onMoveProgress } = {}
+) {
+  const startedAt = Date.now()
+  const report = {
+    taskId,
+    cancelled: false,
+    deletedCount: 0,
+    deletedBytes: 0,
+    converted: [],
+    renamed: [],
+    moved: [],
+    removedDirs: [],
+    failed: [],
+    durationMs: 0
+  }
+  const files = new Map()
+  for (const item of [...plan.keep, ...plan.deleteItems]) files.set(item.relativePath, item)
+  for (const pending of plan.pendingPick) {
+    for (const relativePath of pending.candidates) {
+      if (!files.has(relativePath)) files.set(relativePath, findRecord(plan, relativePath))
+    }
+  }
+  const toMove = [...files.values()].filter((item) => item.dir !== '.')
+  const result = await taskCenter.run({
+    taskId,
+    label: '解散文件夹',
+    items: toMove,
+    concurrency,
+    signal,
+    worker: async (item, workerSignal) => {
+      const finalPath = await moveWithCollision(item.path, plan.root, {
+        signal: workerSignal,
+        onProgress: (copied, total) => {
+          if (total > 1024 * 1024)
+            onMoveProgress?.(`${item.relativePath} ${Math.round((copied / total) * 100)}%`)
+        }
+      })
+      report.moved.push({ from: item.relativePath, to: basename(finalPath) })
+    }
+  })
+  collectFailures(report, result, toMove, 'relativePath')
+  report.removedDirs = await removeEmptyDirs(plan.root)
+  return finishReport(report, startedAt, result.cancelled)
+}
+
 export async function executeCleanPlan(
   plan,
   { picks = {}, taskCenter, taskId, concurrency = 5, signal, onMoveProgress, deleteFn } = {}

@@ -11,11 +11,12 @@ import {
   WINDOWS_RESERVED_NAME_RE
 } from '../../../shared/rename-rules.mjs'
 
-// 一次请求过大容易让兼容平台代理/模型在生成前超时；小批次可稳定处理上百个文件。
-export const AI_BATCH_SIZE = 20
-// 双并发显著缩短大批量等待时间，同时避免一次性创建大量 SSE/HTTP 连接触发限流。
-const AI_BATCH_CONCURRENCY = 2
-const AI_REQUEST_TIMEOUT_MS = 120_000
+// 一次请求过大容易让兼容平台代理/模型在生成前超时；15 项可降低慢模型的单次生成尾延迟。
+export const AI_BATCH_SIZE = 15
+// 三并发显著缩短大批量等待，同时仍避免一次性创建大量 SSE/HTTP 连接触发限流。
+const AI_BATCH_CONCURRENCY = 3
+// 慢模型经常在首 token 前排队，单次请求从 120s 放宽到 180s；仍保留取消与重试。
+const AI_REQUEST_TIMEOUT_MS = 180_000
 export const MAX_AI_PROMPT_LENGTH = 2000
 
 /**

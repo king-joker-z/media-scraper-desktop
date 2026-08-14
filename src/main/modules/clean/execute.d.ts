@@ -2,6 +2,17 @@ declare module './execute.mjs' {
   import type { CleanReport, PosterPicks, ScanPlan } from '../../../shared/types'
   import type { TaskCenter } from '../../core/task-center.mjs'
 
+  /** 仅上移可见文件并删除空目录，不执行删除、转码或 poster 标准化。 */
+  export function executeDissolveFolders(
+    plan: ScanPlan,
+    options: {
+      taskCenter: TaskCenter
+      taskId: string
+      concurrency?: number
+      signal?: AbortSignal
+      onMoveProgress?: (text: string) => void
+    }
+  ): Promise<CleanReport>
   export function executeCleanPlan(
     plan: ScanPlan,
     options: {

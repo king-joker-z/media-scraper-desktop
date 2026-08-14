@@ -308,12 +308,10 @@ export async function mergeVideos({
   }
   let verified = false
   let transactionCleanupPending = false
-  let stage = '创建暂存输出'
 
   try {
     if (compatibility.compatible) {
       // ---- 无重编码拼接 ----
-      stage = '无重编码拼接'
       onProgress?.(1, '无重编码拼接中')
       const listPath = join(workDir, 'concat.txt')
       await writeTextFile(listPath, buildConcatList(items.map((item) => item.path)))
@@ -324,7 +322,6 @@ export async function mergeVideos({
       })
     } else {
       // ---- 转码统一后拼接 ----
-      stage = '转码统一参数'
       const target = compatibility.target
       const transcodeAll = async (encoder, targetWorkDir) => {
         const segments = []
@@ -394,7 +391,6 @@ export async function mergeVideos({
           ...(nvencFallbackReason ? { nvencFallbackReason } : {})
         }
       }
-      stage = '拼接转码段'
       onProgress?.(92, '拼接中')
       const listPath = join(workDir, 'concat.txt')
       await writeTextFile(listPath, buildConcatList(segments))
@@ -406,7 +402,6 @@ export async function mergeVideos({
     }
 
     // ---- 校验 ----
-    stage = '校验输出'
     onProgress?.(99, '校验输出')
     const outputMedia = await probeMedia(stagingPath, ffprobePath)
     const verify = verifyMergeOutput(outputMedia, items)
@@ -423,12 +418,10 @@ export async function mergeVideos({
         ...(nvencFallbackReason ? { nvencFallbackReason } : {})
       }
     }
-    stage = '准备安全提交'
     await writeAtomicTextFile(
       transactionPath,
       JSON.stringify({ ...transaction, state: 'prepared' })
     )
-    stage = '安全提交输出文件'
     if (!(await installStagedFileIfAbsent(stagingPath, outputPath))) {
       // 目标由其他进程创建：仅清理本次已校验暂存和日志，绝不触碰该目标文件。
       await discardStagedFile(stagingPath).catch(() => {})
@@ -444,7 +437,6 @@ export async function mergeVideos({
       }
     }
     // 正式产物已无覆盖落位；后续 journal 更新失败不能把成功合并误报为失败。
-    stage = '收尾事务记录'
     verified = true
     try {
       await writeAtomicTextFile(
@@ -494,8 +486,8 @@ export async function mergeVideos({
       outputPath: null,
       verified: false,
       verifyNote: hardLinkUnsupported
-        ? `合并失败（阶段：${stage}）：当前输出文件系统不支持安全的无覆盖提交`
-        : `合并失败（阶段：${stage}；已完成的转码段已保留，重新执行可续传）`,
+        ? '合并失败：当前输出文件系统不支持安全的无覆盖提交，请将工作区移至 NTFS、APFS 或其他支持硬链接的文件系统'
+        : '合并失败（已完成的转码段已保留，重新执行可续传）',
       transcoded: !compatibility.compatible,
       videoEncoder: compatibility.compatible ? 'copy' : activeEncoder,
       ...(nvencFallbackReason ? { nvencFallbackReason } : {}),

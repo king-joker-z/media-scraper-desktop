@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { CandidateFrameScore, PosterVideoItem } from '../../../shared/types'
 import ConfirmDialog from './ConfirmDialog'
 import { mediaUrl } from '../utils/media'
@@ -28,8 +28,8 @@ function PosterDetail({
   onClose: () => void
 }): React.JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
-  // 无封面且无候选时初始即 busy（挂载后自动生成候选）
-  const [busy, setBusy] = useState(() => !video.posterPath && candidates.length === 0)
+  // 详情页只展示已有候选；批量截帧失败后不得自动重试并锁住手动截帧。
+  const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
 
@@ -38,24 +38,6 @@ function PosterDetail({
     if (outcomes[0]?.error) throw new Error(outcomes[0].error)
     return { frames: outcomes[0]?.frames ?? [], scores: outcomes[0]?.scores ?? [] }
   }
-
-  useEffect(() => {
-    // 无封面视频进入详情自动生成候选（有封面的由用户手动点"生成候选帧"）
-    if (video.posterPath || candidates.length > 0) return
-    let alive = true
-    generate()
-      .then(({ frames, scores: nextScores }) => {
-        if (!alive) return
-        onCandidates(frames, nextScores)
-        if (frames[0]) onSelect(frames[0])
-      })
-      .catch((err) => alive && setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => alive && setBusy(false))
-    return () => {
-      alive = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [video.relativePath])
 
   const captureCurrent = async (): Promise<void> => {
     const player = videoRef.current
@@ -138,7 +120,7 @@ function PosterDetail({
         </div>
         <video ref={videoRef} src={mediaUrl(video.path)} controls className="detail-player" />
         <div className="detail-actions">
-          {video.posterPath && candidates.length === 0 && (
+          {candidates.length === 0 && (
             <button className="secondary" disabled={busy} onClick={regenerate}>
               生成候选帧
             </button>

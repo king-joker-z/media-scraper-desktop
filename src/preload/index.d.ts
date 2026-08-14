@@ -42,6 +42,8 @@ declare global {
       scanPlan: (root: string) => Promise<ScanPlan>
       getWorkspaceFingerprint: (root: string) => Promise<string>
       executeClean: (plan: ScanPlan, picks: PosterPicks) => Promise<CleanReport>
+      /** 仅将可见文件上移到工作区根，不删除、转码或改名 poster。 */
+      dissolveFolders: (plan: ScanPlan) => Promise<CleanReport>
       cancelClean: () => Promise<void>
       listPosterVideos: (root: string) => Promise<PosterVideoItem[]>
       capturePosters: (

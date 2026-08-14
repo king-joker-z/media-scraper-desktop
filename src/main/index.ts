@@ -10,7 +10,7 @@ import { activeProvider, createSettingsStore, pushRecentWorkspace } from './core
 import { createTaskCenter } from './core/task-center.mjs'
 import { resolveFfmpegPath } from './core/frames.mjs'
 import { probeMedia, probeMediaCached, resolveFfprobePath } from './core/probe.mjs'
-import { executeCleanPlan } from './modules/clean/execute.mjs'
+import { executeCleanPlan, executeDissolveFolders } from './modules/clean/execute.mjs'
 import { executeRename, recoverRenameJournal } from './modules/rename/execute.mjs'
 import { requestAiNames } from './modules/rename/ai.mjs'
 import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
@@ -492,6 +492,22 @@ function registerIpcHandlers(): void {
         summary: `删除 ${report.deletedCount}，上移 ${report.moved.length}，转码 ${report.converted.length}`
       })
       return report
+    })
+  )
+  ipcMain.handle('clean:dissolve-folders', async (_event, plan: ScanPlan) =>
+    runExclusive('clean', '解散文件夹', async (taskId) => {
+      const safeRoot = requireVideoRoot(plan.root)
+      const settings = await settingsStore.get()
+      return executeDissolveFolders(
+        { ...plan, root: safeRoot },
+        {
+          taskCenter,
+          taskId,
+          concurrency: settings.concurrency,
+          onMoveProgress: (text) =>
+            emitTask(taskId, '解散文件夹', { type: 'progress', current: text })
+        }
+      )
     })
   )
   ipcMain.handle('clean:cancel', async () => cancelSlot('clean'))

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createScanPlan } from '../src/main/core/scanner.mjs'
 import { createTaskCenter } from '../src/main/core/task-center.mjs'
-import { executeCleanPlan } from '../src/main/modules/clean/execute.mjs'
+import { executeCleanPlan, executeDissolveFolders } from '../src/main/modules/clean/execute.mjs'
 import { pathExists } from '../src/main/core/fs-ops.mjs'
 
 // 1x1 PNG
@@ -28,6 +28,32 @@ async function withFixture(structure, fn) {
 }
 
 const listRoot = async (root) => (await readdir(root)).sort()
+
+test('仅解散文件夹会保留所有可见文件，不删除或标准化 poster', async () => {
+  await withFixture(
+    {
+      [join('sub', 'A.mp4')]: 'video',
+      [join('sub', 'A.png')]: 'image',
+      [join('sub', 'notes.nfo')]: 'note',
+      'A.mp4': 'root-video',
+      [join('.hidden', 'keep.txt')]: 'hidden'
+    },
+    async (root) => {
+      const report = await executeDissolveFolders(await createScanPlan(root), {
+        taskCenter: createTaskCenter(),
+        taskId: 'test-dissolve',
+        concurrency: 2
+      })
+      assert.equal(report.deletedCount, 0)
+      assert.equal(report.converted.length, 0)
+      assert.equal(report.moved.length, 3)
+      assert.equal(await readFile(join(root, 'A (1).mp4'), 'utf8'), 'video')
+      assert.equal(await readFile(join(root, 'A.png'), 'utf8'), 'image')
+      assert.equal(await readFile(join(root, 'notes.nfo'), 'utf8'), 'note')
+      assert.equal(await pathExists(join(root, '.hidden', 'keep.txt')), true)
+    }
+  )
+})
 
 test('end-to-end: 冻结稿示例树清理后目录结构正确', async () => {
   await withFixture(

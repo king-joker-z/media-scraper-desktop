@@ -47,6 +47,8 @@ const api = {
     ipcRenderer.invoke('workspace:fingerprint', root),
   executeClean: (plan: ScanPlan, picks: PosterPicks): Promise<CleanReport> =>
     ipcRenderer.invoke('clean:execute', plan, picks),
+  dissolveFolders: (plan: ScanPlan): Promise<CleanReport> =>
+    ipcRenderer.invoke('clean:dissolve-folders', plan),
   cancelClean: (): Promise<void> => ipcRenderer.invoke('clean:cancel'),
   listPosterVideos: (root: string): Promise<PosterVideoItem[]> =>
     ipcRenderer.invoke('poster:list', root),

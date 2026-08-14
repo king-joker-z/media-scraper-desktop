@@ -384,7 +384,8 @@ test('requestAiNames cancellation stops remaining batches', async () => {
   })
   controller.abort()
   await assert.rejects(pending, /已取消 AI 命名/)
-  assert.ok(calls <= 2)
+  // 批次并发为 3，取消时最多已有三条请求开始；后续批次不得再发起。
+  assert.ok(calls <= 3)
 })
 
 test('requestAiNames parses SSE response and disables stream requests', async () => {
@@ -452,7 +453,7 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
       }
     }
   })
-  assert.equal(calls, 6) // 20 × 6，受控双并发避免兼容服务超时
+  assert.equal(calls, 8) // 15 × 8，三并发缩短大批量等待并降低单请求尾延迟
   assert.equal(names.length, 120)
   assert.equal(batchReports.at(-1), 120) // 并发完成顺序不固定，但最终进度必须完整
 })

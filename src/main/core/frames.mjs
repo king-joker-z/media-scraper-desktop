@@ -17,9 +17,9 @@ export function resolveFfmpegPath() {
   return String(ffmpegStatic).replace('app.asar', 'app.asar.unpacked')
 }
 
-/** 默认 5 个候选截帧时点（冻结稿 §6：10/30/50/70/90%），返回秒数组 */
+/** 默认 5 个候选截帧时点：首帧 + 25/50/75/90%，返回秒数组。 */
 export function buildFrameTimestamps(durationMs, count = 5) {
-  const ratios = [0.1, 0.3, 0.5, 0.7, 0.9].slice(0, Math.max(1, count))
+  const ratios = [0, 0.25, 0.5, 0.75, 0.9].slice(0, Math.max(1, count))
   return ratios.map((ratio) => Math.max(0, Math.round(durationMs * ratio) / 1000))
 }
 
@@ -40,7 +40,7 @@ export function buildFastCaptureArgs(videoPath, seconds, targetPath) {
     '-q:v',
     '2',
     '-vf',
-    "scale='min(1920,iw)':-2",
+    'scale=w=min(1920\\,iw):h=-2',
     '-y',
     targetPath
   ]
@@ -67,7 +67,7 @@ export function buildCaptureArgs(videoPath, seconds, targetPath) {
     '-q:v',
     '2',
     '-vf',
-    "scale='min(1920,iw)':-2",
+    'scale=w=min(1920\\,iw):h=-2',
     '-y',
     targetPath
   )
@@ -94,7 +94,7 @@ export function buildMultiCaptureArgs(videoPath, jobs) {
       '-q:v',
       '2',
       '-vf',
-      "scale='min(1920,iw)':-2",
+      'scale=w=min(1920\\,iw):h=-2',
       '-y',
       job.target
     )

@@ -30,6 +30,7 @@ function CleanPage({
   const [loading, setLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [confirmingDissolve, setConfirmingDissolve] = useState(false)
   const [report, setReport] = useState<CleanReport | null>(null)
   const [error, setError] = useState('')
   // 删除方式（回收站/永久删除），仅用于文案提示
@@ -91,6 +92,22 @@ function CleanPage({
     }
   }
 
+  const dissolveFolders = async (): Promise<void> => {
+    if (!plan) return
+    setConfirmingDissolve(false)
+    setExecuting(true)
+    setError('')
+    try {
+      const result = await window.api.dissolveFolders(plan)
+      setReport(result)
+      if (!result.cancelled) setPlan(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setExecuting(false)
+    }
+  }
+
   const cancel = async (): Promise<void> => {
     await window.api.cancelClean()
   }
@@ -115,6 +132,15 @@ function CleanPage({
           <button disabled={!workspace || loading || executing} onClick={scan}>
             {loading ? '扫描中…' : '生成清理计划'}
           </button>
+          {plan && (
+            <button
+              className="secondary"
+              disabled={executing || plan.moves.length === 0}
+              onClick={() => setConfirmingDissolve(true)}
+            >
+              仅解散文件夹（{plan.moves.length}）
+            </button>
+          )}
           {plan && (
             <button
               className="danger-button"
@@ -227,6 +253,18 @@ function CleanPage({
             <p className="muted">已跳过 {plan.skippedHidden.length} 个隐藏项，不参与任何处理。</p>
           )}
         </>
+      )}
+
+      {confirmingDissolve && plan && (
+        <ConfirmDialog
+          title="确认仅解散文件夹"
+          deleteCount={0}
+          deleteBytes={0}
+          danger={false}
+          extra={`将把 ${plan.moves.length} 个可见文件上移到工作区根目录；不会删除任何文件、不会转码、不会修改 poster。若目标重名，自动追加序号。隐藏文件与隐藏目录不会处理。`}
+          onConfirm={dissolveFolders}
+          onCancel={() => setConfirmingDissolve(false)}
+        />
       )}
 
       {confirming && plan && (

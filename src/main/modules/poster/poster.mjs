@@ -145,7 +145,8 @@ export async function captureCandidates(
     durationMs = 0
   }
 
-  let timestamps = []
+  // 第一帧必须保留，场景检测只用于补齐其余候选；候选数固定最多五张。
+  let timestamps = [0]
   if (durationMs > SCENE_DETECT_MAX_DURATION_MS) {
     timestamps = buildFrameTimestamps(durationMs)
   } else if (durationMs > 1000) {
@@ -156,9 +157,8 @@ export async function captureCandidates(
     } catch {
       timestamps = []
     }
+    timestamps = [...new Set([0, ...timestamps])].slice(0, 5)
     if (timestamps.length < 3) timestamps = buildFrameTimestamps(durationMs)
-  } else {
-    timestamps = [0]
   }
   // 单进程批量截帧：一次 ffmpeg 调用完成全部时点（输入侧快速 seek + 进程内并行解码），
   // 进程创建开销从 N 次降为 1 次；缺帧时点被容忍剔除，全部失败才抛错
@@ -168,6 +168,12 @@ export async function captureCandidates(
   }))
   const frames = await captureFrames(videoPath, jobs, ffmpegPath, { signal })
   const ranked = await rankCandidateFrames(frames)
+  // 质量排序仅影响推荐顺序，不应挤掉第一帧；将首帧固定放在候选列表首位。
+  const firstFrame = ranked.find((entry) => entry.path === jobs[0].target)
+  if (firstFrame) {
+    ranked.splice(ranked.indexOf(firstFrame), 1)
+    ranked.unshift(firstFrame)
+  }
   const maxScore = ranked[0]?.score
   const minScore = ranked.at(-1)?.score
   const range = maxScore - minScore
