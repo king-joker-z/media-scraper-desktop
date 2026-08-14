@@ -157,6 +157,27 @@ test('theme, palette and recentWorkspaces persist and reload', async () => {
   })
 })
 
+test('DeepSeek 思考模式默认关闭，且可保存开启状态', () => {
+  assert.equal(
+    normalizeSettings({}).aiProviders.find((p) => p.id === 'deepseek').thinkingEnabled,
+    false
+  )
+  const enabled = normalizeSettings({
+    aiProviders: [
+      {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com',
+        token: '',
+        models: ['deepseek-v4-flash'],
+        selectedModel: 'deepseek-v4-flash',
+        thinkingEnabled: true
+      }
+    ]
+  })
+  assert.equal(enabled.aiProviders[0].thinkingEnabled, true)
+})
+
 test('NVENC 开关尊重显式值，并兼容旧版 CPU 关闭设置', () => {
   assert.equal(normalizeSettings({ nvencEnabled: true }).nvencEnabled, true)
   assert.equal(normalizeSettings({ nvencEnabled: false }).nvencEnabled, false)

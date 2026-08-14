@@ -112,6 +112,8 @@ export interface AiProviderConfig {
   token: string
   models: string[]
   selectedModel: string
+  /** DeepSeek 思考模式；仅 DeepSeek 预设读取，默认关闭以缩短轻量命名请求耗时。 */
+  thinkingEnabled: boolean
 }
 
 /** 界面主题：跟随系统 / 浅色 / 深色 */

@@ -388,6 +388,30 @@ test('requestAiNames cancellation stops remaining batches', async () => {
   assert.ok(calls <= 3)
 })
 
+test('requestAiNames only sends the DeepSeek thinking setting when explicitly configured', async () => {
+  clearAiCache()
+  const bodies = []
+  const fetchImpl = async (_url, init) => {
+    bodies.push(JSON.parse(init.body))
+    return { ok: true, json: async () => ({ choices: [{ message: { content: '["名称"]' } }] }) }
+  }
+  const base = {
+    baseUrl: 'https://api.deepseek.com',
+    token: 'sk',
+    model: 'deepseek-v4-flash',
+    template: '',
+    files: [{ parentFolder: '', fileName: 'a' }],
+    fetchImpl,
+    useCache: false
+  }
+  await requestAiNames({ ...base, thinkingEnabled: false })
+  await requestAiNames({ ...base, thinkingEnabled: true })
+  await requestAiNames(base)
+  assert.deepEqual(bodies[0].thinking, { type: 'disabled' })
+  assert.deepEqual(bodies[1].thinking, { type: 'enabled' })
+  assert.equal(bodies[2].thinking, undefined)
+})
+
 test('requestAiNames parses SSE response and disables stream requests', async () => {
   clearAiCache()
   let body

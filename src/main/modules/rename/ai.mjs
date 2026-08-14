@@ -340,6 +340,7 @@ export async function requestAiNames({
   token,
   model,
   template,
+  thinkingEnabled,
   files,
   fetchImpl = fetch,
   onBatch,
@@ -394,6 +395,10 @@ export async function requestAiNames({
               chunk.map((entry) => entry.file)
             ),
             temperature: 0.2,
+            // 仅调用方明确传入时附加 DeepSeek 专有字段；默认 false 会显式关闭其默认开启的思考模式。
+            ...(typeof thinkingEnabled === 'boolean'
+              ? { thinking: { type: thinkingEnabled ? 'enabled' : 'disabled' } }
+              : {}),
             // 显式关闭流式请求；少数平台仍返回 SSE，由 readAiResponseContent 兼容处理。
             stream: false
           })

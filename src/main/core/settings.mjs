@@ -65,7 +65,9 @@ export const DEFAULT_SETTINGS = {
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
     ...preset,
     token: '',
-    selectedModel: preset.models[0] ?? ''
+    selectedModel: preset.models[0] ?? '',
+    // DeepSeek 默认关闭思考模式，避免轻量命名任务产生不必要的推理等待。
+    thinkingEnabled: false
   })),
   activeProviderId: 'openrouter',
   promptTemplate: DEFAULT_PROMPT_TEMPLATE,
@@ -107,7 +109,9 @@ function normalizeProvider(raw, preset) {
         : (preset?.baseUrl ?? ''),
     token: typeof input.token === 'string' ? input.token : '',
     models,
-    selectedModel: models.includes(input.selectedModel) ? input.selectedModel : (models[0] ?? '')
+    selectedModel: models.includes(input.selectedModel) ? input.selectedModel : (models[0] ?? ''),
+    // 仅 DeepSeek 平台在请求中读取此开关；旧配置缺失时默认关闭。
+    thinkingEnabled: input.thinkingEnabled === true
   }
 }
 
@@ -128,7 +132,12 @@ export function normalizeSettings(raw) {
             models: sanitizeModels(input.openRouter.models, preset.models),
             selectedModel: input.openRouter.selectedModel
           }
-        : { ...preset, token: '', selectedModel: preset.models[0] ?? '' }
+        : {
+            ...preset,
+            token: '',
+            selectedModel: preset.models[0] ?? '',
+            thinkingEnabled: false
+          }
     )
   }
   const aiProviders = (providers ?? DEFAULT_SETTINGS.aiProviders).map((rawProvider) =>

@@ -150,7 +150,8 @@ function SettingsPage(): React.JSX.Element {
       baseUrl,
       token: '',
       models: [],
-      selectedModel: ''
+      selectedModel: '',
+      thinkingEnabled: false
     }
     persist({
       aiProviders: [...settings.aiProviders, provider],
@@ -390,6 +391,24 @@ function SettingsPage(): React.JSX.Element {
                 }}
               />
             </label>
+            {editing.id === 'deepseek' && (
+              <label className="confirm-check">
+                <input
+                  className="check-input"
+                  type="checkbox"
+                  checked={editing.thinkingEnabled}
+                  onChange={(event) =>
+                    patchProvider(editing.id, { thinkingEnabled: event.target.checked })
+                  }
+                />
+                <span>
+                  启用思考模式
+                  <small className="muted">
+                    （默认关闭；开启会增加命名准确性，但通常响应更慢）
+                  </small>
+                </span>
+              </label>
+            )}
             {editing.models.length > 0 && (
               <label className="field">
                 <span>默认模型</span>

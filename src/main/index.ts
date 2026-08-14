@@ -676,6 +676,8 @@ function registerIpcHandlers(): void {
           baseUrl: provider.baseUrl,
           token: provider.token,
           model: provider.selectedModel,
+          // thinking 是 DeepSeek 专有扩展，避免传给其他 OpenAI 兼容平台。
+          thinkingEnabled: provider.id === 'deepseek' ? provider.thinkingEnabled : undefined,
           template: settings.promptTemplate,
           files,
           useCache: !forceRefresh,
