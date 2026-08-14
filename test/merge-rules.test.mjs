@@ -66,6 +66,21 @@ test('quality target uses the highest-resolution source as a paired resolution/F
   assert.deepEqual(mixedFps, { width: 3840, height: 2160, fps: 24, pixFmt: 'yuv420p' })
 })
 
+test('quality target prefers a landscape canvas when horizontal and vertical clips are mixed', () => {
+  const target = selectQualityTarget([
+    media({ width: 1080, height: 1920, fps: 60 }),
+    media({ width: 1920, height: 1080, fps: 30 })
+  ])
+  assert.deepEqual(target, { width: 1920, height: 1080, fps: 30, pixFmt: 'yuv420p' })
+
+  const args = buildTranscodeArgs('vertical.mp4', target, 'out.mp4')
+  assert.ok(
+    args.includes(
+      'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1'
+    )
+  )
+})
+
 test('quality target forces yuv420p for H.264 CPU and NVENC compatibility', () => {
   const target = selectQualityTarget([
     media({ pixFmt: 'yuv420p10le' }),

@@ -95,6 +95,33 @@ test('mergeVideos transcodes incompatible clips to unified params', async () => 
   }
 })
 
+test('mergeVideos uses a landscape canvas and side black bars for portrait clips in all-merge', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const portrait = await probeItem(
+      await makeClip(join(dir, 'portrait.mp4'), { seconds: 2, size: '240x320', rate: 10 })
+    )
+    const landscape = await probeItem(
+      await makeClip(join(dir, 'landscape.mp4'), { seconds: 2, size: '640x360', rate: 24 })
+    )
+    const result = await mergeVideos({
+      items: [portrait, landscape],
+      outputDir: dir,
+      outputName: 'mixed-orientation.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath()
+    })
+
+    assert.equal(result.verified, true)
+    const output = await probeMedia(result.outputPath, resolveFfprobePath())
+    assert.equal(output.width, 640)
+    assert.equal(output.height, 360)
+    assert.equal(output.orientation, 'landscape')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('mergeWorkDir is deterministic per item set, target, encoder and source version', () => {
   const items = [{ path: '/a/1.mp4' }, { path: '/a/2.mp4' }]
   const versionedItems = [

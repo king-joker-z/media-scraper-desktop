@@ -15,14 +15,18 @@ const COMPARE_FIELDS = [
 ]
 
 /**
- * 选择转码目标：以最高分辨率的同一条素材作为代表，连同其帧率一起使用。
- * 不能把来自不同素材的最大分辨率和最大帧率拼成不存在的 4K60 目标；这会无谓补帧、放大画面。
- * 固定 H.264/MP4 输出为 8-bit 4:2:0，保证 libx264 与 h264_nvenc 的兼容性；HDR/10-bit 保留需单独走 HEVC 策略。
+ * 选择转码目标：优先以最高分辨率的横屏素材作为代表，连同其帧率一起使用。
+ * 因此“全合并”混入横竖屏时会产出横屏画布；竖屏片段会按原比例缩放，并在左右补黑边。
+ * 若全是竖屏素材，才以最高分辨率竖屏素材为代表。不能把来自不同素材的最大分辨率和最大帧率
+ * 拼成不存在的 4K60 目标；这会无谓补帧、放大画面。固定 H.264/MP4 输出为 8-bit 4:2:0，
+ * 保证 libx264 与 h264_nvenc 的兼容性；HDR/10-bit 保留需单独走 HEVC 策略。
  */
 export function selectQualityTarget(mediaItems) {
   const valid = mediaItems.filter((media) => media?.width > 0 && media?.height > 0)
   if (valid.length === 0) return { width: 1920, height: 1080, fps: 30, pixFmt: 'yuv420p' }
-  const best = valid.reduce((current, media) => {
+  const landscape = valid.filter((media) => media.width >= media.height)
+  const candidates = landscape.length > 0 ? landscape : valid
+  const best = candidates.reduce((current, media) => {
     const currentPixels = current.width * current.height
     const mediaPixels = media.width * media.height
     if (mediaPixels !== currentPixels) return mediaPixels > currentPixels ? media : current
@@ -177,7 +181,8 @@ export function buildTranscodeArgs(
     '-map',
     hasAudio ? '0:a:0' : '1:a:0',
     '-vf',
-    `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
+    // 保持原始比例，横屏目标中竖屏素材会自动在左右补黑边，不会挤压横屏片段。
+    `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`,
     '-r',
     String(target.fps),
     '-pix_fmt',
