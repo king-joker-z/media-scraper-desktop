@@ -6,8 +6,7 @@ import type {
   StorageCategory,
   StorageStats,
   ThemeMode,
-  ThemePalette,
-  UpdateStatus
+  ThemePalette
 } from '../../../shared/types'
 import OpLogPanel from '../components/OpLogPanel'
 import { formatBytes } from '../utils/format'
@@ -70,15 +69,39 @@ type ScreenColorPickerWindow = Window & {
 
 const screenColorPickerWindow = window as ScreenColorPickerWindow
 
-const UPDATE_STATE_LABELS: Record<UpdateStatus['state'], string> = {
-  idle: '尚未检查',
-  checking: '正在检查更新…',
-  available: '发现新版本',
-  none: '已是最新版本',
-  downloading: '正在下载…',
-  downloaded: '下载完成',
-  error: '检查失败'
+type SettingsGroup = {
+  id: string
+  label: string
+  description: string
+  keywords: string[]
 }
+
+const SETTINGS_GROUPS: SettingsGroup[] = [
+  {
+    id: 'appearance',
+    label: '外观',
+    description: '主题、强调色与工作台背景',
+    keywords: ['主题', '外观', '背景', '颜色', '色板', '磨砂', '图片']
+  },
+  {
+    id: 'ai',
+    label: 'AI 命名',
+    description: '平台、模型与 Prompt 模板',
+    keywords: ['ai', 'token', '模型', '命名', 'prompt', '平台', 'api']
+  },
+  {
+    id: 'performance',
+    label: '性能与合并',
+    description: '并发、GPU 加速与临时目录',
+    keywords: ['性能', '并发', '扫描', 'ffmpeg', '转码', 'gpu', 'nvenc', 'cuda', '临时']
+  },
+  {
+    id: 'safety',
+    label: '安全与记录',
+    description: '删除方式、缓存与操作日志',
+    keywords: ['删除', '回收站', '安全', '存储', '缓存', '日志', '撤销']
+  }
+]
 
 function SettingsPage(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
@@ -99,12 +122,13 @@ function SettingsPage(): React.JSX.Element {
   // 文本输入本地草稿，失焦才写盘，避免每击键一次 settings.json 写入
   const [drafts, setDrafts] = useState<Record<string, { baseUrl?: string; token?: string }>>({})
   const [promptDraft, setPromptDraft] = useState<string | null>(null)
-  // 存储管理（S4）与自动更新（F7）
+  // 存储管理
   const [storage, setStorage] = useState<StorageStats | null>(null)
   const [cleaning, setCleaning] = useState<StorageCategory | null>(null)
   const [storageNotice, setStorageNotice] = useState('')
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' })
-  const [appVersion, setAppVersion] = useState('')
+  const [settingsQuery, setSettingsQuery] = useState('')
+  const [activeGroup, setActiveGroup] = useState('appearance')
+  const settingsSearchRef = useRef<HTMLInputElement>(null)
 
   const refreshStorage = (): void => {
     window.api
@@ -112,6 +136,17 @@ function SettingsPage(): React.JSX.Element {
       .then(setStorage)
       .catch(() => {})
   }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        settingsSearchRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     window.api.getSettings().then((next) => {
@@ -126,15 +161,6 @@ function SettingsPage(): React.JSX.Element {
       setEditingId(nextSettings.activeProviderId)
     })
     refreshStorage()
-    window.api
-      .getUpdateStatus()
-      .then(setUpdateStatus)
-      .catch(() => {})
-    window.api
-      .getAppVersion()
-      .then(setAppVersion)
-      .catch(() => {})
-    return window.api.onUpdateStatus(setUpdateStatus)
   }, [])
 
   const cleanStorage = async (category: StorageCategory): Promise<void> => {
@@ -185,6 +211,28 @@ function SettingsPage(): React.JSX.Element {
 
   const editing: AiProviderConfig =
     settings.aiProviders.find((p) => p.id === editingId) ?? settings.aiProviders[0]
+
+  const settingsQueryNormalized = settingsQuery.trim().toLocaleLowerCase()
+  const visibleGroups = settingsQueryNormalized
+    ? SETTINGS_GROUPS.filter((group) =>
+        `${group.label} ${group.description} ${group.keywords.join(' ')}`
+          .toLocaleLowerCase()
+          .includes(settingsQueryNormalized)
+      )
+    : SETTINGS_GROUPS
+
+  const isGroupActive = (id: string): boolean => activeGroup === id
+
+  const selectGroup = (id: string): void => {
+    setActiveGroup(id)
+    setSettingsQuery('')
+    requestAnimationFrame(() => document.getElementById(`settings-group-${id}`)?.focus())
+  }
+
+  const selectFirstSearchResult = (): void => {
+    const first = visibleGroups[0]
+    if (first) selectGroup(first.id)
+  }
 
   const applyCustomAccent = (nextCustomAccent: string, saveNow = false): void => {
     setCustomAccent(nextCustomAccent)
@@ -324,10 +372,82 @@ function SettingsPage(): React.JSX.Element {
           <h1>设置</h1>
           <p className="muted">所有配置保存在本地。各平台 Token 独立保存，切换平台不会清除。</p>
         </div>
-        {saved && <span className="saved-badge">已保存 ✓</span>}
+        {saved && (
+          <span className="saved-badge" role="status">
+            已保存 ✓
+          </span>
+        )}
       </header>
 
-      <section className="settings-card">
+      <div className="settings-navigation" aria-label="设置导航">
+        <label className="settings-search" aria-label="查找设置项">
+          <input
+            ref={settingsSearchRef}
+            type="search"
+            value={settingsQuery}
+            onChange={(event) => setSettingsQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                selectFirstSearchResult()
+              }
+              if (event.key === 'Escape') {
+                setSettingsQuery('')
+                event.currentTarget.blur()
+              }
+            }}
+            placeholder="例如：并发、Token、删除"
+            aria-describedby="settings-search-hint"
+          />
+          <kbd aria-hidden="true">⌘ F</kbd>
+        </label>
+        <span id="settings-search-hint" className="sr-only">
+          输入关键词可筛选设置分组；按 Command 或 Control 加 F 可快速定位输入框。
+        </span>
+        <div className="settings-group-tabs" aria-label="设置分组">
+          {SETTINGS_GROUPS.map((group) => (
+            <button
+              key={group.id}
+              type="button"
+              aria-current={activeGroup === group.id ? 'page' : undefined}
+              className={`settings-group-tab ${activeGroup === group.id ? 'active' : ''}`}
+              onClick={() => selectGroup(group.id)}
+            >
+              <span>{group.label}</span>
+              <small>{group.description}</small>
+            </button>
+          ))}
+        </div>
+        {settingsQuery && (
+          <div className="settings-search-results" role="listbox" aria-label="设置搜索结果">
+            {visibleGroups.length > 0 ? (
+              visibleGroups.map((group) => (
+                <button
+                  key={group.id}
+                  type="button"
+                  role="option"
+                  className="settings-search-result"
+                  onClick={() => selectGroup(group.id)}
+                >
+                  <b>{group.label}</b>
+                  <span>{group.description}</span>
+                </button>
+              ))
+            ) : (
+              <p className="settings-no-results" role="status">
+                没有匹配的设置分组，请换个关键词试试。
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <section
+        id="settings-group-appearance"
+        className="settings-card"
+        hidden={!isGroupActive('appearance')}
+        tabIndex={-1}
+      >
         <h2>外观主题</h2>
         <div className="mode-tabs">
           {THEME_TABS.map((tab) => (
@@ -404,7 +524,7 @@ function SettingsPage(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="settings-card background-settings">
+      <section className="settings-card background-settings" hidden={!isGroupActive('appearance')}>
         <div className="background-settings-heading">
           <div>
             <h2>工作台背景</h2>
@@ -438,7 +558,11 @@ function SettingsPage(): React.JSX.Element {
             <small>预览你的内容层可读性</small>
           </div>
         </div>
-        {backgroundNotice && <p className="notice-inline">{backgroundNotice}</p>}
+        {backgroundNotice && (
+          <p className="notice-inline" role="status">
+            {backgroundNotice}
+          </p>
+        )}
         <label className="appearance-slider">
           <span>图片可见度</span>
           <input
@@ -502,7 +626,12 @@ function SettingsPage(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="settings-card">
+      <section
+        id="settings-group-performance"
+        className="settings-card"
+        hidden={!isGroupActive('performance')}
+        tabIndex={-1}
+      >
         <h2>任务并发</h2>
         <p className="muted">除视频合并外，所有模块共用的线程数（1–20，默认 5）。</p>
         <div className="slider-row">
@@ -517,7 +646,7 @@ function SettingsPage(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="settings-card">
+      <section className="settings-card" hidden={!isGroupActive('performance')}>
         <h2>扫描并发</h2>
         <p className="muted">目录遍历的子目录并行数（1–16，默认 4）。NAS 或大目录树建议调高。</p>
         <div className="slider-row">
@@ -532,7 +661,7 @@ function SettingsPage(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="settings-card">
+      <section className="settings-card" hidden={!isGroupActive('performance')}>
         <h2>FFmpeg 进程池</h2>
         <p className="muted">
           同时运行的 ffmpeg/ffprobe 进程数上限（1–8，默认 4）。截帧、探测、体检共用此池，
@@ -550,7 +679,7 @@ function SettingsPage(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="settings-card">
+      <section className="settings-card" hidden={!isGroupActive('performance')}>
         <h2>视频硬件转码加速</h2>
         <p className="muted">
           仅在视频参数不一致、必须转码时生效。启用后会先验证 NVIDIA NVENC 可用性；FFmpeg、驱动或显卡
@@ -568,7 +697,7 @@ function SettingsPage(): React.JSX.Element {
         </label>
       </section>
 
-      <section className="settings-card">
+      <section className="settings-card" hidden={!isGroupActive('performance')}>
         <h2>合并性能与临时目录</h2>
         <p className="muted">
           默认把可续传中间段放在工作区隐藏目录，避免 Windows 系统盘与素材盘跨盘读写。
@@ -623,7 +752,12 @@ function SettingsPage(): React.JSX.Element {
         </label>
       </section>
 
-      <section className="settings-card">
+      <section
+        id="settings-group-safety"
+        className="settings-card"
+        hidden={!isGroupActive('safety')}
+        tabIndex={-1}
+      >
         <h2>删除方式</h2>
         <p className="muted">
           清理/去重/合并删源等用户数据删除默认移入系统回收站（误删可恢复）；关闭后为永久删除。
@@ -644,7 +778,12 @@ function SettingsPage(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="settings-card">
+      <section
+        id="settings-group-ai"
+        className="settings-card"
+        hidden={!isGroupActive('ai')}
+        tabIndex={-1}
+      >
         <h2>AI 平台</h2>
         <div className="mode-tabs">
           {settings.aiProviders.map((provider) => (
@@ -885,7 +1024,7 @@ function SettingsPage(): React.JSX.Element {
         )}
       </section>
 
-      <section className="settings-card">
+      <section className="settings-card" hidden={!isGroupActive('ai')}>
         <h2>AI 重命名 Prompt 模板</h2>
         <p className="muted">
           可用变量：{'{{parentFolder}}'}（父文件夹名）、{'{{fileName}}'}
@@ -908,13 +1047,17 @@ function SettingsPage(): React.JSX.Element {
         </p>
       </section>
 
-      <section className="settings-card">
+      <section className="settings-card" hidden={!isGroupActive('safety')}>
         <h2>存储管理</h2>
         <p className="muted">
           应用运行产生的临时数据。截帧缓存可随时清理（下次重新截帧）；合并断点工作目录清理后，
           未完成的转码合并将从头开始。
         </p>
-        {storageNotice && <p className="notice-inline">{storageNotice}</p>}
+        {storageNotice && (
+          <p className="notice-inline" role="status">
+            {storageNotice}
+          </p>
+        )}
         <div className="storage-row">
           <span>截帧缓存</span>
           <b>{storage ? formatBytes(storage.framesBytes) : '…'}</b>
@@ -948,45 +1091,8 @@ function SettingsPage(): React.JSX.Element {
             {cleaning === 'op-logs' ? '清理中…' : '清空'}
           </button>
         </div>
+        <OpLogPanel />
       </section>
-
-      <section className="settings-card">
-        <h2>软件更新</h2>
-        <p className="muted">
-          当前版本 v{appVersion || '…'}。更新来源于 GitHub Releases（打 v* tag 后由 CI 自动发布）。
-        </p>
-        <div className="storage-row">
-          <span>
-            {UPDATE_STATE_LABELS[updateStatus.state]}
-            {updateStatus.version ? `：v${updateStatus.version}` : ''}
-            {updateStatus.state === 'downloading' && updateStatus.percent !== undefined
-              ? ` ${updateStatus.percent}%`
-              : ''}
-            {updateStatus.state === 'error' && updateStatus.message
-              ? `：${updateStatus.message}`
-              : ''}
-          </span>
-          <span className="update-actions">
-            {updateStatus.state === 'available' && (
-              <button className="secondary" onClick={() => window.api.downloadUpdate()}>
-                下载
-              </button>
-            )}
-            {updateStatus.state === 'downloaded' && (
-              <button onClick={() => window.api.installUpdate()}>重启安装</button>
-            )}
-            {(updateStatus.state === 'idle' ||
-              updateStatus.state === 'none' ||
-              updateStatus.state === 'error') && (
-              <button className="secondary" onClick={() => window.api.checkUpdates()}>
-                检查更新
-              </button>
-            )}
-          </span>
-        </div>
-      </section>
-
-      <OpLogPanel />
     </div>
   )
 }

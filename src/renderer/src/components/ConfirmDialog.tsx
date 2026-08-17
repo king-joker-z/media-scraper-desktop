@@ -32,6 +32,7 @@ function ConfirmDialog({
   onCancel: () => void
 }): React.JSX.Element {
   const [checked, setChecked] = useState(false)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
   const canConfirm = checked
 
@@ -39,7 +40,27 @@ function ConfirmDialog({
     const previous = document.activeElement as HTMLElement | null
     cancelRef.current?.focus()
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onCancel()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCancel()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = [
+        ...(dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href]'
+        ) ?? [])
+      ]
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {
@@ -51,13 +72,14 @@ function ConfirmDialog({
   return (
     <div className="dialog-overlay" role="presentation">
       <div
+        ref={dialogRef}
         className={`dialog ${danger ? 'danger' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
       >
         <h2 id="confirm-dialog-title">{title}</h2>
-        <div className="dialog-body">
+        <div className="dialog-body" aria-live="polite">
           {deleteCount > 0 && (
             <p>
               即将<b className="danger-text">删除 {deleteCount} 个文件</b>
