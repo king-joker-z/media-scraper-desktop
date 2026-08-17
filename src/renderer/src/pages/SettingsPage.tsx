@@ -43,7 +43,11 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
   { key: 'comic', label: '漫画风', description: '墨线、纸张与亮黄点缀，侧栏同步切换' },
   { key: 'pixel', label: '像素风', description: '8-bit 机能配色与像素化游戏界面质感' },
   { key: 'retro', label: '复古未来', description: '铬金属、太空轨道与复古仪表盘质感' },
-  { key: 'editorial', label: '编辑风', description: '报纸分栏、衬线大标题与印刷油墨质感' }
+  { key: 'editorial', label: '编辑风', description: '报纸分栏、衬线大标题与印刷油墨质感' },
+  { key: 'glass', label: '液态玻璃', description: '半透明流光、柔和景深与现代科技质感' },
+  { key: 'y2k', label: 'Y2K', description: '糖果金属、梦幻渐变与千禧社交潮流氛围' },
+  { key: 'doodle', label: '手绘涂鸦', description: '活泼笔触、纸张质感与内容互动氛围' },
+  { key: 'aero', label: 'Frutiger Aero', description: '晴空草地、水润高光与明亮治愈气息' }
 ]
 
 const CUSTOM_PALETTE: { key: ThemePalette; label: string; description: string } = {

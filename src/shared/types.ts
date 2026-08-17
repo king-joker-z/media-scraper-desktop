@@ -166,6 +166,10 @@ export type ThemePalette =
   | 'pixel'
   | 'retro'
   | 'editorial'
+  | 'glass'
+  | 'y2k'
+  | 'doodle'
+  | 'aero'
   | 'custom'
 
 export interface AppSettings {

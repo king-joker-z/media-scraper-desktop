@@ -4841,6 +4841,22 @@ body {
   background: linear-gradient(135deg, #171717 0 45%, #f4f0e7 46% 72%, #b43b35 73% 100%);
 }
 
+.palette-swatch-glass {
+  background: linear-gradient(135deg, #82e6ff 0 33%, #dcd4ff 34% 66%, #ffb6dd 67% 100%);
+}
+
+.palette-swatch-y2k {
+  background: linear-gradient(135deg, #ff54b8 0 35%, #9368ff 36% 66%, #5cf2df 67% 100%);
+}
+
+.palette-swatch-doodle {
+  background: linear-gradient(135deg, #ffdb4d 0 33%, #ff776d 34% 66%, #70c9ff 67% 100%);
+}
+
+.palette-swatch-aero {
+  background: linear-gradient(135deg, #54d9ff 0 35%, #ebffff 36% 64%, #73d97a 65% 100%);
+}
+
 /* ---------- 状态反馈：风险色不随主题色切换，确保语义稳定 ---------- */
 .saved-badge,
 .notice-inline {
@@ -7199,4 +7215,363 @@ kbd {
     background: #443e38;
     color: #f6f0e4;
   }
+}
+
+/* ---------- 特例主题：液态玻璃 ----------
+ * 以高对比文字承载半透明面板，背景流光只作为空间层次，不牺牲工作效率。
+ */
+:root[data-palette='glass'] {
+  --accent: #246ee9;
+  --accent-press: #1456c6;
+  --accent-soft: rgba(36, 110, 233, 0.16);
+  --focus-ring: rgba(77, 190, 255, 0.62);
+  --label-primary: #102342;
+  --label-secondary: #415573;
+  --label-tertiary: #71819a;
+  --bg-window: #dceaff;
+  --bg-card: rgba(255, 255, 255, 0.58);
+  --bg-sidebar: rgba(238, 247, 255, 0.56);
+  --fill-quaternary: rgba(255, 255, 255, 0.42);
+  --fill-tertiary: rgba(171, 202, 239, 0.54);
+  --separator: rgba(77, 122, 177, 0.34);
+  --radius-card: 20px;
+  --radius-control: 14px;
+  --shadow-card: 0 14px 32px rgba(41, 89, 146, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  --shadow-pop: 0 24px 52px rgba(41, 89, 146, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --workspace-header-surface: rgba(255, 255, 255, 0.62);
+  --workspace-header-border: rgba(255, 255, 255, 0.75);
+  --workspace-header-shadow: rgba(45, 99, 161, 0.2);
+  --font: 'SF Pro Display', 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+:root[data-palette='glass'] body,
+:root[data-palette='glass'] .content {
+  background:
+    radial-gradient(ellipse 42rem 24rem at 6% -8%, rgba(99, 221, 255, 0.78), transparent 62%),
+    radial-gradient(ellipse 36rem 24rem at 98% 3%, rgba(185, 153, 255, 0.62), transparent 66%),
+    radial-gradient(ellipse 32rem 21rem at 72% 100%, rgba(255, 172, 215, 0.56), transparent 68%),
+    #dceaff;
+}
+
+:root[data-palette='glass'] .sidebar,
+:root[data-palette='glass'] .page-header,
+:root[data-palette='glass'] .settings-card,
+:root[data-palette='glass'] .path-card,
+:root[data-palette='glass'] .empty,
+:root[data-palette='glass'] .placeholder-card,
+:root[data-palette='glass'] .comic-library-overview,
+:root[data-palette='glass'] .comic-card,
+:root[data-palette='glass'] .command-palette,
+:root[data-palette='glass'] .task-panel,
+:root[data-palette='glass'] .task-progress-card,
+:root[data-palette='glass'] .workspace-button,
+:root[data-palette='glass'] .recents-pop {
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+:root[data-palette='glass'] .sidebar {
+  border-right-color: rgba(255, 255, 255, 0.76);
+  box-shadow: inset -1px 0 0 rgba(91, 143, 205, 0.13);
+}
+
+:root[data-palette='glass'] .module-switch,
+:root[data-palette='glass'] .recents-toggle {
+  border-color: rgba(255, 255, 255, 0.74);
+  background: rgba(255, 255, 255, 0.53);
+  color: #102342;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 7px 16px rgba(47, 107, 174, 0.1);
+  backdrop-filter: blur(16px);
+}
+
+:root[data-palette='glass'] .module-switch:hover:not(:disabled),
+:root[data-palette='glass'] .workspace-button:hover:not(:disabled) {
+  border-color: rgba(36, 110, 233, 0.52);
+  background: rgba(255, 255, 255, 0.72);
+  color: #102342;
+  transform: translateY(-1px);
+}
+
+:root[data-palette='glass'] .brand-icon,
+:root[data-palette='glass'] .brand-icon-comic {
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  background: linear-gradient(135deg, #55dbff, #7295ff 55%, #ef91d2);
+  color: #102342;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 8px 17px rgba(56, 99, 184, 0.2);
+}
+
+:root[data-palette='glass'] .nav-item { color: #263e60; }
+:root[data-palette='glass'] .nav-item:hover:not(.active) { background: rgba(255, 255, 255, 0.48); color: #102342; }
+:root[data-palette='glass'] .nav-item.active {
+  border-color: rgba(255, 255, 255, 0.8);
+  background: linear-gradient(100deg, rgba(71, 165, 255, 0.83), rgba(122, 117, 255, 0.78));
+  color: #fff;
+  box-shadow: 0 7px 17px rgba(47, 97, 195, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.52);
+}
+
+/* 侧栏常规入口统一用黑色；深色激活底仅激活项反白，确保图标与工作区文字始终可读。 */
+:root[data-palette='glass'] .sidebar .app-icon,
+:root[data-palette='glass'] .sidebar .workspace-label,
+:root[data-palette='glass'] .sidebar .workspace-value,
+:root[data-palette='glass'] .sidebar .module-switch,
+:root[data-palette='glass'] .sidebar .module-switch-caret,
+:root[data-palette='glass'] .sidebar .recents-toggle {
+  color: #171616;
+}
+
+:root[data-palette='glass'] .sidebar .nav-item.active,
+:root[data-palette='glass'] .sidebar .nav-item.active .app-icon { color: #fff; }
+:root[data-palette='glass'] .eyebrow { color: #246ee9; font-weight: 800; }
+
+/* ---------- 特例主题：Y2K ----------
+ * 千禧糖果色、镀铬高光与气泡圆角；保留深色文字确保所有任务入口可读。
+ */
+:root[data-palette='y2k'] {
+  --accent: #d62991;
+  --accent-press: #a91572;
+  --accent-soft: #ffe0f3;
+  --focus-ring: rgba(114, 79, 255, 0.56);
+  --label-primary: #24184e;
+  --label-secondary: #574b79;
+  --label-tertiary: #817798;
+  --bg-window: #f3e9ff;
+  --bg-card: #fffaff;
+  --bg-sidebar: #eee5ff;
+  --fill-quaternary: #f6efff;
+  --fill-tertiary: #dccdff;
+  --separator: #b8a6dd;
+  --radius-card: 22px;
+  --radius-control: 999px;
+  --shadow-card: 0 9px 0 rgba(112, 77, 181, 0.16), 0 16px 28px rgba(97, 55, 153, 0.12), inset 0 1px 0 #fff;
+  --shadow-pop: 0 15px 0 rgba(112, 77, 181, 0.18), 0 26px 44px rgba(97, 55, 153, 0.18);
+  --workspace-header-surface: #fffaff;
+  --workspace-header-border: #c4b4e9;
+  --workspace-header-shadow: rgba(100, 60, 164, 0.18);
+  --font: 'Avenir Next', 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+:root[data-palette='y2k'] body,
+:root[data-palette='y2k'] .content {
+  background:
+    radial-gradient(circle at 9% 0%, rgba(92, 242, 223, 0.67), transparent 23%),
+    radial-gradient(circle at 94% 6%, rgba(255, 97, 189, 0.55), transparent 25%),
+    radial-gradient(circle at 75% 100%, rgba(147, 104, 255, 0.42), transparent 31%),
+    repeating-linear-gradient(125deg, rgba(147, 104, 255, 0.045) 0 2px, transparent 2px 18px),
+    #f3e9ff;
+}
+
+:root[data-palette='y2k'] .sidebar {
+  border-right: 2px solid #b18ef1;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(237, 221, 255, 0.76));
+  box-shadow: inset -5px 0 0 rgba(92, 242, 223, 0.68);
+}
+
+:root[data-palette='y2k'] .sidebar-brand { border-bottom: 2px solid #b18ef1; }
+:root[data-palette='y2k'] .brand-icon,
+:root[data-palette='y2k'] .brand-icon-comic {
+  border: 2px solid #fff;
+  background: linear-gradient(135deg, #ff5fbd, #9368ff 55%, #5cf2df);
+  color: #24184e;
+  box-shadow: 3px 4px 0 #704bc0, inset 0 2px 0 rgba(255, 255, 255, 0.72);
+}
+
+:root[data-palette='y2k'] .module-switch,
+:root[data-palette='y2k'] .workspace-button,
+:root[data-palette='y2k'] .recents-toggle,
+:root[data-palette='y2k'] .recents-pop {
+  border-color: #c6b4eb;
+  background: rgba(255, 255, 255, 0.8);
+  color: #24184e;
+  box-shadow: inset 0 1px 0 #fff, 0 5px 0 rgba(112, 75, 192, 0.18);
+}
+
+:root[data-palette='y2k'] .module-switch:hover:not(:disabled),
+:root[data-palette='y2k'] .workspace-button:hover:not(:disabled),
+:root[data-palette='y2k'] .recents-toggle:hover:not(:disabled) {
+  border-color: #d62991;
+  background: #fff5fc;
+  color: #24184e;
+  transform: translateY(-1px);
+}
+
+:root[data-palette='y2k'] .nav-item { color: #4e3f78; font-weight: 750; }
+:root[data-palette='y2k'] .nav-item:hover:not(.active) { background: rgba(255, 255, 255, 0.68); color: #24184e; }
+:root[data-palette='y2k'] .nav-item.active {
+  border-color: #fff;
+  background: linear-gradient(100deg, #ff52b7, #9864ff 58%, #5ce9d6);
+  color: #fff;
+  box-shadow: 0 7px 0 rgba(97, 54, 164, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+:root[data-palette='y2k'] .sidebar .app-icon,
+:root[data-palette='y2k'] .sidebar .workspace-label,
+:root[data-palette='y2k'] .sidebar .workspace-value,
+:root[data-palette='y2k'] .sidebar .module-switch,
+:root[data-palette='y2k'] .sidebar .module-switch-caret,
+:root[data-palette='y2k'] .sidebar .recents-toggle {
+  color: #171616;
+}
+
+:root[data-palette='y2k'] .sidebar .nav-item.active,
+:root[data-palette='y2k'] .sidebar .nav-item.active .app-icon { color: #fff; }
+:root[data-palette='y2k'] .page-header,
+:root[data-palette='y2k'] .settings-card,
+:root[data-palette='y2k'] .path-card,
+:root[data-palette='y2k'] .empty,
+:root[data-palette='y2k'] .placeholder-card,
+:root[data-palette='y2k'] .comic-library-overview,
+:root[data-palette='y2k'] .comic-card,
+:root[data-palette='y2k'] .command-palette,
+:root[data-palette='y2k'] .task-panel,
+:root[data-palette='y2k'] .task-progress-card {
+  border-color: #d0c0ee;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 240, 255, 0.76));
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-palette='y2k'] .comic-card:hover { border-color: #d62991; transform: translateY(-3px) rotate(-0.25deg); }
+:root[data-palette='y2k'] .eyebrow { color: #b11681; font-weight: 850; letter-spacing: 0.11em; }
+
+/* ---------- 特例主题：手绘涂鸦 ---------- */
+:root[data-palette='doodle'] {
+  --accent: #e95b4d;
+  --accent-press: #bf3e37;
+  --accent-soft: #ffe4b2;
+  --focus-ring: rgba(112, 201, 255, 0.7);
+  --label-primary: #1f2634;
+  --label-secondary: #525b69;
+  --label-tertiary: #7b8491;
+  --bg-window: #fff3d8;
+  --bg-card: #fffdf7;
+  --bg-sidebar: #fff0c5;
+  --fill-quaternary: #fff8e7;
+  --fill-tertiary: #f4d79e;
+  --separator: #303948;
+  --radius-card: 15px 20px 16px 19px;
+  --radius-control: 12px 15px 11px 14px;
+  --shadow-card: 3px 4px 0 rgba(31, 38, 52, 0.76);
+  --shadow-pop: 7px 8px 0 rgba(31, 38, 52, 0.76);
+}
+
+:root[data-palette='doodle'] body,
+:root[data-palette='doodle'] .content {
+  background:
+    radial-gradient(circle at 12% 4%, rgba(112, 201, 255, 0.3) 0 2px, transparent 3px),
+    radial-gradient(circle at 87% 13%, rgba(233, 91, 77, 0.24) 0 3px, transparent 4px),
+    repeating-linear-gradient(8deg, rgba(56, 65, 78, 0.035) 0 1px, transparent 1px 7px),
+    #fff3d8;
+}
+
+:root[data-palette='doodle'] .sidebar {
+  border-right: 2px dashed #303948;
+  background: #fff0c5;
+  box-shadow: inset -5px 0 0 #70c9ff;
+}
+
+:root[data-palette='doodle'] .sidebar-brand { border-bottom: 2px dashed #303948; }
+:root[data-palette='doodle'] .brand-icon,
+:root[data-palette='doodle'] .brand-icon-comic {
+  border: 2px solid #1f2634;
+  background: #ffdb4d;
+  color: #171616;
+  box-shadow: 3px 3px 0 #e95b4d;
+  transform: rotate(-4deg);
+}
+
+:root[data-palette='doodle'] .module-switch,
+:root[data-palette='doodle'] .workspace-button,
+:root[data-palette='doodle'] .recents-toggle,
+:root[data-palette='doodle'] .recents-pop {
+  border: 2px solid #303948;
+  background: #fffdf7;
+  color: #171616;
+  box-shadow: 2px 3px 0 rgba(31, 38, 52, 0.6);
+}
+
+:root[data-palette='doodle'] .nav-item { color: #171616; font-weight: 750; }
+:root[data-palette='doodle'] .nav-item:hover:not(.active) { background: #fff6d9; color: #171616; }
+:root[data-palette='doodle'] .nav-item.active {
+  border: 2px solid #303948;
+  background: #e95b4d;
+  color: #fff;
+  box-shadow: 3px 3px 0 #303948;
+}
+
+:root[data-palette='doodle'] .sidebar .app-icon,
+:root[data-palette='doodle'] .sidebar .workspace-label,
+:root[data-palette='doodle'] .sidebar .workspace-value,
+:root[data-palette='doodle'] .sidebar .module-switch-caret { color: #171616; }
+:root[data-palette='doodle'] .sidebar .nav-item.active,
+:root[data-palette='doodle'] .sidebar .nav-item.active .app-icon { color: #fff; }
+:root[data-palette='doodle'] .page-header,
+:root[data-palette='doodle'] .settings-card,
+:root[data-palette='doodle'] .path-card,
+:root[data-palette='doodle'] .empty,
+:root[data-palette='doodle'] .placeholder-card,
+:root[data-palette='doodle'] .comic-library-overview,
+:root[data-palette='doodle'] .comic-card { border: 2px solid #303948; background: #fffdf7; box-shadow: var(--shadow-card); }
+:root[data-palette='doodle'] .eyebrow { color: #e95b4d; font-weight: 850; letter-spacing: 0.12em; }
+
+/* ---------- 特例主题：Frutiger Aero ---------- */
+:root[data-palette='aero'] {
+  --accent: #138dcc;
+  --accent-press: #08679e;
+  --accent-soft: #d4f6ff;
+  --focus-ring: rgba(35, 177, 235, 0.56);
+  --label-primary: #12415a;
+  --label-secondary: #356c80;
+  --label-tertiary: #69929f;
+  --bg-window: #d8f6ff;
+  --bg-card: rgba(255, 255, 255, 0.82);
+  --bg-sidebar: rgba(223, 250, 255, 0.86);
+  --fill-quaternary: #ebfcff;
+  --fill-tertiary: #bfeaf1;
+  --separator: #79c5d3;
+  --radius-card: 17px;
+  --radius-control: 999px;
+  --shadow-card: 0 9px 20px rgba(27, 123, 154, 0.16), inset 0 1px 0 #fff;
+  --shadow-pop: 0 18px 35px rgba(27, 123, 154, 0.22);
+}
+
+:root[data-palette='aero'] body,
+:root[data-palette='aero'] .content {
+  background:
+    radial-gradient(ellipse 38rem 16rem at 50% 104%, rgba(74, 207, 105, 0.5), transparent 64%),
+    radial-gradient(ellipse 35rem 20rem at 99% 0%, rgba(92, 217, 255, 0.7), transparent 64%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.36) 0 1px, transparent 1px 5px),
+    #d8f6ff;
+}
+
+:root[data-palette='aero'] .sidebar { border-right: 1px solid #76c8d8; background: rgba(223, 250, 255, 0.82); box-shadow: inset -5px 0 0 rgba(111, 214, 117, 0.56); backdrop-filter: blur(12px); }
+:root[data-palette='aero'] .brand-icon,
+:root[data-palette='aero'] .brand-icon-comic { border: 2px solid #fff; background: linear-gradient(135deg, #59d8ff, #31b6d7 55%, #63cc68); color: #171616; box-shadow: 0 5px 10px rgba(22, 127, 157, 0.25); }
+:root[data-palette='aero'] .module-switch,
+:root[data-palette='aero'] .workspace-button,
+:root[data-palette='aero'] .recents-toggle,
+:root[data-palette='aero'] .recents-pop { border-color: #90d2de; background: rgba(255, 255, 255, 0.8); color: #171616; box-shadow: inset 0 1px 0 #fff, 0 4px 8px rgba(27, 123, 154, 0.12); }
+:root[data-palette='aero'] .nav-item { color: #171616; }
+:root[data-palette='aero'] .nav-item:hover:not(.active) { background: rgba(255, 255, 255, 0.7); color: #171616; }
+:root[data-palette='aero'] .nav-item.active { background: linear-gradient(100deg, #4bcdf4, #3fb8e3 58%, #76d85c); color: #171616; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 4px 8px rgba(15, 114, 150, 0.2); }
+:root[data-palette='aero'] .sidebar .app-icon,
+:root[data-palette='aero'] .sidebar .workspace-label,
+:root[data-palette='aero'] .sidebar .workspace-value,
+:root[data-palette='aero'] .sidebar .module-switch-caret { color: #171616; }
+:root[data-palette='aero'] .page-header,
+:root[data-palette='aero'] .settings-card,
+:root[data-palette='aero'] .path-card,
+:root[data-palette='aero'] .empty,
+:root[data-palette='aero'] .placeholder-card,
+:root[data-palette='aero'] .comic-library-overview,
+:root[data-palette='aero'] .comic-card { border-color: #9bd8e3; background: rgba(255, 255, 255, 0.8); box-shadow: var(--shadow-card); }
+:root[data-palette='aero'] .eyebrow { color: #0785b8; font-weight: 850; letter-spacing: 0.12em; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-palette='glass'] .module-switch:hover:not(:disabled),
+  :root[data-palette='glass'] .workspace-button:hover:not(:disabled),
+  :root[data-palette='y2k'] .module-switch:hover:not(:disabled),
+  :root[data-palette='y2k'] .workspace-button:hover:not(:disabled),
+  :root[data-palette='y2k'] .comic-card:hover { transform: none; }
 }
