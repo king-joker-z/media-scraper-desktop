@@ -280,6 +280,25 @@ test('AI 模型请求参数按模型保存并限制安全范围', () => {
   assert.equal(provider.modelTunings.removed, undefined)
 })
 
+test('合并性能设置使用安全默认值并收敛非法输入', () => {
+  const defaults = normalizeSettings({})
+  assert.equal(defaults.cudaPipelineEnabled, false)
+  assert.equal(defaults.mergeTranscodeConcurrency, 1)
+  assert.equal(defaults.mergeTempLocation, 'source-disk')
+  assert.equal(defaults.mergeTempCustomPath, '')
+
+  const normalized = normalizeSettings({
+    cudaPipelineEnabled: true,
+    mergeTranscodeConcurrency: 99,
+    mergeTempLocation: 'invalid',
+    mergeTempCustomPath: '  D:/merge-temp  '
+  })
+  assert.equal(normalized.cudaPipelineEnabled, true)
+  assert.equal(normalized.mergeTranscodeConcurrency, 4)
+  assert.equal(normalized.mergeTempLocation, 'source-disk')
+  assert.equal(normalized.mergeTempCustomPath, 'D:/merge-temp')
+})
+
 test('NVENC 开关尊重显式值，并兼容旧版 CPU 关闭设置', () => {
   assert.equal(normalizeSettings({ nvencEnabled: true }).nvencEnabled, true)
   assert.equal(normalizeSettings({ nvencEnabled: false }).nvencEnabled, false)

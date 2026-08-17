@@ -2,8 +2,7 @@ import { runPooled } from './ffmpeg-pool.mjs'
 
 /**
  * 验证随应用分发的 FFmpeg、NVIDIA 驱动与显卡是否能实际初始化 H.264 NVENC。
- * 仅检查 encoder 列表无法覆盖「已编译但缺少驱动 / 无可用设备 / 正式编码参数不兼容」的情况，因此使用实际参数的 lavfi 编码烟测。
- * CUDA 解码和 GPU 滤镜不是此能力的前提：视频合并的稳定路径仍由 CPU 解码、缩放和补边，仅卸载编码。
+ * 不只检查 encoder 列表，避免「已编译但缺少驱动/无可用设备」的假阳性。
  */
 export async function probeNvencCapability(ffmpegPath, { run = runPooled } = {}) {
   try {
@@ -13,9 +12,6 @@ export async function probeNvencCapability(ffmpegPath, { run = runPooled } = {})
       '-f',
       'lavfi',
       '-i',
-      // NVENC 对最小编码尺寸有要求；16×16 虽可由软件编码器处理，
-      // 却会在部分 Windows 驱动上以无效参数拒绝初始化，造成假阴性回退 CPU。
-      // 使用常见的 320×240 规格，使烟测与实际合并路径保持一致。
       'color=c=black:s=320x240:r=30',
       '-frames:v',
       '1',
@@ -23,7 +19,6 @@ export async function probeNvencCapability(ffmpegPath, { run = runPooled } = {})
       'yuv420p',
       '-c:v',
       'h264_nvenc',
-      // 与实际合并的 NVENC 参数一致，避免“基础编码可用、正式任务参数不兼容”的假阳性。
       '-preset',
       'p5',
       '-tune',
@@ -46,4 +41,50 @@ export async function probeNvencCapability(ffmpegPath, { run = runPooled } = {})
       reason: detail || '随附 FFmpeg、NVIDIA 驱动或显卡无法初始化 H.264 NVENC'
     }
   }
+}
+
+/**
+ * 验证完整 CUDA 视频路径：GPU 上传、CUDA 缩放/补边与 NVENC 编码。
+ * 它是可选加速路径；任何失败都必须回落至稳定的 CPU 滤镜 + NVENC 路径。
+ */
+export async function probeCudaPipelineCapability(ffmpegPath, { run = runPooled } = {}) {
+  try {
+    await run(ffmpegPath, [
+      '-v',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=black:s=320x240:r=30',
+      '-frames:v',
+      '1',
+      '-filter_complex',
+      '[0:v]format=nv12,hwupload_cuda,scale_cuda=320:240,pad_cuda=320:240:0:0[v]',
+      '-map',
+      '[v]',
+      '-c:v',
+      'h264_nvenc',
+      '-pix_fmt',
+      'yuv420p',
+      '-f',
+      'null',
+      '-'
+    ])
+    return { available: true, reason: '' }
+  } catch (error) {
+    const detail = String(error?.stderrTail || error?.message || '').slice(-500)
+    return {
+      available: false,
+      reason: detail || 'CUDA 上传、缩放、补边或 NVENC 初始化失败'
+    }
+  }
+}
+
+/** 返回供设置页/执行计划使用的实际能力快照。 */
+export async function probeGpuCapability(ffmpegPath, options = {}) {
+  const [nvenc, cudaPipeline] = await Promise.all([
+    probeNvencCapability(ffmpegPath, options),
+    probeCudaPipelineCapability(ffmpegPath, options)
+  ])
+  return { checkedAt: Date.now(), nvenc, cudaPipeline }
 }

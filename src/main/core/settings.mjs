@@ -90,11 +90,24 @@ export const clampFfmpegPoolSize = (value) => {
   return Math.min(MAX_FFMPEG_POOL_SIZE, Math.max(MIN_FFMPEG_POOL_SIZE, Math.round(n)))
 }
 
+const clampMergeTranscodeConcurrency = (value) => {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 1
+  return Math.min(4, Math.max(1, Math.round(n)))
+}
+
+const normalizeMergeTempLocation = (value) =>
+  ['source-disk', 'system', 'custom'].includes(value) ? value : 'source-disk'
+
 export const DEFAULT_SETTINGS = {
   concurrency: DEFAULT_CONCURRENCY,
   scanConcurrency: DEFAULT_SCAN_CONCURRENCY,
   ffmpegPoolSize: DEFAULT_FFMPEG_POOL_SIZE,
   nvencEnabled: DEFAULT_NVENC_ENABLED,
+  cudaPipelineEnabled: false,
+  mergeTranscodeConcurrency: 1,
+  mergeTempLocation: 'source-disk',
+  mergeTempCustomPath: '',
   theme: 'system',
   themePalette: 'ocean',
   customAccent: '#1687d9',
@@ -269,6 +282,11 @@ export function normalizeSettings(raw) {
         : input.videoEncoder === 'cpu'
           ? false
           : DEFAULT_SETTINGS.nvencEnabled,
+    cudaPipelineEnabled: input.cudaPipelineEnabled === true,
+    mergeTranscodeConcurrency: clampMergeTranscodeConcurrency(input.mergeTranscodeConcurrency),
+    mergeTempLocation: normalizeMergeTempLocation(input.mergeTempLocation),
+    mergeTempCustomPath:
+      typeof input.mergeTempCustomPath === 'string' ? input.mergeTempCustomPath.trim() : '',
     theme: THEME_OPTIONS.includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     themePalette: THEME_PALETTE_OPTIONS.includes(input.themePalette)
       ? input.themePalette

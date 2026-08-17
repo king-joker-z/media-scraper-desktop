@@ -43,6 +43,8 @@ function MergePage({
   const [deleteNote, setDeleteNote] = useState('')
   const [error, setError] = useState('')
   const [playing, setPlaying] = useState<MergeVideoItem | null>(null)
+  const [gpuChecking, setGpuChecking] = useState(false)
+  const [gpuStatus, setGpuStatus] = useState('')
   // 删除确认必须绑定产生合并结果的工作区，避免用户切换目录后误删同名相对路径。
   const deleteWorkspaceRef = useRef<string | null>(null)
 
@@ -104,6 +106,21 @@ function MergePage({
   const notEnoughSpace = freeBytes > 0 && estimated > freeBytes
   const unreadableItems = useMemo(() => items.filter((item) => !item.media), [items])
   const cannotMerge = unreadableItems.length > 0
+
+  const checkGpu = async (): Promise<void> => {
+    setGpuChecking(true)
+    setGpuStatus('正在运行 NVIDIA / CUDA 实测…')
+    try {
+      const capability = await window.api.getGpuCapability()
+      setGpuStatus(
+        `NVENC：${capability.nvenc.available ? '可用' : `不可用（${capability.nvenc.reason || '未知原因'}）`}；完整 GPU 流水线：${capability.cudaPipeline.available ? '可用' : `不可用（${capability.cudaPipeline.reason || '将自动降级'}）`}`
+      )
+    } catch (err) {
+      setGpuStatus(`检测失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setGpuChecking(false)
+    }
+  }
 
   const execute = async (): Promise<void> => {
     if (!workspace) return
@@ -176,6 +193,9 @@ function MergePage({
           <p className="muted">兼容素材无重编码秒级拼接；不兼容自动转码统一参数后合并。</p>
         </div>
         <div className="actions">
+          <button className="secondary" onClick={checkGpu} disabled={gpuChecking || merging}>
+            {gpuChecking ? '检测 GPU 中…' : '检测 GPU 加速'}
+          </button>
           <button
             className="secondary"
             onClick={onChooseWorkspace}
@@ -208,6 +228,7 @@ function MergePage({
       </section>
 
       {error && <ErrorBanner message={error} />}
+      {gpuStatus && <section className="notice-banner">GPU 状态：{gpuStatus}</section>}
       {deleteNote && <section className="notice-banner">{deleteNote}</section>}
 
       {loaded && videos.length > 0 && (
@@ -305,6 +326,14 @@ function MergePage({
             {result.verifyNote}
             {result.transcoded && '（已转码统一参数）'}
           </p>
+          {result.gpuSummary && (
+            <section className="notice-banner">
+              实际执行：{result.gpuSummary.note}；硬件处理 {result.gpuSummary.hardwareSegments} 段
+              {result.gpuSummary.fallbackSegments > 0 &&
+                `，安全降级 ${result.gpuSummary.fallbackSegments} 段`}
+              {result.tempDirectory && `；临时目录：${result.tempDirectory}`}
+            </section>
+          )}
           {result.nvencFallbackReason && (
             <section className="warning merge-nvenc-fallback" role="alert">
               <h3>已自动回退 CPU 编码</h3>

@@ -538,6 +538,61 @@ function SettingsPage(): React.JSX.Element {
       </section>
 
       <section className="settings-card">
+        <h2>合并性能与临时目录</h2>
+        <p className="muted">
+          默认把可续传中间段放在工作区隐藏目录，避免 Windows 系统盘与素材盘跨盘读写。
+        </p>
+        <div className="mode-tabs">
+          {(
+            [
+              ['source-disk', '工作区同盘（推荐）'],
+              ['system', '系统临时目录'],
+              ['custom', '自定义目录']
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              className={`mode-tab ${settings.mergeTempLocation === key ? 'active' : ''}`}
+              onClick={() => persist({ mergeTempLocation: key })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {settings.mergeTempLocation === 'custom' && (
+          <input
+            value={settings.mergeTempCustomPath}
+            placeholder="请输入绝对路径，例如 D:\\MediaTemp"
+            onChange={(event) => persist({ mergeTempCustomPath: event.target.value })}
+          />
+        )}
+        <p className="muted">
+          转码片段并行数（GPU 完整流水线最高 2 路，仍受全局 FFmpeg 进程池限制）。
+        </p>
+        <div className="slider-row">
+          <input
+            type="range"
+            min={1}
+            max={4}
+            value={settings.mergeTranscodeConcurrency}
+            onChange={(event) => persist({ mergeTranscodeConcurrency: Number(event.target.value) })}
+          />
+          <b>{settings.mergeTranscodeConcurrency}</b>
+        </div>
+        <label className="confirm-check">
+          <input
+            className="check-input"
+            type="checkbox"
+            checked={settings.cudaPipelineEnabled}
+            onChange={(event) => persist({ cudaPipelineEnabled: event.target.checked })}
+          />
+          <span className="muted">
+            实验性完整 GPU 流水线（NVDEC + CUDA 缩放/补边 + NVENC；失败按段降级）
+          </span>
+        </label>
+      </section>
+
+      <section className="settings-card">
         <h2>删除方式</h2>
         <p className="muted">
           清理/去重/合并删源等用户数据删除默认移入系统回收站（误删可恢复）；关闭后为永久删除。

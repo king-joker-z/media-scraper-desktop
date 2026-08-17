@@ -9,7 +9,8 @@ declare module './merge.mjs' {
       sourceMtimeMs?: number
     }[],
     target: { width: number; height: number; fps: number; pixFmt: string } | null,
-    encoder?: 'cpu' | 'nvenc'
+    encoder?: 'cpu' | 'nvenc' | 'cuda-nvenc',
+    tempRoot?: string
   ): string
 
   export function mergeVideos(options: {
@@ -21,7 +22,11 @@ declare module './merge.mjs' {
     onProgress?: (percent: number, stage: string) => void
     signal?: AbortSignal
     nvencEnabled?: boolean
+    cudaPipelineEnabled?: boolean
+    mergeTranscodeConcurrency?: number
+    tempDirectory?: string
     probeNvenc?: (ffmpegPath: string) => Promise<{ available: boolean; reason?: string }>
+    probeCudaPipeline?: (ffmpegPath: string) => Promise<{ available: boolean; reason?: string }>
     diskFree?: (dir: string) => Promise<number>
     volumeId?: (dir: string) => Promise<string | number>
     runFfmpegImpl?: (

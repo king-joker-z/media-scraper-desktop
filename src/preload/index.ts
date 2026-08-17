@@ -10,6 +10,7 @@ import type {
   ComicMergeReport,
   ComicScanResult,
   DedupeScanResult,
+  GpuCapability,
   MergeResult,
   MergeSourceItem,
   MergeVideoItem,
@@ -88,6 +89,7 @@ const api = {
     ipcRenderer.invoke('merge:scan', root),
   executeMerge: (root: string, items: MergeVideoItem[], outputName: string): Promise<MergeResult> =>
     ipcRenderer.invoke('merge:execute', root, items, outputName),
+  getGpuCapability: (): Promise<GpuCapability> => ipcRenderer.invoke('gpu:capability'),
   deleteMergeSources: (
     root: string,
     items: MergeSourceItem[]

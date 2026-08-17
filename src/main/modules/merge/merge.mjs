@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import {
   createMergeTransactionPath,
   createStagingPath,
@@ -17,7 +17,7 @@ import {
 } from '../../core/fs-ops.mjs'
 import { probeMedia } from '../../core/probe.mjs'
 import { spawnPooled } from '../../core/ffmpeg-pool.mjs'
-import { probeNvencCapability } from '../../core/nvenc.mjs'
+import { probeCudaPipelineCapability, probeNvencCapability } from '../../core/nvenc.mjs'
 import { collectFailures } from '../../core/task-report.mjs'
 import {
   buildConcatCopyArgs,
@@ -67,13 +67,13 @@ function runFfmpeg(ffmpegPath, args, { signal, onProgress, totalMs }) {
 /** 判断实际转码失败是否来自 NVENC 设备、驱动或编码会话，而非输入媒体/滤镜/磁盘错误。 */
 function isNvencRuntimeFailure(error) {
   const message = String(error?.message ?? error).toLowerCase()
-  return /no nvenc capable devices|no capable devices|cannot load nvcuda|openencodesession|initializeencoder failed|error while opening encoder|failed setup for format cuda|nvenc[\s\S]{0,300}(?:fail|error)|cuda(?:_error)?|too many concurrent|unsupported.*(?:device|encode)|device.*(?:not available|not supported)/.test(
+  return /no nvenc capable devices|no capable devices|cannot load nvcuda|openencodesession|initializeencoder failed|error while opening encoder|failed setup for format cuda|nvenc[\s\S]{0,300}(?:fail|error)|cuda(?:_error)?|too many concurrent|unsupported.*(?:device|encode)|device.*(?:not available|not supported)|no such filter.*(?:cuda)|failed to (?:inject|configure).*?(?:cuda|filter)|impossible to convert.*cuda/.test(
     message
   )
 }
 
 /** 确定性临时目录：同一片段集合 + 同一目标参数 → 同一目录，支撑断点续传 */
-export function mergeWorkDir(items, target, encoder = 'cpu') {
+export function mergeWorkDir(items, target, encoder = 'cpu', tempRoot = tmpdir()) {
   const key = JSON.stringify({
     version: 2,
     items: items.map((item) => ({
@@ -86,7 +86,7 @@ export function mergeWorkDir(items, target, encoder = 'cpu') {
     encoder
   })
   const hash = createHash('md5').update(key).digest('hex').slice(0, 10)
-  return join(tmpdir(), `msd-merge-${hash}`)
+  return join(tempRoot, `msd-merge-${hash}`)
 }
 
 /**
@@ -134,7 +134,11 @@ export async function mergeVideos({
   onProgress,
   signal,
   nvencEnabled = false,
+  cudaPipelineEnabled = false,
+  mergeTranscodeConcurrency = 1,
+  tempDirectory = '',
   probeNvenc = probeNvencCapability,
+  probeCudaPipeline = probeCudaPipelineCapability,
   diskFree = diskFreeBytes,
   volumeId = fileSystemId,
   runFfmpegImpl = runFfmpeg
@@ -153,6 +157,7 @@ export async function mergeVideos({
     }
   }
   let activeEncoder = 'cpu'
+  let cudaPipelineAvailable = false
   let nvencFallbackReason = ''
   if (!compatibility.compatible && nvencEnabled) {
     onProgress?.(0, '检测 NVIDIA NVENC 编码能力')
@@ -160,6 +165,15 @@ export async function mergeVideos({
       const nvenc = await probeNvenc(ffmpegPath)
       if (nvenc.available) {
         activeEncoder = 'nvenc'
+        if (cudaPipelineEnabled) {
+          const cuda = await probeCudaPipeline(ffmpegPath)
+          if (cuda.available) {
+            activeEncoder = 'cuda-nvenc'
+            cudaPipelineAvailable = true
+          } else {
+            onProgress?.(0, 'CUDA 完整流水线不可用，将使用 NVIDIA 编码 + CPU 缩放')
+          }
+        }
       } else {
         nvencFallbackReason = nvenc.reason || '随附 FFmpeg、NVIDIA 驱动或显卡无法初始化 H.264 NVENC'
       }
@@ -188,7 +202,11 @@ export async function mergeVideos({
     }
   }
   // 目录包含编码器和源媒体版本，断点缓存不会在不同编码器或源文件变更后混用。
-  let workDir = mergeWorkDir(versionedItems, compatibility.target, activeEncoder)
+  const resolvedTempRoot =
+    typeof tempDirectory === 'string' && tempDirectory && isAbsolute(tempDirectory)
+      ? tempDirectory
+      : tmpdir()
+  let workDir = mergeWorkDir(versionedItems, compatibility.target, activeEncoder, resolvedTempRoot)
   let outputPath
   try {
     await ensureDir(workDir)
@@ -308,6 +326,18 @@ export async function mergeVideos({
   }
   let verified = false
   let transactionCleanupPending = false
+  let gpuSummary = {
+    requested: nvencEnabled,
+    encoder: compatibility.compatible ? 'copy' : activeEncoder === 'cpu' ? 'cpu' : 'nvenc',
+    pipeline: compatibility.compatible
+      ? 'copy'
+      : activeEncoder === 'cuda-nvenc'
+        ? 'cuda-nvenc'
+        : activeEncoder,
+    hardwareSegments: 0,
+    fallbackSegments: 0,
+    note: compatibility.compatible ? '参数一致，采用无重编码拼接（GPU 不参与）' : '等待转码执行'
+  }
 
   try {
     if (compatibility.compatible) {
@@ -323,59 +353,113 @@ export async function mergeVideos({
     } else {
       // ---- 转码统一后拼接 ----
       const target = compatibility.target
+      const requestedConcurrency = Math.min(4, Math.max(1, Math.round(mergeTranscodeConcurrency)))
+      // GPU 会话/显存更敏感：完整 CUDA 路径最多两路；默认值为 1，维持原有最稳行为。
+      const transcodeConcurrency =
+        activeEncoder === 'cuda-nvenc' ? Math.min(2, requestedConcurrency) : requestedConcurrency
+      let hardwareSegments = 0
+      let fallbackSegments = 0
+      let forceCpuAfterNvencFailure = false
       const transcodeAll = async (encoder, targetWorkDir) => {
-        const segments = []
-        for (let i = 0; i < items.length; i += 1) {
-          if (signal?.aborted) throw new Error('已取消')
-          const item = items[i]
-          const segment = join(targetWorkDir, `seg-${String(i).padStart(3, '0')}.mp4`)
-          const base = Math.round((i / items.length) * 90)
-          const span = Math.round(90 / items.length)
-          if (await segmentReady(segment, ffprobePath, item.media?.durationMs ?? 0)) {
-            onProgress?.(base + span, `跳过已完成段 ${i + 1}/${items.length} · ${item.name}`)
-            segments.push(segment)
-            continue
-          }
-          await runFfmpegImpl(
-            ffmpegPath,
-            buildTranscodeArgs(item.path, target, segment, {
-              encoder,
-              hasAudio: Boolean(item.media?.audioCodec)
-            }),
-            {
-              signal,
-              totalMs: item.media?.durationMs ?? 0,
-              onProgress: (pct) =>
-                onProgress?.(
-                  base + Math.round((pct / 100) * span),
-                  `转码统一 ${i + 1}/${items.length} · ${item.name} ${pct}%${
-                    encoder === 'nvenc' ? '（NVIDIA）' : ''
-                  }`
-                )
+        const segments = new Array(items.length)
+        let cursor = 0
+        const worker = async () => {
+          while (!signal?.aborted) {
+            const i = cursor
+            cursor += 1
+            if (i >= items.length) return
+            const item = items[i]
+            const segment = join(targetWorkDir, `seg-${String(i).padStart(3, '0')}.mp4`)
+            const base = Math.round((i / items.length) * 90)
+            const span = Math.round(90 / items.length)
+            if (await segmentReady(segment, ffprobePath, item.media?.durationMs ?? 0)) {
+              onProgress?.(base + span, `跳过已完成段 ${i + 1}/${items.length} · ${item.name}`)
+              segments[i] = segment
+              continue
             }
-          )
-          segments.push(segment)
+            const runSegment = async (segmentEncoder) =>
+              runFfmpegImpl(
+                ffmpegPath,
+                buildTranscodeArgs(item.path, target, segment, {
+                  encoder: segmentEncoder,
+                  hasAudio: Boolean(item.media?.audioCodec)
+                }),
+                {
+                  signal,
+                  totalMs: item.media?.durationMs ?? 0,
+                  onProgress: (pct) =>
+                    onProgress?.(
+                      base + Math.round((pct / 100) * span),
+                      `转码统一 ${i + 1}/${items.length} · ${item.name} ${pct}%${
+                        segmentEncoder === 'cuda-nvenc'
+                          ? '（NVIDIA · 全 GPU 流水线）'
+                          : segmentEncoder === 'nvenc'
+                            ? '（NVIDIA 编码）'
+                            : '（CPU）'
+                      }`
+                    )
+                }
+              )
+            const effectiveEncoder = forceCpuAfterNvencFailure ? 'cpu' : encoder
+            try {
+              await runSegment(effectiveEncoder)
+              if (effectiveEncoder === 'nvenc' || effectiveEncoder === 'cuda-nvenc')
+                hardwareSegments += 1
+            } catch (error) {
+              // 完整 CUDA 路径含 NVDEC 与 CUDA 滤镜，报错文本并不总带 NVENC/CUDA 关键词；
+              // 该可选路径一旦失败就按段无条件退回稳定的 CPU 滤镜 + NVENC，不让整任务中断。
+              if (signal?.aborted || (encoder !== 'cuda-nvenc' && !isNvencRuntimeFailure(error)))
+                throw error
+              if (encoder === 'cuda-nvenc') {
+                fallbackSegments += 1
+                onProgress?.(
+                  base,
+                  `GPU 完整流水线不支持第 ${i + 1} 段，改用 NVIDIA 编码 + CPU 缩放`
+                )
+                await runSegment('nvenc')
+                hardwareSegments += 1
+              } else if (encoder === 'nvenc') {
+                fallbackSegments += 1
+                nvencFallbackReason = `实际转码时 NVIDIA NVENC 不可用：${
+                  error instanceof Error ? error.message : String(error)
+                }`
+                // 默认串行模式在首个 NVENC 失败后不再反复尝试该设备，后续段都稳定使用 CPU。
+                forceCpuAfterNvencFailure = true
+                activeEncoder = 'cpu'
+                onProgress?.(base, `第 ${i + 1} 段 NVIDIA 编码失败，后续统一使用 CPU x264`)
+                await runSegment('cpu')
+              } else {
+                throw error
+              }
+            }
+            segments[i] = segment
+          }
+          throw new Error('已取消')
         }
+        await Promise.all(
+          Array.from({ length: Math.min(transcodeConcurrency, items.length) }, worker)
+        )
         return segments
       }
-      let segments
-      try {
-        segments = await transcodeAll(activeEncoder, workDir)
-      } catch (error) {
-        const shouldFallbackToCpu =
-          activeEncoder === 'nvenc' && !signal?.aborted && isNvencRuntimeFailure(error)
-        if (!shouldFallbackToCpu) throw error
-        nvencFallbackReason = `实际转码时 NVIDIA NVENC 不可用：${
-          error instanceof Error ? error.message : String(error)
-        }`
-        onProgress?.(0, '⚠ NVIDIA NVENC 转码失败，已自动回退 CPU x264 编码')
-        // CPU 与 NVENC 中间段隔离，避免混用不同编码器产物；失败目录不参与续传，立即清理。
-        const failedNvencWorkDir = workDir
-        activeEncoder = 'cpu'
-        workDir = mergeWorkDir(versionedItems, target, activeEncoder)
-        await permanentDelete(failedNvencWorkDir).catch(() => {})
-        await ensureDir(workDir)
-        segments = await transcodeAll(activeEncoder, workDir)
+      const segments = await transcodeAll(activeEncoder, workDir)
+      gpuSummary = {
+        requested: nvencEnabled,
+        encoder: compatibility.compatible ? 'copy' : activeEncoder === 'cpu' ? 'cpu' : 'nvenc',
+        pipeline: compatibility.compatible
+          ? 'copy'
+          : cudaPipelineAvailable && fallbackSegments === 0
+            ? 'cuda-nvenc'
+            : activeEncoder === 'cpu'
+              ? 'cpu'
+              : 'nvenc',
+        hardwareSegments,
+        fallbackSegments,
+        note:
+          activeEncoder === 'cuda-nvenc'
+            ? `完整 GPU 流水线完成 ${hardwareSegments} 段${fallbackSegments ? `，${fallbackSegments} 段已安全降级` : ''}`
+            : activeEncoder === 'nvenc'
+              ? `NVIDIA NVENC 编码完成 ${hardwareSegments} 段${fallbackSegments ? `，${fallbackSegments} 段已回退 CPU` : ''}`
+              : '使用 CPU x264 编码'
       }
       try {
         await ensureOutputSpace()
@@ -453,13 +537,17 @@ export async function mergeVideos({
       outputPath,
       verified: true,
       verifyNote: `${verify.note}${
-        !compatibility.compatible
-          ? `（${activeEncoder === 'nvenc' ? 'NVIDIA NVENC 视频编码；解码和缩放由 CPU 完成' : 'CPU x264'}）`
-          : ''
+        !compatibility.compatible ? `（${gpuSummary.note}）` : ''
       }${transactionCleanupPending ? '（恢复记录将在下次扫描时清理）' : ''}`,
       transcoded: !compatibility.compatible,
-      videoEncoder: compatibility.compatible ? 'copy' : activeEncoder,
-      ...(nvencFallbackReason ? { nvencFallbackReason } : {})
+      videoEncoder: compatibility.compatible
+        ? 'copy'
+        : activeEncoder === 'cuda-nvenc'
+          ? 'nvenc'
+          : activeEncoder,
+      ...(nvencFallbackReason ? { nvencFallbackReason } : {}),
+      gpuSummary,
+      tempDirectory: workDir
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
@@ -476,8 +564,14 @@ export async function mergeVideos({
           ? '已取消（临时输出已清理；无重编码拼接下次会重新执行）'
           : '已取消（已完成的转码段已保留，下次继续）',
         transcoded: false,
-        videoEncoder: compatibility.compatible ? 'copy' : activeEncoder,
-        ...(nvencFallbackReason ? { nvencFallbackReason } : {})
+        videoEncoder: compatibility.compatible
+          ? 'copy'
+          : activeEncoder === 'cuda-nvenc'
+            ? 'nvenc'
+            : activeEncoder,
+        ...(nvencFallbackReason ? { nvencFallbackReason } : {}),
+        gpuSummary,
+        tempDirectory: workDir
       }
     }
     const hardLinkUnsupported = error?.code === 'MSD_HARDLINK_UNSUPPORTED'
@@ -489,8 +583,14 @@ export async function mergeVideos({
         ? '合并失败：当前输出文件系统不支持安全的无覆盖提交，请将工作区移至 NTFS、APFS 或其他支持硬链接的文件系统'
         : '合并失败（已完成的转码段已保留，重新执行可续传）',
       transcoded: !compatibility.compatible,
-      videoEncoder: compatibility.compatible ? 'copy' : activeEncoder,
+      videoEncoder: compatibility.compatible
+        ? 'copy'
+        : activeEncoder === 'cuda-nvenc'
+          ? 'nvenc'
+          : activeEncoder,
       ...(nvencFallbackReason ? { nvencFallbackReason } : {}),
+      gpuSummary,
+      tempDirectory: workDir,
       error: errorMessage
     }
   } finally {

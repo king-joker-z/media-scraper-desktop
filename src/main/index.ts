@@ -45,6 +45,7 @@ import { listOpLogs, writeOpLog } from './core/op-log.mjs'
 import { isMediaPathAllowed, mediaUrlPathToLocal } from './core/media-path.mjs'
 import { assertRegisteredRoot, assertSafeFileName, resolveInsideRoot } from './core/path-guard.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
+import { probeGpuCapability } from './core/nvenc.mjs'
 import {
   captureAt,
   captureCandidates,
@@ -93,20 +94,38 @@ const cleanFramesCache = async (): Promise<number> => {
   return freed
 }
 
-/** 清空系统临时目录下的全部合并工作目录，返回释放的字节数 */
-const cleanMergeTempDirs = async (): Promise<number> => {
-  const entries = await listDirNames(tmpdir()).catch(() => [] as string[])
+/** 返回当前设置下受应用管理的合并断点目录，不扫描/删除任意用户自定义目录。 */
+const mergeTempRoots = (settings: AppSettings): string[] => {
+  if (settings.mergeTempLocation === 'custom' && settings.mergeTempCustomPath) {
+    return [settings.mergeTempCustomPath]
+  }
+  if (settings.mergeTempLocation === 'source-disk') {
+    return [
+      ...settings.recentWorkspaces,
+      join(app.getPath('userData'), 'unreachable-merge-temp')
+    ].map((root) => join(root, '.msd-merge-temp'))
+  }
+  return [tmpdir()]
+}
+
+/** 清空应用维护的合并工作目录，严格限制为 msd-merge- 前缀子目录。 */
+const cleanMergeTempDirs = async (settings: AppSettings): Promise<number> => {
   const results = await Promise.all(
-    entries
-      .filter((name) => name.startsWith(MERGE_TEMP_PREFIX))
-      .map(async (name) => {
-        const target = join(tmpdir(), name)
-        const size = await dirSizeBytes(target)
-        await permanentDelete(target).catch(() => {})
-        return size
-      })
+    mergeTempRoots(settings).map(async (root) => {
+      const entries = await listDirNames(root).catch(() => [] as string[])
+      return Promise.all(
+        entries
+          .filter((name) => name.startsWith(MERGE_TEMP_PREFIX))
+          .map(async (name) => {
+            const target = join(root, name)
+            const size = await dirSizeBytes(target)
+            await permanentDelete(target).catch(() => {})
+            return size
+          })
+      )
+    })
   )
-  return results.reduce((sum, size) => sum + size, 0)
+  return results.flat().reduce((sum, size) => sum + size, 0)
 }
 
 /** 记录一条操作日志（不阻塞主流程） */
@@ -905,6 +924,7 @@ function registerIpcHandlers(): void {
       freeBytes
     }
   })
+  ipcMain.handle('gpu:capability', async () => probeGpuCapability(resolveFfmpegPath()))
   ipcMain.handle(
     'merge:execute',
     async (_event, root: string, items: MergeVideoItem[], outputName: string) => {
@@ -927,6 +947,14 @@ function registerIpcHandlers(): void {
             ffprobePath: resolveFfprobePath(),
             signal,
             nvencEnabled: settings.nvencEnabled,
+            cudaPipelineEnabled: settings.cudaPipelineEnabled,
+            mergeTranscodeConcurrency: settings.mergeTranscodeConcurrency,
+            tempDirectory:
+              settings.mergeTempLocation === 'system'
+                ? tmpdir()
+                : settings.mergeTempLocation === 'custom' && settings.mergeTempCustomPath
+                  ? settings.mergeTempCustomPath
+                  : join(safeRoot, '.msd-merge-temp'),
             onProgress: (percent, stage) => emit('progress', percent, stage)
           })
           if (result.cancelled) {
@@ -1065,12 +1093,19 @@ function registerIpcHandlers(): void {
 
   // ---------- 存储管理（S4） ----------
   ipcMain.handle('storage:stats', async (): Promise<StorageStats> => {
-    const tmpEntries = await listDirNames(tmpdir())
-    const mergeTargets = tmpEntries
-      .filter((name) => name.startsWith(MERGE_TEMP_PREFIX))
-      .map((name) => join(tmpdir(), name))
-    const [mergeSizes, framesBytes, opLogBytes, opLogFiles] = await Promise.all([
-      Promise.all(mergeTargets.map(dirSizeBytes)),
+    const settings = await settingsStore.get()
+    const mergeRoots = mergeTempRoots(settings)
+    const mergeSizes = await Promise.all(
+      mergeRoots.map(async (root) => {
+        const entries = await listDirNames(root).catch(() => [] as string[])
+        const targets = entries
+          .filter((name) => name.startsWith(MERGE_TEMP_PREFIX))
+          .map((name) => join(root, name))
+        const sizes = await Promise.all(targets.map(dirSizeBytes))
+        return sizes.reduce((sum, size) => sum + size, 0)
+      })
+    )
+    const [framesBytes, opLogBytes, opLogFiles] = await Promise.all([
       dirSizeBytes(framesRoot),
       dirSizeBytes(opLogDir),
       listDirNames(opLogDir)
@@ -1087,7 +1122,7 @@ function registerIpcHandlers(): void {
     if (category === 'frames') {
       freedBytes = await cleanFramesCache()
     } else if (category === 'merge-temp') {
-      freedBytes = await cleanMergeTempDirs()
+      freedBytes = await cleanMergeTempDirs(await settingsStore.get())
     } else {
       freedBytes = await dirSizeBytes(opLogDir)
       const files = await listDirNames(opLogDir)

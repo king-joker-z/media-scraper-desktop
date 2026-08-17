@@ -9,6 +9,7 @@ import type {
   ComicMergeReport,
   ComicScanResult,
   DedupeScanResult,
+  GpuCapability,
   MergeResult,
   MergeSourceItem,
   MergeVideoItem,
@@ -81,6 +82,7 @@ declare global {
         items: MergeVideoItem[],
         outputName: string
       ) => Promise<MergeResult>
+      getGpuCapability: () => Promise<GpuCapability>
       deleteMergeSources: (
         root: string,
         items: MergeSourceItem[]

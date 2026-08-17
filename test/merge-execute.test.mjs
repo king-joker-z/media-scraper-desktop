@@ -359,6 +359,37 @@ test('mergeVideos retries from an isolated CPU workdir after a runtime NVENC fai
   }
 })
 
+test('mergeVideos keeps output ordering while transcoding segments concurrently', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { seconds: 1, size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { seconds: 1, size: '640x480' }))
+    const c = await probeItem(await makeClip(join(dir, 'c.mp4'), { seconds: 1, size: '480x360' }))
+    const result = await mergeVideos({
+      items: [a, b, c],
+      outputDir: dir,
+      outputName: 'parallel.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      mergeTranscodeConcurrency: 2,
+      diskFree: async () => Number.MAX_SAFE_INTEGER
+    })
+    assert.equal(result.verified, true)
+    assert.equal(result.videoEncoder, 'cpu')
+    assert.match(result.tempDirectory, /msd-merge-/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeWorkDir supports a caller-selected temporary root', () => {
+  const target = { width: 640, height: 480, fps: 24, pixFmt: 'yuv420p' }
+  assert.match(
+    mergeWorkDir([{ path: '/a.mp4' }], target, 'cpu', '/media/.msd-merge-temp'),
+    /^\/media\/\.msd-merge-temp\//
+  )
+})
+
 test('mergeVideos blocks stream-copy before writing when output disk is insufficient', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
   try {

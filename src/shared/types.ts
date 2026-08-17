@@ -178,6 +178,14 @@ export interface AppSettings {
   ffmpegPoolSize: number
   /** 启用 NVIDIA NVENC 视频转码加速（Windows 默认开，macOS 默认关） */
   nvencEnabled: boolean
+  /** 尝试 NVDEC/CUDA 缩放补边的完整 GPU 流水线；默认关闭，失败自动降级 */
+  cudaPipelineEnabled: boolean
+  /** 单次合并最多同时转码的片段数，1–4，默认 1（安全串行） */
+  mergeTranscodeConcurrency: number
+  /** 合并中间段位置：默认工作区同盘；可选系统临时目录或自定义目录 */
+  mergeTempLocation: 'source-disk' | 'system' | 'custom'
+  /** 自定义合并临时根目录，仅 mergeTempLocation=custom 时生效 */
+  mergeTempCustomPath: string
   /** 界面主题，默认跟随系统 */
   theme: ThemeMode
   /** 界面强调色方案，默认海洋蓝 */
@@ -408,6 +416,21 @@ export interface MergePlanInfo {
   compatibility: MergeCompatibility
 }
 
+export interface GpuCapability {
+  checkedAt: number
+  nvenc: { available: boolean; reason?: string }
+  cudaPipeline: { available: boolean; reason?: string }
+}
+
+export interface MergeGpuSummary {
+  requested: boolean
+  encoder: 'copy' | 'cpu' | 'nvenc'
+  pipeline: 'copy' | 'cpu' | 'nvenc' | 'cuda-nvenc'
+  hardwareSegments: number
+  fallbackSegments: number
+  note: string
+}
+
 export interface MergeResult {
   cancelled: boolean
   outputPath: string | null
@@ -419,6 +442,10 @@ export interface MergeResult {
   videoEncoder?: 'copy' | 'cpu' | 'nvenc'
   /** 用户开启 NVENC 但能力探测失败时的回退原因；供 UI 明确警示 */
   nvencFallbackReason?: string
+  /** 本次实际 GPU/CPU 执行汇总，不能以预检结果代替实际执行情况 */
+  gpuSummary?: MergeGpuSummary
+  /** 实际使用的中间转码目录，便于定位磁盘占用 */
+  tempDirectory?: string
   error?: string
 }
 

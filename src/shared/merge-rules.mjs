@@ -152,7 +152,8 @@ export function buildTranscodeArgs(
   outputPath,
   { encoder = 'cpu', hasAudio = true } = {}
 ) {
-  const useNvenc = encoder === 'nvenc'
+  const useNvenc = encoder === 'nvenc' || encoder === 'cuda-nvenc'
+  const useCudaPipeline = encoder === 'cuda-nvenc'
   const videoArgs = useNvenc
     ? [
         '-c:v',
@@ -173,6 +174,7 @@ export function buildTranscodeArgs(
   return [
     '-v',
     'error',
+    ...(useCudaPipeline ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] : []),
     '-i',
     inputPath,
     ...(hasAudio ? [] : ['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo']),
@@ -181,8 +183,11 @@ export function buildTranscodeArgs(
     '-map',
     hasAudio ? '0:a:0' : '1:a:0',
     '-vf',
-    // 保持原始比例，横屏目标中竖屏素材会自动在左右补黑边，不会挤压横屏片段。
-    `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`,
+    // CUDA 路径从 NVDEC 硬件帧直接缩放/补边后交给 NVENC；任一素材/驱动不支持时主进程按段回退。
+    useCudaPipeline
+      ? `scale_cuda=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad_cuda=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black`
+      : `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`,
+    ...(useCudaPipeline ? ['-aspect', `${target.width}:${target.height}`] : []),
     '-r',
     String(target.fps),
     '-pix_fmt',
