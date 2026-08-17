@@ -1492,35 +1492,105 @@ input[type='checkbox']:disabled {
 .candidate:has(.candidate-tag) .candidate-tag {
   max-width: calc(100% - 12px);
 }
+.poster-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 12px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  box-shadow: var(--shadow-card);
+}
+.poster-toolbar-copy {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 3px;
+}
+.poster-toolbar-copy b {
+  color: var(--label-primary);
+  font-size: 13px;
+}
+.poster-toolbar-copy span {
+  color: var(--label-secondary);
+  font-size: 11px;
+}
+.poster-toolbar-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
 .poster-option {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--text-secondary);
+  min-height: var(--control-height);
+  padding: 0 9px;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  color: var(--label-secondary);
+  background: color-mix(in srgb, var(--bg-card) 72%, transparent);
   font-size: 12px;
   white-space: nowrap;
 }
 .poster-option select {
-  min-height: 32px;
-  padding: 4px 8px;
+  width: auto;
+  min-height: 28px;
+  padding: 2px 20px 2px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--label-primary);
+  box-shadow: none;
+}
+.poster-option select:focus {
+  box-shadow: none;
 }
 .poster-check {
-  min-height: 32px;
+  cursor: pointer;
 }
 .video-card {
   position: absolute;
+  display: block;
+  padding: 0;
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  overflow: visible;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.video-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-pop);
 }
 .video-card.selected {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 12px;
 }
 .video-card-open {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
+  min-height: 0;
   padding: 0;
   overflow: hidden;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  font: inherit;
+  color: inherit;
   text-align: left;
+}
+.video-card-open:hover {
+  transform: none;
+  box-shadow: none;
 }
 .poster-select {
   position: absolute;
@@ -1531,9 +1601,25 @@ input[type='checkbox']:disabled {
   width: 28px;
   height: 28px;
   place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.58);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
 }
+.poster-select input {
+  width: 16px;
+  height: 16px;
+}
+@media (max-width: 900px) {
+  .poster-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .poster-toolbar-controls {
+    justify-content: flex-start;
+  }
+}
+
 .candidate img {
   display: block;
   width: 100%;

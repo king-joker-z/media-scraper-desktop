@@ -192,47 +192,6 @@ function PosterPage({
           >
             {loading ? '扫描中…' : '刷新列表'}
           </button>
-          <label className="poster-option">
-            <span>生成范围</span>
-            <select
-              value={captureScope}
-              disabled={capturing || saving}
-              onChange={(event) =>
-                setCaptureScope(event.target.value as 'visible' | 'selected' | 'all')
-              }
-            >
-              <option value="visible">仅可视项</option>
-              <option value="selected">仅勾选项</option>
-              <option value="all">全部未生成项</option>
-            </select>
-          </label>
-          <label className="poster-option poster-check">
-            <input
-              type="checkbox"
-              checked={preciseCapture}
-              disabled={capturing || saving}
-              onChange={(event) => setPreciseCapture(event.target.checked)}
-            />
-            <span>精细模式（短视频场景检测，较慢）</span>
-          </label>
-          <button
-            className="secondary"
-            disabled={!workspace || capturing || saving || captureTargets.length === 0}
-            onClick={captureAll}
-          >
-            {capturing ? '截帧中…' : `生成候选帧（${captureTargets.length}）`}
-          </button>
-          <button
-            disabled={pending.length === 0 || saving || capturing}
-            onClick={() => setConfirmingBatch(true)}
-          >
-            {saving ? '保存中…' : `一键确认封面（${pending.length} 待确认）`}
-          </button>
-          {(capturing || saving) && (
-            <button className="secondary" onClick={() => window.api.cancelPosterCapture()}>
-              取消
-            </button>
-          )}
         </div>
       </header>
 
@@ -240,6 +199,58 @@ function PosterPage({
         <span>当前工作区</span>
         <strong>{workspace || '尚未选择目录'}</strong>
       </section>
+
+      {workspace && (
+        <section className="poster-toolbar" aria-label="候选封面生成选项">
+          <div className="poster-toolbar-copy">
+            <b>候选帧生成</b>
+            <span>当前可处理 {captureTargets.length} 个视频</span>
+          </div>
+          <div className="poster-toolbar-controls">
+            <label className="poster-option">
+              <span>范围</span>
+              <select
+                value={captureScope}
+                disabled={capturing || saving}
+                onChange={(event) =>
+                  setCaptureScope(event.target.value as 'visible' | 'selected' | 'all')
+                }
+              >
+                <option value="visible">仅可视项</option>
+                <option value="selected">仅勾选项</option>
+                <option value="all">全部未生成项</option>
+              </select>
+            </label>
+            <label className="poster-option poster-check">
+              <input
+                type="checkbox"
+                checked={preciseCapture}
+                disabled={capturing || saving}
+                onChange={(event) => setPreciseCapture(event.target.checked)}
+              />
+              <span>精细模式</span>
+            </label>
+            <button
+              className="secondary"
+              disabled={capturing || saving || captureTargets.length === 0}
+              onClick={captureAll}
+            >
+              {capturing ? '截帧中…' : `生成候选帧（${captureTargets.length}）`}
+            </button>
+            <button
+              disabled={pending.length === 0 || saving || capturing}
+              onClick={() => setConfirmingBatch(true)}
+            >
+              {saving ? '保存中…' : `确认封面（${pending.length}）`}
+            </button>
+            {(capturing || saving) && (
+              <button className="secondary" onClick={() => window.api.cancelPosterCapture()}>
+                取消
+              </button>
+            )}
+          </div>
+        </section>
+      )}
 
       {error && <ErrorBanner message={error} />}
       {notice && <section className="notice-banner">{notice}</section>}
