@@ -109,12 +109,26 @@ function TaskCenter(): React.JSX.Element {
                     <div className="task-row-topline">
                       <span className="task-type">{eventLabel(event.type)}</span>
                       <span className="task-count">
-                        {event.completed}/{event.total}
+                        {event.total > 0 ? `${event.completed}/${event.total}` : '处理中'}
+                        {event.failed > 0 && (
+                          <em className="task-failed-count">失败 {event.failed}</em>
+                        )}
                       </span>
                     </div>
                     <span className="task-label" title={event.current ?? event.label}>
                       {event.current ?? event.label}
                     </span>
+                    {(event.type === 'done' ||
+                      event.type === 'failed' ||
+                      event.type === 'cancelled') && (
+                      <span className="task-result-summary">
+                        {event.type === 'done'
+                          ? `完成 ${event.completed} 项${event.failed ? `，失败 ${event.failed} 项` : ''}`
+                          : event.type === 'cancelled'
+                            ? `已取消，已完成 ${event.completed} 项`
+                            : `执行失败${event.error ? '，请查看原因后重试' : ''}`}
+                      </span>
+                    )}
                     {event.error && (
                       <span className="task-error" title={event.error}>
                         原因：{event.error}

@@ -81,7 +81,7 @@ function ComicLibraryPage({
 
   return (
     <div className="page">
-      <header className="page-header comic-library-header">
+      <header className="page-header comic-library-header page-header-comic">
         <div>
           <p className="eyebrow">漫画书房 / 已归档</p>
           <h1>你的数字书架</h1>
@@ -98,7 +98,10 @@ function ComicLibraryPage({
         </div>
       </header>
 
-      <section className="comic-library-overview" aria-label="漫画库概览">
+      <section
+        className="comic-library-overview workspace-overview workspace-overview-comic"
+        aria-label="漫画库概览"
+      >
         <div className="comic-library-workspace">
           <span>当前书房</span>
           <strong title={workspace || undefined}>{workspace || '尚未选择目录'}</strong>

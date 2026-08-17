@@ -118,6 +118,7 @@ export const DEFAULT_SETTINGS = {
     surfaceOpacity: 35,
     fit: 'cover'
   },
+  libraryDensity: 'standard',
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
     ...preset,
     token: '',
@@ -293,6 +294,9 @@ export function normalizeSettings(raw) {
       : DEFAULT_SETTINGS.themePalette,
     customAccent: normalizeCustomAccent(input.customAccent),
     backgroundAppearance: normalizeBackgroundAppearance(input.backgroundAppearance),
+    libraryDensity: ['comfortable', 'standard', 'compact'].includes(input.libraryDensity)
+      ? input.libraryDensity
+      : DEFAULT_SETTINGS.libraryDensity,
     aiProviders,
     activeProviderId,
     promptTemplate:

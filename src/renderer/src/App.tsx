@@ -13,6 +13,7 @@ import TaskCenter from './components/TaskCenter'
 import TaskProgress from './components/TaskProgress'
 import ErrorBanner from './components/ErrorBanner'
 import ErrorBoundary from './components/ErrorBoundary'
+import CommandPalette from './components/CommandPalette'
 import { prunePlayPositions } from './utils/media'
 import { applyBackgroundAppearance, applyTheme, DEFAULT_BACKGROUND_APPEARANCE } from './utils/theme'
 import { basenameOf } from './utils/format'
@@ -153,6 +154,7 @@ function App(): React.JSX.Element {
   const [showRecents, setShowRecents] = useState(false)
   const [dropActive, setDropActive] = useState(false)
   const [appError, setAppError] = useState('')
+  const [commandOpen, setCommandOpen] = useState(false)
   const dragDepth = useRef(0)
 
   const workspace = module ? workspaces[module] : ''
@@ -205,6 +207,30 @@ function App(): React.JSX.Element {
     if (next) setPage(MODULE_META[next].home)
     // null 代表用户主动回到模块选择页，必须持久化，避免下次启动又自动进入旧模块。
     window.api.updateSettings({ activeModule: next }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const hasModifier = event.metaKey || event.ctrlKey
+      if (hasModifier && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setCommandOpen((open) => !open)
+        return
+      }
+      if (hasModifier && event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        const search = document.querySelector<HTMLElement>(
+          '#library-search, .comic-search input, .comic-search'
+        )
+        if (search) {
+          search.focus()
+        } else {
+          setCommandOpen(true)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   const refreshRecents = useCallback((): void => {
@@ -521,6 +547,21 @@ function App(): React.JSX.Element {
       )}
       <TaskProgress />
       <TaskCenter />
+      <CommandPalette
+        open={commandOpen}
+        module={module}
+        videoItems={VIDEO_NAV_ITEMS}
+        comicItems={COMIC_NAV_ITEMS}
+        onClose={() => setCommandOpen(false)}
+        onNavigate={setPage}
+        onSwitchModule={switchModule}
+        onChooseWorkspace={() => void chooseWorkspace()}
+        onFocusSearch={() =>
+          document
+            .querySelector<HTMLElement>('#library-search, .comic-search input, .comic-search')
+            ?.focus()
+        }
+      />
     </div>
   )
 }
