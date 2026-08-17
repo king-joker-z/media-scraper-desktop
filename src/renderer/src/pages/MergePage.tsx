@@ -16,7 +16,8 @@ import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 const MODE_TABS: { key: MergeMode; label: string }[] = [
   { key: 'all', label: '全合并' },
   { key: 'landscape', label: '横屏合并' },
-  { key: 'portrait', label: '竖屏合并' }
+  { key: 'portrait', label: '竖屏合并' },
+  { key: 'separate', label: '横竖分别合并' }
 ]
 
 function MergePage({
@@ -35,6 +36,7 @@ function MergePage({
   const [mode, setMode] = useState<MergeMode>('all')
   const [order, setOrder] = useState<string[]>([])
   const [orientationFirst, setOrientationFirst] = useState<'landscape' | 'portrait'>('landscape')
+  const [sortBy, setSortBy] = useState<'manual' | 'name' | 'size'>('manual')
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -86,11 +88,17 @@ function MergePage({
 
     const poolRels = new Set(pool.map((v) => v.relativePath))
     const ordered = order.filter((rel) => poolRels.has(rel))
-    const remaining = pool
-      .filter((v) => !ordered.includes(v.relativePath))
-      .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }))
-    return [...ordered.map((rel) => byRel.get(rel)!), ...remaining]
-  }, [videos, mode, order])
+    const current = [
+      ...ordered.map((rel) => byRel.get(rel)!),
+      ...pool.filter((v) => !ordered.includes(v.relativePath))
+    ]
+    if (sortBy === 'name') {
+      return current.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }))
+    }
+    if (sortBy === 'size')
+      return current.sort((a, b) => b.size - a.size || a.name.localeCompare(b.name))
+    return current
+  }, [videos, mode, order, sortBy])
 
   /** 实际参与合并的片段（排除置灰项） */
   const items = useMemo(
@@ -115,7 +123,7 @@ function MergePage({
   )
   const compatibility = useMemo(() => checkCompatibility(items), [items])
   const workspaceName = workspace.split(/[\\/]/).filter(Boolean).pop() ?? 'workspace'
-  const outputName = mergeOutputName(workspaceName, mode)
+  const outputName = mergeOutputName(workspaceName, mode === 'separate' ? 'all' : mode)
   const estimated = useMemo(
     () => estimateOutputBytes(items, compatibility.compatible),
     [items, compatibility]
@@ -127,6 +135,18 @@ function MergePage({
   const notEnoughSpace = freeBytes > 0 && estimated > freeBytes
   const unreadableItems = useMemo(() => items.filter((item) => !item.media), [items])
   const cannotMerge = unreadableItems.length > 0
+
+  /** 全合并时把可见列表实际重排为同方向连续，用户可立即确认横竖顺序已生效。 */
+  const groupOrientations = (first: 'landscape' | 'portrait'): void => {
+    setOrientationFirst(first)
+    setOrder(groupByOrientation(rows, first).map((item) => item.relativePath))
+    setSortBy('manual')
+  }
+
+  const applySort = (nextSort: 'manual' | 'name' | 'size'): void => {
+    setSortBy(nextSort)
+    if (nextSort !== 'manual') setOrder([])
+  }
 
   const checkGpu = async (): Promise<void> => {
     setGpuChecking(true)
@@ -169,6 +189,7 @@ function MergePage({
   const executeOrientationBatch = async (): Promise<void> => {
     if (!workspace) return
     setConfirmingOrientationBatch(false)
+    deleteWorkspaceRef.current = null
     setMerging(true)
     setError('')
     setResult(null)
@@ -191,6 +212,9 @@ function MergePage({
       }
       if (completed.some(({ result: mergeResult }) => !mergeResult.verified)) {
         setError('横竖分别合并未全部完成，已保留成功输出和源视频；可单独重试失败方向。')
+      } else if (completed.length === plans.length && completed.length > 0) {
+        deleteWorkspaceRef.current = workspace
+        setConfirmingDelete(true)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -260,24 +284,26 @@ function MergePage({
           <button className="secondary" onClick={scan} disabled={!workspace || loading || merging}>
             {loading ? '读取中…' : '扫描视频'}
           </button>
-          {items.length >= 2 && !result && orientationBatchResults.length === 0 && (
-            <button
-              disabled={merging || notEnoughSpace || cannotMerge}
-              onClick={() => setConfirming(true)}
-            >
-              {merging ? '合并中…' : `执行合并（${items.length} 段）`}
-            </button>
-          )}
-          {orientationBatches.landscape.length >= 2 &&
-            orientationBatches.portrait.length >= 2 &&
+          {mode !== 'separate' &&
+            items.length >= 2 &&
             !result &&
             orientationBatchResults.length === 0 && (
               <button
-                className="secondary"
-                disabled={merging}
+                disabled={merging || notEnoughSpace || cannotMerge}
+                onClick={() => setConfirming(true)}
+              >
+                {merging ? '合并中…' : `执行合并（${items.length} 段）`}
+              </button>
+            )}
+          {mode === 'separate' &&
+            orientationBatches.landscape.length >= 2 &&
+            orientationBatches.portrait.length >= 2 &&
+            orientationBatchResults.length === 0 && (
+              <button
+                disabled={merging || cannotMerge}
                 onClick={() => setConfirmingOrientationBatch(true)}
               >
-                一键分别合并横竖视频
+                {merging ? '分别合并中…' : '执行横竖分别合并'}
               </button>
             )}
           {merging && (
@@ -300,16 +326,39 @@ function MergePage({
       {loaded && videos.length > 0 && (
         <>
           <div className="mode-tabs">
-            {MODE_TABS.map((tab) => (
+            {MODE_TABS.filter(
+              (tab) =>
+                tab.key !== 'separate' ||
+                (orientationBatches.landscape.length >= 2 &&
+                  orientationBatches.portrait.length >= 2)
+            ).map((tab) => (
               <button
                 key={tab.key}
                 className={`mode-tab ${mode === tab.key ? 'active' : ''}`}
+                disabled={merging || Boolean(result) || orientationBatchResults.length > 0}
                 onClick={() => setMode(tab.key)}
               >
                 {tab.label}
               </button>
             ))}
           </div>
+
+          {mode === 'separate' && (
+            <section className="notice-banner">
+              <strong>横竖分别合并：</strong>
+              将按当前排序分别生成横屏与竖屏两个文件；两项都校验通过后，会统一询问是否删除全部源视频。
+              <div className="merge-plan">
+                <span>
+                  横屏：{orientationBatches.landscape.length} 段 →{' '}
+                  {mergeOutputName(workspaceName, 'landscape')}
+                </span>
+                <span>
+                  竖屏：{orientationBatches.portrait.length} 段 →{' '}
+                  {mergeOutputName(workspaceName, 'portrait')}
+                </span>
+              </div>
+            </section>
+          )}
 
           {mode === 'all' && items.length > 1 && (
             <section className="notice-banner">
@@ -318,13 +367,13 @@ function MergePage({
               <div className="actions">
                 <button
                   className={`secondary ${orientationFirst === 'landscape' ? 'active' : ''}`}
-                  onClick={() => setOrientationFirst('landscape')}
+                  onClick={() => groupOrientations('landscape')}
                 >
                   横屏在前（{orientationBatches.landscape.length} 段）
                 </button>
                 <button
                   className={`secondary ${orientationFirst === 'portrait' ? 'active' : ''}`}
-                  onClick={() => setOrientationFirst('portrait')}
+                  onClick={() => groupOrientations('portrait')}
                 >
                   竖屏在前（{orientationBatches.portrait.length} 段）
                 </button>
@@ -333,43 +382,74 @@ function MergePage({
           )}
 
           {items.length > 0 && (
-            <section className="settings-card">
-              <h2>合并计划</h2>
-              <div className="merge-plan">
-                <span>输出：{outputName}</span>
-                <span>
-                  片段：{items.length} 段 · 总时长 {(totalDurationMs / 60000).toFixed(1)} 分钟
-                </span>
-                <span>
-                  {cannotMerge ? (
-                    <b className="danger-text">⚠️ 存在无法读取媒体信息的片段，不能安全合并</b>
-                  ) : compatibility.compatible ? (
-                    <b className="ok-text">✅ 参数一致，无重编码拼接（快、无损）</b>
-                  ) : (
-                    <b className="danger-text">
-                      ⚠️
-                      参数不一致，将转码统一参数后合并；混合横竖屏时优先横屏画布，竖屏片段左右补黑边
-                    </b>
-                  )}
-                </span>
-                <span>
-                  预计输出 {formatBytes(estimated)} · 磁盘可用 {formatBytes(freeBytes)}
-                  {notEnoughSpace && <b className="danger-text">（空间不足！）</b>}
-                </span>
-                {!compatibility.compatible && !cannotMerge && (
-                  <details>
-                    <summary className="muted">
-                      查看 {compatibility.reasons.length} 处参数差异
-                    </summary>
-                    {compatibility.reasons.slice(0, 10).map((reason) => (
-                      <p key={reason} className="muted">
-                        {reason}
-                      </p>
-                    ))}
-                  </details>
+            <>
+              <section className="settings-card">
+                <h2>排序</h2>
+                <div className="mode-tabs">
+                  <button
+                    className={`mode-tab ${sortBy === 'manual' ? 'active' : ''}`}
+                    onClick={() => applySort('manual')}
+                  >
+                    手动拖拽
+                  </button>
+                  <button
+                    className={`mode-tab ${sortBy === 'name' ? 'active' : ''}`}
+                    onClick={() => applySort('name')}
+                  >
+                    按名称
+                  </button>
+                  <button
+                    className={`mode-tab ${sortBy === 'size' ? 'active' : ''}`}
+                    onClick={() => applySort('size')}
+                  >
+                    按大小（大到小）
+                  </button>
+                </div>
+                {mode === 'all' && sortBy !== 'manual' && (
+                  <p className="muted">
+                    排序先在横屏、竖屏各自分类内生效，再按“
+                    {orientationFirst === 'landscape' ? '横屏在前' : '竖屏在前'}”合并输出。
+                  </p>
                 )}
-              </div>
-            </section>
+              </section>
+              <section className="settings-card">
+                <h2>合并计划</h2>
+                <div className="merge-plan">
+                  <span>输出：{outputName}</span>
+                  <span>
+                    片段：{items.length} 段 · 总时长 {(totalDurationMs / 60000).toFixed(1)} 分钟
+                  </span>
+                  <span>
+                    {cannotMerge ? (
+                      <b className="danger-text">⚠️ 存在无法读取媒体信息的片段，不能安全合并</b>
+                    ) : compatibility.compatible ? (
+                      <b className="ok-text">✅ 参数一致，无重编码拼接（快、无损）</b>
+                    ) : (
+                      <b className="danger-text">
+                        ⚠️
+                        参数不一致，将转码统一参数后合并；混合横竖屏时优先横屏画布，竖屏片段左右补黑边
+                      </b>
+                    )}
+                  </span>
+                  <span>
+                    预计输出 {formatBytes(estimated)} · 磁盘可用 {formatBytes(freeBytes)}
+                    {notEnoughSpace && <b className="danger-text">（空间不足！）</b>}
+                  </span>
+                  {!compatibility.compatible && !cannotMerge && (
+                    <details>
+                      <summary className="muted">
+                        查看 {compatibility.reasons.length} 处参数差异
+                      </summary>
+                      {compatibility.reasons.slice(0, 10).map((reason) => (
+                        <p key={reason} className="muted">
+                          {reason}
+                        </p>
+                      ))}
+                    </details>
+                  )}
+                </div>
+              </section>
+            </>
           )}
 
           {cannotMerge && (
@@ -410,7 +490,7 @@ function MergePage({
         <section className="report-card">
           <h2>横竖分别合并结果</h2>
           <p className="muted">
-            为防止一个输出成功后误删另一个方向的源视频，此流程不会自动弹出删源确认。
+            两个输出均校验通过后已弹出统一删源确认；若任一方向失败，源视频会完整保留。
           </p>
           {orientationBatchResults.map(({ mode: batchMode, result: mergeResult }) => (
             <p key={batchMode} className={mergeResult.verified ? 'ok-text' : 'danger-text'}>
@@ -508,7 +588,7 @@ function MergePage({
           deleteCount={0}
           deleteBytes={0}
           danger={false}
-          extra={`将分别生成 ${mergeOutputName(workspaceName, 'landscape')}（${orientationBatches.landscape.length} 段）和 ${mergeOutputName(workspaceName, 'portrait')}（${orientationBatches.portrait.length} 段）。两个任务按顺序执行，源视频不会自动删除。`}
+          extra={`将分别生成 ${mergeOutputName(workspaceName, 'landscape')}（${orientationBatches.landscape.length} 段）和 ${mergeOutputName(workspaceName, 'portrait')}（${orientationBatches.portrait.length} 段）。两个任务按顺序执行；两项均校验通过后会继续询问是否删除全部源视频。`}
           onConfirm={executeOrientationBatch}
           onCancel={() => setConfirmingOrientationBatch(false)}
         />

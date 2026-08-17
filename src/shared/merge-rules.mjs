@@ -116,7 +116,9 @@ export function mergeOutputName(workspaceName, mode) {
       ? '-landscape-merged'
       : mode === 'portrait'
         ? '-portrait-merged'
-        : '-merged'
+        : mode === 'separate'
+          ? '-separate-merged'
+          : '-merged'
   return `${workspaceName}${suffix}.mp4`
 }
 
