@@ -47,7 +47,11 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
   { key: 'glass', label: '液态玻璃', description: '半透明流光、柔和景深与现代科技质感' },
   { key: 'y2k', label: 'Y2K', description: '糖果金属、梦幻渐变与千禧社交潮流氛围' },
   { key: 'doodle', label: '手绘涂鸦', description: '活泼笔触、纸张质感与内容互动氛围' },
-  { key: 'aero', label: 'Frutiger Aero', description: '晴空草地、水润高光与明亮治愈气息' }
+  { key: 'aero', label: 'Frutiger Aero', description: '晴空草地、水润高光与明亮治愈气息' },
+  { key: 'swiss', label: '瑞士国际主义', description: '理性网格、红黑高对比与现代主义秩序' },
+  { key: 'clay', label: '黏土拟态', description: '柔软体块、温和阴影与触感化界面层次' },
+  { key: 'paper', label: '纸艺拼贴', description: '层叠色纸、裁切边缘与手作拼贴质感' },
+  { key: 'industrial', label: '工业控制台', description: '高密度仪表、警示色与专业控制面板' }
 ]
 
 const CUSTOM_PALETTE: { key: ThemePalette; label: string; description: string } = {

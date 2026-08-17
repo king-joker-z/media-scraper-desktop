@@ -170,6 +170,10 @@ export type ThemePalette =
   | 'y2k'
   | 'doodle'
   | 'aero'
+  | 'swiss'
+  | 'clay'
+  | 'paper'
+  | 'industrial'
   | 'custom'
 
 export interface AppSettings {
