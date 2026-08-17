@@ -45,8 +45,14 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
 const CUSTOM_PALETTE: { key: ThemePalette; label: string; description: string } = {
   key: 'custom',
   label: '自定义强调色',
-  description: '通过系统色轮选择并实时预览'
+  description: '可用色轮或屏幕取色实时预览'
 }
+
+type ScreenColorPickerWindow = Window & {
+  EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> }
+}
+
+const screenColorPickerWindow = window as ScreenColorPickerWindow
 
 const UPDATE_STATE_LABELS: Record<UpdateStatus['state'], string> = {
   idle: '尚未检查',
@@ -62,6 +68,7 @@ function SettingsPage(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   // 色彩选择器使用本地值驱动，防止异步 settings IPC 回包短暂覆盖吸管刚选中的颜色。
   const [customAccent, setCustomAccent] = useState('#1687d9')
+  const isScreenPickerAvailable = Boolean(screenColorPickerWindow.EyeDropper)
   const [backgroundNotice, setBackgroundNotice] = useState('')
   const [backgroundBusy, setBackgroundBusy] = useState(false)
   const [editingId, setEditingId] = useState<string>('')
@@ -169,6 +176,17 @@ function SettingsPage(): React.JSX.Element {
     applyBackgroundAppearance(appearance)
     setSettings((current) => (current ? { ...current, backgroundAppearance: appearance } : current))
     if (saveNow) void persist({ backgroundAppearance: appearance })
+  }
+
+  const pickScreenAccent = async (): Promise<void> => {
+    const EyeDropper = screenColorPickerWindow.EyeDropper
+    if (!EyeDropper) return
+    try {
+      const result = await new EyeDropper().open()
+      applyCustomAccent(result.sRGBHex, true)
+    } catch {
+      // 用户按 Esc 或取消取色不应显示错误提示。
+    }
   }
 
   const selectBackgroundImage = async (): Promise<void> => {
@@ -294,7 +312,7 @@ function SettingsPage(): React.JSX.Element {
             </button>
           ))}
         </div>
-        <p className="settings-hint">选择一套预设，或用色轮创建只属于你的强调色。</p>
+        <p className="settings-hint">选择一套预设，或用色轮、屏幕取色创建只属于你的强调色。</p>
         <div className="palette-grid" aria-label="预设强调色方案">
           {PALETTE_OPTIONS.map((palette) => (
             <button
@@ -331,17 +349,27 @@ function SettingsPage(): React.JSX.Element {
               <small>{CUSTOM_PALETTE.description}</small>
             </span>
           </button>
-          <label className="custom-color-picker">
+          <div className="custom-color-picker">
             <span className="sr-only">选择自定义强调色</span>
             <input
               type="color"
               value={customAccent}
-              aria-label="选择自定义强调色"
+              aria-label="通过色轮选择自定义强调色"
               onInput={(event) => applyCustomAccent(event.currentTarget.value)}
               onChange={(event) => applyCustomAccent(event.currentTarget.value, true)}
             />
             <output>{customAccent.toUpperCase()}</output>
-          </label>
+            {isScreenPickerAvailable && (
+              <button
+                type="button"
+                className="screen-color-picker"
+                onClick={() => void pickScreenAccent()}
+                title="从屏幕任意位置取色（按 Esc 取消）"
+              >
+                屏幕取色
+              </button>
+            )}
+          </div>
         </div>
       </section>
 

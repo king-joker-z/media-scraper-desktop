@@ -792,6 +792,26 @@ h2 {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
+.screen-color-picker {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--label-primary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.screen-color-picker:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+.screen-color-picker:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 .palette-option > span:last-child {
   display: grid;
   gap: 2px;
