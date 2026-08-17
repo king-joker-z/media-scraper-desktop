@@ -190,7 +190,7 @@ function MergePage({
     setDeleteNote('')
     const plans = (['landscape', 'portrait'] as const)
       .map((batchMode) => ({ mode: batchMode, items: orientationBatches[batchMode] }))
-      .filter((plan) => plan.items.length >= 2)
+      .filter((plan) => plan.items.length >= 1)
     const completed: Array<{ mode: 'landscape' | 'portrait'; result: MergeResult }> = []
     try {
       for (const plan of plans) {
@@ -288,17 +288,19 @@ function MergePage({
                 {merging ? '合并中…' : `执行合并（${items.length} 段）`}
               </button>
             )}
-          {mode === 'separate' &&
-            orientationBatches.landscape.length >= 2 &&
-            orientationBatches.portrait.length >= 2 &&
-            orientationBatchResults.length === 0 && (
-              <button
-                disabled={merging || cannotMerge}
-                onClick={() => setConfirmingOrientationBatch(true)}
-              >
-                {merging ? '分别合并中…' : '执行横竖分别合并'}
-              </button>
-            )}
+          {mode === 'separate' && orientationBatchResults.length === 0 && (
+            <button
+              disabled={
+                merging ||
+                cannotMerge ||
+                orientationBatches.landscape.length === 0 ||
+                orientationBatches.portrait.length === 0
+              }
+              onClick={() => setConfirmingOrientationBatch(true)}
+            >
+              {merging ? '分别合并中…' : '执行横竖分别合并'}
+            </button>
+          )}
           {merging && (
             <button className="secondary" onClick={() => window.api.cancelMerge()}>
               取消
@@ -319,12 +321,7 @@ function MergePage({
       {loaded && videos.length > 0 && (
         <>
           <div className="mode-tabs">
-            {MODE_TABS.filter(
-              (tab) =>
-                tab.key !== 'separate' ||
-                (orientationBatches.landscape.length >= 2 &&
-                  orientationBatches.portrait.length >= 2)
-            ).map((tab) => (
+            {MODE_TABS.map((tab) => (
               <button
                 key={tab.key}
                 className={`mode-tab ${mode === tab.key ? 'active' : ''}`}
@@ -340,6 +337,10 @@ function MergePage({
             <section className="notice-banner">
               <strong>横竖分别合并：</strong>
               将按当前排序分别生成横屏与竖屏两个文件；两项都校验通过后，会统一询问是否删除全部源视频。
+              {orientationBatches.landscape.length === 0 ||
+              orientationBatches.portrait.length === 0 ? (
+                <p className="danger-text">请至少各保留 1 段横屏和竖屏视频后再执行。</p>
+              ) : null}
               <div className="merge-plan">
                 <span>
                   横屏：{orientationBatches.landscape.length} 段 →{' '}
