@@ -3,6 +3,12 @@ declare module './ai.mjs' {
 
   export const AI_BATCH_SIZE: number
   export const MAX_AI_PROMPT_LENGTH: number
+  export function retryAfterMs(response: { headers?: { get(name: string): string | null } }): number
+  export function maxTokensForAiNames(itemCount: number): number
+  export function buildAiChunks<T extends { file: AiFileInput }>(
+    entries: T[],
+    batchSize: number
+  ): T[][]
   export function chatCompletionsUrl(baseUrl: string): string
   export function buildPrompt(
     template: string,
@@ -61,6 +67,8 @@ declare module './ai.mjs' {
       timeoutMs?: number
       retryDelayMs?: number
       signal?: AbortSignal
+      /** 收到 429 时通知实际等待时间（含 Retry-After）。 */
+      onRateLimit?: (retryMs: number) => void
     }
   ): Promise<Response>
 }

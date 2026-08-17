@@ -14,6 +14,8 @@ import {
 // 默认值可被设置页按模型覆盖；保留导出以兼容调用方与测试。
 export const AI_BATCH_SIZE = 40
 const AI_BATCH_CONCURRENCY = 3
+const AI_BATCH_RETRIES = 1
+const AI_SUCCESSFUL_BATCHES_BEFORE_RAMP_UP = 3
 const clampInteger = (value, min, max, fallback) => {
   const number = Number(value)
   return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback
@@ -77,6 +79,52 @@ const sleep = (ms, signal) =>
     signal?.addEventListener('abort', onAbort, { once: true })
   })
 
+/** 兼容 Retry-After 的秒数和 HTTP 日期格式；无效值由指数退避兜底。 */
+export function retryAfterMs(response) {
+  const value = response?.headers?.get?.('retry-after')
+  if (!value) return 0
+  const seconds = Number(value)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000)
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? 0 : Math.max(0, timestamp - Date.now())
+}
+
+/** 按父目录边界构建批次；超出批大小的大目录再在目录内部拆分。 */
+export function buildAiChunks(entries, batchSize) {
+  const chunks = []
+  const groups = new Map()
+  for (const entry of entries) {
+    const group = groups.get(entry.file.parentFolder) ?? []
+    group.push(entry)
+    groups.set(entry.file.parentFolder, group)
+  }
+  let current = []
+  const flush = () => {
+    if (current.length > 0) chunks.push(current)
+    current = []
+  }
+  for (const group of groups.values()) {
+    if (group.length > batchSize) {
+      flush()
+      for (let index = 0; index < group.length; index += batchSize) {
+        chunks.push(group.slice(index, index + batchSize))
+      }
+    } else if (current.length + group.length > batchSize) {
+      flush()
+      current = [...group]
+    } else {
+      current.push(...group)
+    }
+  }
+  flush()
+  return chunks
+}
+
+/** 为 JSON 名称数组预留足够的输出长度，同时限制异常模型的冗长解释。 */
+export function maxTokensForAiNames(itemCount) {
+  return Math.min(8192, Math.max(256, itemCount * 128 + 128))
+}
+
 /** 将模型常见的非法输出规整为可落盘词干，拒绝空名、保留名和超长名称。 */
 export function normalizeAiName(value) {
   const name = String(value ?? '')
@@ -136,7 +184,8 @@ export async function fetchWithRetry(
     retries = 2,
     timeoutMs = AI_REQUEST_TIMEOUT_MS,
     retryDelayMs = 1000,
-    signal
+    signal,
+    onRateLimit
   } = {}
 ) {
   let lastError
@@ -151,7 +200,12 @@ export async function fetchWithRetry(
         (response.status >= 500 || response.status === 429) &&
         attempt < retries
       ) {
-        await sleep(retryDelayMs * 2 ** attempt, signal)
+        const retryMs =
+          response.status === 429
+            ? Math.max(retryDelayMs * 2 ** attempt, retryAfterMs(response))
+            : retryDelayMs * 2 ** attempt
+        if (response.status === 429) onRateLimit?.(retryMs)
+        await sleep(retryMs, signal)
         continue
       }
       return response
@@ -364,99 +418,158 @@ export async function requestAiNames({
   }
   if (files.length === 0) return []
 
-  // 缓存命中拆分
+  // 缓存命中拆分；同一次请求中的相同输入只生成一次，再扇出回所有位置。
   const names = new Array(files.length)
-  const missing = []
+  const missingByKey = new Map()
+  let doneCount = 0
   files.forEach((file, index) => {
-    const cached = useCache ? aiCache.get(cacheKeyOf(baseUrl, model, template, file)) : undefined
-    if (cached !== undefined) names[index] = cached
-    else missing.push({ file, index })
+    const key = cacheKeyOf(baseUrl, model, template, file)
+    const cached = useCache ? aiCache.get(key) : undefined
+    if (cached !== undefined) {
+      names[index] = cached
+      doneCount += 1
+      return
+    }
+    const entry = missingByKey.get(key)
+    if (entry) entry.indexes.push(index)
+    else missingByKey.set(key, { key, file, indexes: [index] })
   })
-  // 有缓存命中时先上报一次（全部未命中时从 0 开始由 start 事件表达）
-  let doneCount = files.length - missing.length
-  if (missing.length < files.length) onBatch?.(doneCount)
+  const missing = [...missingByKey.values()]
+  if (doneCount > 0) onBatch?.(doneCount)
 
-  // 分块后限流并发请求（结果按 entry.index 写回，顺序与并发无关）。
   const safeBatchSize = clampInteger(batchSize, 1, 100, AI_BATCH_SIZE)
   const safeBatchConcurrency = clampInteger(batchConcurrency, 1, 10, AI_BATCH_CONCURRENCY)
   const safeRequestTimeoutMs = clampInteger(requestTimeoutMs, 5_000, 900_000, AI_REQUEST_TIMEOUT_MS)
-  const chunks = []
-  for (let i = 0; i < missing.length; i += safeBatchSize) {
-    chunks.push(missing.slice(i, i + safeBatchSize))
-  }
+  const chunks = buildAiChunks(missing, safeBatchSize)
+  const failedChunks = []
   let cursor = 0
-  const worker = async () => {
-    while (cursor < chunks.length) {
+  let activeWorkers = 0
+  let allowedConcurrency = safeBatchConcurrency
+  let successfulBatches = 0
+  let rateLimitUntil = 0
+
+  const waitForRateLimit = async () => {
+    const waitMs = rateLimitUntil - Date.now()
+    if (waitMs > 0) await sleep(waitMs, signal)
+  }
+  const takeChunk = async () => {
+    while (true) {
       if (signal?.aborted) throw abortError()
+      await waitForRateLimit()
+      if (activeWorkers >= allowedConcurrency) {
+        await sleep(25, signal)
+        continue
+      }
+      if (cursor >= chunks.length) return undefined
       const chunk = chunks[cursor]
       cursor += 1
-      const response = await fetchWithRetry(
-        chatCompletionsUrl(baseUrl),
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://github.com/king-joker-z/media-scraper-desktop',
-            'X-Title': 'Media Scraper'
-          },
-          body: JSON.stringify({
-            model,
-            messages: buildAiMessages(
-              template,
-              chunk.map((entry) => entry.file)
-            ),
-            temperature: 0.2,
-            // 仅调用方明确传入时附加平台思考扩展；默认 false 会显式关闭平台默认开启的思考模式。
-            ...(typeof thinkingEnabled === 'boolean'
-              ? { thinking: { type: thinkingEnabled ? 'enabled' : 'disabled' } }
-              : {}),
-            // 显式关闭流式请求；少数平台仍返回 SSE，由 readAiResponseContent 兼容处理。
-            stream: false
-          })
+      activeWorkers += 1
+      return chunk
+    }
+  }
+  const onRateLimit = (retryMs) => {
+    allowedConcurrency = Math.max(1, Math.ceil(allowedConcurrency / 2))
+    rateLimitUntil = Math.max(rateLimitUntil, Date.now() + retryMs)
+    successfulBatches = 0
+  }
+  const requestChunk = async (chunk) => {
+    const response = await fetchWithRetry(
+      chatCompletionsUrl(baseUrl),
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/king-joker-z/media-scraper-desktop',
+          'X-Title': 'Media Scraper'
         },
-        { fetchImpl, retryDelayMs, timeoutMs: safeRequestTimeoutMs, signal }
-      )
-      if (!response.ok) {
-        throw await toFriendlyHttpError(response)
-      }
-      const responseContent = await readAiResponseContent(response)
-      let chunkNames
-      try {
-        chunkNames = extractJsonArray(responseContent)
-      } catch (error) {
-        if (chunk.length === 1) {
-          try {
-            chunkNames = [extractSingleName(responseContent)]
-          } catch {
-            const preview = String(responseContent).replaceAll(/\s+/g, ' ').slice(0, 160)
-            const detail = preview ? `；返回片段：${preview}` : ''
-            throw new Error(
-              `AI 返回内容无法解析（不是有效的名称列表）：${error.message}${detail}。可重试或更换模型`
-            )
-          }
-        } else {
+        body: JSON.stringify({
+          model,
+          messages: buildAiMessages(
+            template,
+            chunk.map((entry) => entry.file)
+          ),
+          temperature: 0.2,
+          max_tokens: maxTokensForAiNames(chunk.length),
+          ...(typeof thinkingEnabled === 'boolean'
+            ? { thinking: { type: thinkingEnabled ? 'enabled' : 'disabled' } }
+            : {}),
+          stream: false
+        })
+      },
+      { fetchImpl, retryDelayMs, timeoutMs: safeRequestTimeoutMs, signal, onRateLimit }
+    )
+    if (!response.ok) throw await toFriendlyHttpError(response)
+    const responseContent = await readAiResponseContent(response)
+    let chunkNames
+    try {
+      chunkNames = extractJsonArray(responseContent)
+    } catch (error) {
+      if (chunk.length === 1) {
+        try {
+          chunkNames = [extractSingleName(responseContent)]
+        } catch {
           const preview = String(responseContent).replaceAll(/\s+/g, ' ').slice(0, 160)
           const detail = preview ? `；返回片段：${preview}` : ''
-          throw new Error(
-            `AI 返回内容无法解析（不是有效的名称列表）：${error.message}${detail}。可重试或更换模型`
-          )
+          throw new Error(`AI 返回内容无法解析（不是有效的名称列表）：${error.message}${detail}`)
         }
+      } else {
+        const preview = String(responseContent).replaceAll(/\s+/g, ' ').slice(0, 160)
+        const detail = preview ? `；返回片段：${preview}` : ''
+        throw new Error(`AI 返回内容无法解析（不是有效的名称列表）：${error.message}${detail}`)
       }
-      if (chunkNames.length !== chunk.length) {
-        throw new Error(
-          `AI 返回数量（${chunkNames.length}）与请求数量（${chunk.length}）不一致，可重试或更换模型`
-        )
-      }
-      chunk.forEach((entry, chunkIndex) => {
-        const name = normalizeAiName(chunkNames[chunkIndex])
-        names[entry.index] = name
-        aiCache.set(cacheKeyOf(baseUrl, model, template, entry.file), name)
+    }
+    if (chunkNames.length !== chunk.length) {
+      throw new Error(`AI 返回数量（${chunkNames.length}）与请求数量（${chunk.length}）不一致`)
+    }
+    chunk.forEach((entry, chunkIndex) => {
+      const name = normalizeAiName(chunkNames[chunkIndex])
+      entry.indexes.forEach((index) => {
+        names[index] = name
       })
-      doneCount += chunk.length
-      onBatch?.(doneCount)
+      aiCache.set(entry.key, name)
+    })
+    doneCount += chunk.reduce((count, entry) => count + entry.indexes.length, 0)
+    onBatch?.(doneCount)
+    successfulBatches += 1
+    if (successfulBatches >= AI_SUCCESSFUL_BATCHES_BEFORE_RAMP_UP) {
+      allowedConcurrency = Math.min(safeBatchConcurrency, allowedConcurrency + 1)
+      successfulBatches = 0
+    }
+  }
+  const worker = async () => {
+    while (true) {
+      const chunk = await takeChunk()
+      if (!chunk) return
+      try {
+        let lastError
+        for (let attempt = 0; attempt <= AI_BATCH_RETRIES; attempt += 1) {
+          try {
+            await requestChunk(chunk)
+            lastError = undefined
+            break
+          } catch (error) {
+            if (signal?.aborted || error?.name === 'AbortError') throw abortError()
+            lastError = error
+          }
+        }
+        if (lastError) failedChunks.push({ chunk, error: lastError })
+      } finally {
+        activeWorkers -= 1
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(safeBatchConcurrency, chunks.length) }, worker))
+  if (failedChunks.length > 0) {
+    const failedCount = failedChunks.reduce(
+      (count, { chunk }) => count + chunk.reduce((size, entry) => size + entry.indexes.length, 0),
+      0
+    )
+    const detail = failedChunks
+      .slice(0, 3)
+      .map(({ error }) => (error instanceof Error ? error.message : String(error)))
+      .join('；')
+    throw new Error(`AI 命名有 ${failedCount} 项在局部重试后仍失败：${detail}`)
+  }
   return names
 }

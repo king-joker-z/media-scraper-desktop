@@ -207,7 +207,7 @@ function RenamePage({
     [pairs, probes]
   )
 
-  const runAi = async (): Promise<void> => {
+  const runAi = async (forceRefresh = false): Promise<void> => {
     setAiLoading(true)
     setError('')
     try {
@@ -218,8 +218,8 @@ function RenamePage({
           // 发送给 AI 的文件名先剥离旧序号前缀，避免模型沿用；扩展名不影响命名，不发送。
           fileName: stripSeqPrefix(stemOfName(v.name))
         })),
-        // 用户点击“重新生成”时必须绕过成功缓存，真正再次请求模型。
-        aiNamesMap !== null
+        // 常规生成优先复用已有结果；只有“全部重新生成”才绕过缓存。
+        forceRefresh
       )
       setAiNamesMap(
         Object.fromEntries(
@@ -427,14 +427,27 @@ function RenamePage({
                 {activeAi?.modelTunings[activeAi.selectedModel]?.concurrency ?? 3}
                 并发请求，单请求超时
                 {activeAi?.modelTunings[activeAi.selectedModel]?.requestTimeoutSeconds ?? 300} 秒，
-                每个名称独立生成互不影响。点击“重新生成”或单条“重新生成”会绕过缓存并再次请求模型；
+                每个名称独立生成互不影响。普通“重新生成”优先复用已有结果；“全部重新生成”和单条“重新生成”才会再次请求模型。
                 返回后自动叠加序号前缀：
               </p>
               <SeqControls seq={seq} onChange={setSeq} />
               <div className="actions">
-                <button onClick={runAi} disabled={aiLoading || executing || videos.length === 0}>
+                <button
+                  onClick={() => void runAi()}
+                  disabled={aiLoading || executing || videos.length === 0}
+                >
                   {aiLoading ? 'AI 生成中…' : aiNamesMap ? '重新生成' : '生成 AI 命名'}
                 </button>
+                {aiNamesMap && (
+                  <button
+                    className="secondary"
+                    title="忽略本会话缓存，为全部文件重新请求 AI"
+                    onClick={() => void runAi(true)}
+                    disabled={aiLoading || executing || videos.length === 0}
+                  >
+                    全部重新生成
+                  </button>
+                )}
               </div>
             </section>
           )}

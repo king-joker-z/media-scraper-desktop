@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  buildAiChunks,
   buildAiMessages,
   buildPrompt,
   chatCompletionsUrl,
@@ -8,6 +9,8 @@ import {
   extractJsonArray,
   extractSingleName,
   normalizeAiName,
+  maxTokensForAiNames,
+  retryAfterMs,
   fetchWithRetry,
   requestAiNames,
   readAiResponseContent,
@@ -250,6 +253,38 @@ test('readAiResponseContent accepts SSE data events and compatible content shape
   )
 })
 
+test('buildAiChunks keeps parent folders intact when possible and splits oversized folders', () => {
+  const entries = [
+    { file: { parentFolder: '剧集A', fileName: 'a1' } },
+    { file: { parentFolder: '剧集A', fileName: 'a2' } },
+    { file: { parentFolder: '剧集B', fileName: 'b1' } },
+    { file: { parentFolder: '剧集B', fileName: 'b2' } },
+    { file: { parentFolder: '剧集C', fileName: 'c1' } }
+  ]
+  assert.deepEqual(
+    buildAiChunks(entries, 3).map((chunk) => chunk.map((entry) => entry.file.fileName)),
+    [
+      ['a1', 'a2'],
+      ['b1', 'b2', 'c1']
+    ]
+  )
+  assert.deepEqual(
+    buildAiChunks(entries.slice(0, 4), 3).map((chunk) => chunk.map((entry) => entry.file.fileName)),
+    [
+      ['a1', 'a2'],
+      ['b1', 'b2']
+    ]
+  )
+})
+
+test('AI output limits scale with each batch and Retry-After is honored', () => {
+  assert.equal(maxTokensForAiNames(1), 256)
+  assert.equal(maxTokensForAiNames(40), 5248)
+  assert.equal(maxTokensForAiNames(100), 8192)
+  assert.equal(retryAfterMs({ headers: { get: () => '2' } }), 2000)
+  assert.equal(retryAfterMs({ headers: { get: () => null } }), 0)
+})
+
 test('buildAiMessages groups videos by parent folder and sends no extension', () => {
   const messages = buildAiMessages(
     '清理噪音；目录={{parentFolder}}；文件={{fileName}}；扩展={{extension}}',
@@ -443,6 +478,69 @@ test('requestAiNames parses SSE response and disables stream requests', async ()
   })
   assert.deepEqual(names, ['已整理'])
   assert.equal(body.stream, false)
+  assert.equal(body.max_tokens, 256)
+})
+
+test('requestAiNames retries a failed batch locally and retains successful batch cache', async () => {
+  clearAiCache()
+  let calls = 0
+  const files = Array.from({ length: 3 }, (_, index) => ({
+    parentFolder: 'p',
+    fileName: `retry-${index}`
+  }))
+  const names = await requestAiNames({
+    baseUrl: 'https://x',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    files,
+    batchSize: 2,
+    batchConcurrency: 1,
+    retryDelayMs: 1,
+    fetchImpl: async (_url, init) => {
+      calls += 1
+      const count = Number(
+        /必须恰好包含 (\d+) 项/.exec(JSON.parse(init.body).messages[1].content)?.[1]
+      )
+      if (calls === 1) return { ok: false, status: 400, text: async () => 'bad batch' }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify(Array(count).fill('名称')) } }]
+        })
+      }
+    }
+  })
+  assert.deepEqual(names, ['名称', '名称', '名称'])
+  assert.equal(calls, 3) // 第一批局部失败后重试一次，第二批正常完成
+})
+
+test('requestAiNames respects Retry-After and reduces further concurrency after 429', async () => {
+  clearAiCache()
+  let calls = 0
+  let limited = false
+  await requestAiNames({
+    baseUrl: 'https://x',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    files: Array.from({ length: 3 }, (_, index) => ({
+      parentFolder: `p${index}`,
+      fileName: `rate-${index}`
+    })),
+    batchSize: 1,
+    batchConcurrency: 2,
+    retryDelayMs: 1,
+    fetchImpl: async () => {
+      calls += 1
+      if (!limited) {
+        limited = true
+        return { ok: false, status: 429, headers: { get: () => '0' } }
+      }
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '["名称"]' } }] }) }
+    }
+  })
+  assert.ok(calls >= 4) // 429 自动重试后其余批次仍继续完成
 })
 
 test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
