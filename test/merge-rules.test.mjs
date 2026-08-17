@@ -7,6 +7,7 @@ import {
   checkCompatibility,
   estimateOutputBytes,
   groupByOrientation,
+  orderByOrientation,
   isMergeOutputName,
   mergeOutputName,
   selectQualityTarget,
@@ -136,6 +137,23 @@ test('groupByOrientation keeps same-orientation ordering and supports either lea
   assert.deepEqual(
     groupByOrientation(items, 'portrait').map((entry) => entry.name),
     ['p-1', 'p-2', 'l-1', 'l-2', 'unknown']
+  )
+})
+
+test('orderByOrientation keeps orientation priority while sorting within each group', () => {
+  const items = [
+    { ...item('竖屏小', { orientation: 'portrait' }), size: 100 },
+    { ...item('横屏大', { orientation: 'landscape' }), size: 900 },
+    { ...item('竖屏大', { orientation: 'portrait' }), size: 800 },
+    { ...item('横屏小', { orientation: 'landscape' }), size: 200 }
+  ]
+  assert.deepEqual(
+    orderByOrientation(items, 'portrait', 'size').map((entry) => entry.name),
+    ['竖屏大', '竖屏小', '横屏大', '横屏小']
+  )
+  assert.deepEqual(
+    orderByOrientation(items, 'landscape', 'name').map((entry) => entry.name),
+    ['横屏大', '横屏小', '竖屏大', '竖屏小']
   )
 })
 

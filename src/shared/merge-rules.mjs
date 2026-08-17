@@ -100,13 +100,45 @@ export function estimateOutputBytes(items, compatible) {
  * 将已排好顺序的视频按方向分组；每个方向内部严格保留原顺序。
  * 未能识别方向的条目排在第二组末尾，避免干扰已探测视频的横竖连续性。
  */
-export function groupByOrientation(items, first = 'landscape') {
+/** 按名称或大小排序；未选择排序时返回副本以避免修改调用方数组。 */
+export function sortMergeItems(items, sortBy = null) {
+  const sorted = [...items]
+  if (sortBy === 'name') {
+    return sorted.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }))
+  }
+  if (sortBy === 'size') {
+    return sorted.sort(
+      (a, b) => b.size - a.size || a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true })
+    )
+  }
+  return sorted
+}
+
+/**
+ * 先按方向分组，再在每组内部按名称或大小排序。方向优先级始终高于组内排序，
+ * 因而“竖屏在前 + 按大小”不会被较大的横屏片段抢到列表前面。
+ */
+export function orderByOrientation(items, first = 'landscape', sortBy = null) {
   const second = first === 'landscape' ? 'portrait' : 'landscape'
   return [
-    ...items.filter((item) => item.media?.orientation === first),
-    ...items.filter((item) => item.media?.orientation === second),
-    ...items.filter((item) => !item.media?.orientation)
+    ...sortMergeItems(
+      items.filter((item) => item.media?.orientation === first),
+      sortBy
+    ),
+    ...sortMergeItems(
+      items.filter((item) => item.media?.orientation === second),
+      sortBy
+    ),
+    ...sortMergeItems(
+      items.filter((item) => !item.media?.orientation),
+      sortBy
+    )
   ]
+}
+
+/** 将已排好顺序的视频按方向分组；每个方向内部严格保留原顺序。 */
+export function groupByOrientation(items, first = 'landscape') {
+  return orderByOrientation(items, first)
 }
 
 /** 输出文件名（冻结稿 §4：以工作区目录名命名） */

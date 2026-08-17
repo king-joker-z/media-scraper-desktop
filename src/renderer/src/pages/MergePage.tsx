@@ -3,8 +3,9 @@ import type { MergeMode, MergeResult, MergeVideoItem } from '../../../shared/typ
 import {
   checkCompatibility,
   estimateOutputBytes,
-  groupByOrientation,
-  mergeOutputName
+  mergeOutputName,
+  orderByOrientation,
+  sortMergeItems
 } from '../../../shared/merge-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
@@ -36,7 +37,7 @@ function MergePage({
   const [mode, setMode] = useState<MergeMode>('all')
   const [order, setOrder] = useState<string[]>([])
   const [orientationFirst, setOrientationFirst] = useState<'landscape' | 'portrait'>('landscape')
-  const [sortBy, setSortBy] = useState<'manual' | 'name' | 'size'>('manual')
+  const [sortBy, setSortBy] = useState<'name' | 'size' | null>(null)
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -92,13 +93,10 @@ function MergePage({
       ...ordered.map((rel) => byRel.get(rel)!),
       ...pool.filter((v) => !ordered.includes(v.relativePath))
     ]
-    if (sortBy === 'name') {
-      return current.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }))
-    }
-    if (sortBy === 'size')
-      return current.sort((a, b) => b.size - a.size || a.name.localeCompare(b.name))
-    return current
-  }, [videos, mode, order, sortBy])
+    return mode === 'all'
+      ? orderByOrientation(current, orientationFirst, sortBy)
+      : sortMergeItems(current, sortBy)
+  }, [videos, mode, order, orientationFirst, sortBy])
 
   /** 实际参与合并的片段（排除置灰项） */
   const items = useMemo(
@@ -106,10 +104,7 @@ function MergePage({
     [rows, excluded]
   )
 
-  const orientationGroupedItems = useMemo(
-    () => (mode === 'all' ? groupByOrientation(items, orientationFirst) : items),
-    [items, mode, orientationFirst]
-  )
+  const orientationGroupedItems = items
   const orientationBatches = useMemo(
     () => ({
       landscape: rows.filter(
@@ -136,16 +131,14 @@ function MergePage({
   const unreadableItems = useMemo(() => items.filter((item) => !item.media), [items])
   const cannotMerge = unreadableItems.length > 0
 
-  /** 全合并时把可见列表实际重排为同方向连续，用户可立即确认横竖顺序已生效。 */
+  /** 全合并时切换方向优先级；rows 会保留各方向内的当前排序。 */
   const groupOrientations = (first: 'landscape' | 'portrait'): void => {
     setOrientationFirst(first)
-    setOrder(groupByOrientation(rows, first).map((item) => item.relativePath))
-    setSortBy('manual')
   }
 
-  const applySort = (nextSort: 'manual' | 'name' | 'size'): void => {
-    setSortBy(nextSort)
-    if (nextSort !== 'manual') setOrder([])
+  /** 名称/大小仅调整每个方向组内排序；再次点击可回到当前手动顺序。 */
+  const applySort = (nextSort: 'name' | 'size'): void => {
+    setSortBy((current) => (current === nextSort ? null : nextSort))
   }
 
   const checkGpu = async (): Promise<void> => {
@@ -384,14 +377,8 @@ function MergePage({
           {items.length > 0 && (
             <>
               <section className="settings-card">
-                <h2>排序</h2>
+                <h2>组内排序</h2>
                 <div className="mode-tabs">
-                  <button
-                    className={`mode-tab ${sortBy === 'manual' ? 'active' : ''}`}
-                    onClick={() => applySort('manual')}
-                  >
-                    手动拖拽
-                  </button>
                   <button
                     className={`mode-tab ${sortBy === 'name' ? 'active' : ''}`}
                     onClick={() => applySort('name')}
@@ -405,12 +392,11 @@ function MergePage({
                     按大小（大到小）
                   </button>
                 </div>
-                {mode === 'all' && sortBy !== 'manual' && (
-                  <p className="muted">
-                    排序先在横屏、竖屏各自分类内生效，再按“
-                    {orientationFirst === 'landscape' ? '横屏在前' : '竖屏在前'}”合并输出。
-                  </p>
-                )}
+                <p className="muted">
+                  拖拽始终可用；再点一次已选排序即可恢复当前手动顺序。
+                  {mode === 'all' &&
+                    ` 全合并始终先按“${orientationFirst === 'landscape' ? '横屏在前' : '竖屏在前'}”分组，再在每组内${sortBy === 'name' ? '按名称' : sortBy === 'size' ? '按大小' : '保留拖拽顺序'}。`}
+                </p>
               </section>
               <section className="settings-card">
                 <h2>合并计划</h2>
@@ -461,14 +447,17 @@ function MergePage({
           )}
           <p className="muted">
             拖动 ⠿
-            调整同类内拼接顺序；全合并会按上方横竖顺序自动归类。点右侧「参与」可将单个视频置灰排除，再点恢复。当前参与{' '}
+            随时调整拼接顺序；全合并会始终按上方横竖顺序分组。选择名称或大小排序后仍可拖拽，拖拽结果即成为新的手动顺序。点右侧「参与」可将单个视频置灰排除，再点恢复。当前参与{' '}
             {items.length} 段。
           </p>
           <MergeSortableList
             items={rows}
             excluded={excluded}
             onToggleExclude={toggleExclude}
-            onReorder={(next) => setOrder(next.map((item) => item.relativePath))}
+            onReorder={(next) => {
+              setOrder(next.map((item) => item.relativePath))
+              setSortBy(null)
+            }}
             onPlay={setPlaying}
           />
         </>
