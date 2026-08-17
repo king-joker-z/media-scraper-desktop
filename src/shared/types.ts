@@ -164,6 +164,7 @@ export type ThemePalette =
   | 'rose'
   | 'comic'
   | 'pixel'
+  | 'retro'
   | 'custom'
 
 export interface AppSettings {

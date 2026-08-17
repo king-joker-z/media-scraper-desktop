@@ -60,10 +60,12 @@ test('并发 update 串行落盘不丢数据', async () => {
   })
 })
 
-test('persists the comic palette and rejects unknown palette values', async () => {
+test('persists special palettes and rejects unknown palette values', async () => {
   await withTempDir(async (dir) => {
     const store = createSettingsStore(join(dir, 'settings.json'))
     assert.equal((await store.update({ themePalette: 'comic' })).themePalette, 'comic')
+    assert.equal((await store.update({ themePalette: 'pixel' })).themePalette, 'pixel')
+    assert.equal((await store.update({ themePalette: 'retro' })).themePalette, 'retro')
     assert.equal((await store.update({ themePalette: 'not-a-theme' })).themePalette, 'ocean')
   })
 })

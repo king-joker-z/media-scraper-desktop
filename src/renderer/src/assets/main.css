@@ -4833,6 +4833,10 @@ body {
   background: linear-gradient(135deg, #7c3aed 0 47%, #f43f5e 48% 100%);
 }
 
+.palette-swatch-retro {
+  background: linear-gradient(135deg, #c8d0d8 0 40%, #3aa8c1 41% 68%, #e7793f 69% 100%);
+}
+
 /* ---------- 状态反馈：风险色不随主题色切换，确保语义稳定 ---------- */
 .saved-badge,
 .notice-inline {
@@ -6465,6 +6469,19 @@ kbd {
 :root[data-palette='comic'] .sidebar .recents-item.active,
 :root[data-palette='comic'] .sidebar .sidebar-footer,
 :root[data-palette='comic'] .sidebar .app-icon,
+:root[data-palette='retro'] .sidebar .module-switch,
+:root[data-palette='retro'] .sidebar .module-switch:hover:not(:disabled),
+:root[data-palette='retro'] .sidebar .module-switch-caret,
+:root[data-palette='retro'] .sidebar .nav-item,
+:root[data-palette='retro'] .sidebar .nav-item.active,
+:root[data-palette='retro'] .sidebar .workspace-button,
+:root[data-palette='retro'] .sidebar .recents-toggle,
+:root[data-palette='retro'] .sidebar .recents-toggle:hover:not(:disabled),
+:root[data-palette='retro'] .sidebar .recents-item,
+:root[data-palette='retro'] .sidebar .recents-item:hover:not(:disabled),
+:root[data-palette='retro'] .sidebar .recents-item.active,
+:root[data-palette='retro'] .sidebar .sidebar-footer,
+:root[data-palette='retro'] .sidebar .app-icon,
 :root[data-palette='pixel'] .sidebar .module-switch,
 :root[data-palette='pixel'] .sidebar .module-switch:hover:not(:disabled),
 :root[data-palette='pixel'] .sidebar .module-switch-caret,
@@ -6483,6 +6500,8 @@ kbd {
 
 :root[data-palette='comic'] .sidebar .brand-icon,
 :root[data-palette='comic'] .sidebar .brand-icon-comic,
+:root[data-palette='retro'] .sidebar .brand-icon,
+:root[data-palette='retro'] .sidebar .brand-icon-comic,
 :root[data-palette='pixel'] .sidebar .brand-icon,
 :root[data-palette='pixel'] .sidebar .brand-icon-comic {
   color: #171616;
@@ -6532,4 +6551,372 @@ kbd {
 :root[data-palette='pixel'] .sidebar .brand-icon-comic {
   border-color: #171616;
   background: var(--pixel-highlight);
+}
+
+/* ---------- 特例主题：复古未来主义 ----------
+ * 将太空时代仪表盘、铬金属反光与轨道几何融入工作台，强调旧时代对未来的想象。
+ */
+:root[data-palette='retro'] {
+  --accent: #147f9a;
+  --accent-press: #0c6178;
+  --accent-soft: #d9eff1;
+  --focus-ring: rgba(20, 127, 154, 0.38);
+  --danger: #c34a3d;
+  --success: #2b806f;
+  --warning: #b96c31;
+  --label-primary: #1d2c35;
+  --label-secondary: #4e626b;
+  --label-tertiary: #7a8b91;
+  --bg-window: #e8e2d7;
+  --bg-card: #f7f4ec;
+  --bg-sidebar: #cad6d8;
+  --fill-quaternary: #e0e6e3;
+  --fill-tertiary: #b8c7c8;
+  --separator: #8b9da0;
+  --radius-card: 10px;
+  --radius-control: 7px;
+  --shadow-card: 0 8px 18px rgba(35, 54, 60, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --shadow-pop: 0 16px 32px rgba(35, 54, 60, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --workspace-header-surface: #f7f4ec;
+  --workspace-header-border: #8b9da0;
+  --workspace-header-shadow: rgba(35, 54, 60, 0.24);
+  --font: 'Avenir Next', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+:root[data-palette='retro'] body,
+:root[data-palette='retro'] .content {
+  background:
+    radial-gradient(ellipse 38rem 19rem at 92% -8%, rgba(64, 168, 193, 0.32), transparent 69%),
+    radial-gradient(ellipse 26rem 17rem at 8% 108%, rgba(231, 121, 63, 0.22), transparent 72%),
+    repeating-linear-gradient(0deg, rgba(47, 71, 77, 0.035) 0 1px, transparent 1px 4px),
+    var(--bg-window);
+}
+
+:root[data-palette='retro'] .sidebar {
+  gap: 14px;
+  padding-right: 14px;
+  padding-left: 14px;
+  background:
+    linear-gradient(110deg, rgba(255, 255, 255, 0.68), transparent 25%, rgba(79, 115, 121, 0.12) 62%, rgba(255, 255, 255, 0.42)),
+    #cad6d8;
+  border-right: 2px solid #617a80;
+  box-shadow: inset -2px 0 0 rgba(255, 255, 255, 0.72), inset -6px 0 0 rgba(20, 127, 154, 0.35);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-palette='retro'] .sidebar-drag {
+  height: 32px;
+}
+
+:root[data-palette='retro'] .sidebar-brand {
+  padding: 0 2px 4px;
+}
+
+:root[data-palette='retro'] .module-switch {
+  min-height: 44px;
+  border: 1px solid #81979a;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #f8f8f3, #dce5e3);
+  color: var(--label-primary);
+  box-shadow: inset 0 1px 0 #fff, 0 2px 0 rgba(45, 73, 79, 0.2);
+}
+
+:root[data-palette='retro'] .module-switch:hover:not(:disabled) {
+  border-color: #147f9a;
+  background: linear-gradient(180deg, #f7ffff, #c9e7e8);
+  color: #0c6178;
+  box-shadow: inset 0 1px 0 #fff, 0 2px 0 rgba(20, 127, 154, 0.28);
+  transform: translateY(-1px);
+}
+
+:root[data-palette='retro'] .brand-icon,
+:root[data-palette='retro'] .brand-icon-comic {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #8b5cf6, #ec4899);
+  color: #fff;
+  box-shadow: 0 5px 12px rgba(124, 58, 237, 0.22);
+}
+
+:root[data-palette='retro'] .workspace-host {
+  gap: 8px;
+}
+
+:root[data-palette='retro'] .workspace-button {
+  min-height: 60px;
+  border-color: #e3def1;
+  border-radius: 18px;
+  background: #fff;
+  color: var(--label-primary);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-palette='retro'] .workspace-button:hover:not(:disabled) {
+  border-color: rgba(124, 58, 237, 0.35);
+  background: #fff;
+  box-shadow: 0 12px 24px rgba(124, 58, 237, 0.12);
+  transform: none;
+}
+
+:root[data-palette='retro'] .workspace-label {
+  color: var(--accent);
+  font-weight: 750;
+}
+
+:root[data-palette='retro'] .recents-toggle {
+  border-color: transparent;
+  border-radius: 16px;
+  background: #dff8ee;
+  color: #087b62;
+  box-shadow: none;
+}
+
+:root[data-palette='retro'] .recents-toggle:hover:not(:disabled) {
+  background: #c8f0df;
+  color: #056951;
+  box-shadow: none;
+  transform: none;
+}
+
+:root[data-palette='retro'] .recents-pop {
+  border-color: #e3def1;
+  border-radius: 18px;
+  box-shadow: var(--shadow-pop);
+}
+
+:root[data-palette='retro'] .recents-item {
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+:root[data-palette='retro'] .recents-item:hover:not(:disabled),
+:root[data-palette='retro'] .recents-item.active {
+  background: #f0eaff;
+  color: var(--accent);
+  transform: none;
+}
+
+:root[data-palette='retro'] .sidebar-nav {
+  gap: 6px;
+}
+
+:root[data-palette='retro'] .nav-item {
+  min-height: 40px;
+  height: 40px;
+  border-color: transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--label-secondary);
+  box-shadow: none;
+}
+
+:root[data-palette='retro'] .nav-item:hover:not(.active) {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--accent);
+}
+
+:root[data-palette='retro'] .nav-item.active {
+  border-color: transparent;
+  background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  color: #fff;
+  box-shadow: 0 7px 16px rgba(124, 58, 237, 0.24);
+}
+
+:root[data-palette='retro'] .sidebar-footer {
+  color: #7b7495;
+}
+
+:root[data-palette='retro'] .page-header,
+:root[data-palette='retro'] .settings-card,
+:root[data-palette='retro'] .path-card,
+:root[data-palette='retro'] .empty,
+:root[data-palette='retro'] .placeholder-card,
+:root[data-palette='retro'] .comic-library-overview,
+:root[data-palette='retro'] .comic-card,
+:root[data-palette='retro'] .command-palette,
+:root[data-palette='retro'] .task-panel,
+:root[data-palette='retro'] .task-progress-card {
+  border-color: #e3def1;
+  border-radius: 22px;
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-palette='retro'] .stats div {
+  border-color: #e3def1;
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+:root[data-palette='retro'] .stats div:nth-child(3n + 1) {
+  background: #f0eaff;
+}
+
+:root[data-palette='retro'] .stats div:nth-child(3n + 2) {
+  background: #e6f8f0;
+}
+
+:root[data-palette='retro'] .stats div:nth-child(3n) {
+  background: #fff0f7;
+}
+
+:root[data-palette='retro'] button.secondary {
+  border-color: #e3def1;
+  background: #fff;
+  box-shadow: none;
+}
+
+:root[data-palette='retro'] button.secondary:hover:not(:disabled) {
+  background: #f0eaff;
+  color: var(--accent);
+}
+
+:root[data-palette='retro'][data-theme='dark'] {
+  --label-primary: #f8f7ff;
+  --label-secondary: #ccc8e3;
+  --label-tertiary: #958fad;
+  --bg-window: #171426;
+  --bg-card: #232039;
+  --bg-sidebar: #1e1a31;
+  --fill-quaternary: #302b4b;
+  --fill-tertiary: #443b67;
+  --separator: #4a416b;
+  --accent-soft: #392761;
+  --workspace-header-surface: #232039;
+  --workspace-header-border: #4a416b;
+  --workspace-header-shadow: rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette='retro']:not([data-theme='light']) {
+    --label-primary: #f3f2e9;
+    --label-secondary: #c0d0d1;
+    --label-tertiary: #8fa4a5;
+    --bg-window: #182c31;
+    --bg-card: #263b40;
+    --bg-sidebar: #23383e;
+    --fill-quaternary: #314b51;
+    --fill-tertiary: #49666b;
+    --separator: #58777c;
+    --accent-soft: #1d5663;
+    --workspace-header-surface: #263b40;
+    --workspace-header-border: #58777c;
+    --workspace-header-shadow: rgba(0, 0, 0, 0.54);
+  }
+
+  :root[data-palette='retro']:not([data-theme='light']) .sidebar {
+    background: linear-gradient(110deg, #23383e, #38545a 58%, #1d3036);
+  }
+
+  :root[data-palette='retro']:not([data-theme='light']) .workspace-button,
+  :root[data-palette='retro']:not([data-theme='light']) .recents-pop {
+    background: #263b40;
+  }
+
+  :root[data-palette='retro']:not([data-theme='light']) .recents-toggle {
+    background: #1e5864;
+    color: #d9f3f1;
+  }
+
+  :root[data-palette='retro']:not([data-theme='light']) .nav-item:hover:not(.active) {
+    background: #365158;
+  }
+}
+
+:root[data-palette='retro'] .brand-icon,
+:root[data-palette='retro'] .brand-icon-comic {
+  border: 1px solid #638086;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #f7f7ed 0 6%, #c5d1d2 22%, #688187 53%, #29474e 74%);
+  color: #173941;
+  box-shadow: inset 0 1px 1px #fff, 0 3px 0 rgba(38, 67, 73, 0.28);
+}
+
+:root[data-palette='retro'] .workspace-button,
+:root[data-palette='retro'] .recents-pop,
+:root[data-palette='retro'] .page-header,
+:root[data-palette='retro'] .settings-card,
+:root[data-palette='retro'] .path-card,
+:root[data-palette='retro'] .empty,
+:root[data-palette='retro'] .placeholder-card,
+:root[data-palette='retro'] .comic-library-overview,
+:root[data-palette='retro'] .comic-card,
+:root[data-palette='retro'] .command-palette,
+:root[data-palette='retro'] .task-panel,
+:root[data-palette='retro'] .task-progress-card {
+  border-color: #8b9da0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.72), transparent 34%), var(--bg-card);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-palette='retro'] .workspace-button:hover:not(:disabled),
+:root[data-palette='retro'] .comic-card:hover {
+  border-color: #147f9a;
+  box-shadow: 0 10px 22px rgba(20, 127, 154, 0.24), inset 0 1px 0 #fff;
+  transform: translateY(-2px);
+}
+
+:root[data-palette='retro'] .recents-toggle {
+  border: 1px solid #8c6a4d;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe7bc, #e7793f 55%, #a84f35);
+  color: #382821;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 2px 0 rgba(93, 57, 40, 0.3);
+}
+
+:root[data-palette='retro'] .recents-toggle:hover:not(:disabled) {
+  border-color: #147f9a;
+  background: radial-gradient(circle at 35% 30%, #e9ffff, #55b7c5 55%, #147f9a);
+  color: #173941;
+}
+
+:root[data-palette='retro'] .nav-item {
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #40565d;
+}
+
+:root[data-palette='retro'] .nav-item:hover:not(.active) {
+  border-color: #9aabad;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.62), rgba(164, 206, 209, 0.35));
+  color: #0c6178;
+}
+
+:root[data-palette='retro'] .nav-item.active {
+  border: 1px solid #0f7189;
+  background: linear-gradient(90deg, #147f9a, #42aabe 58%, #d7783f);
+  color: #fffdf5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 3px 0 rgba(35, 73, 81, 0.25);
+}
+
+:root[data-palette='retro'] .stats div:nth-child(3n + 1) {
+  background: #d9eff1;
+}
+
+:root[data-palette='retro'] .stats div:nth-child(3n + 2) {
+  background: #e8dfc9;
+}
+
+:root[data-palette='retro'] .stats div:nth-child(3n) {
+  background: #f1d4bf;
+}
+
+:root[data-palette='retro'][data-theme='dark'] {
+  --label-primary: #f3f2e9;
+  --label-secondary: #c0d0d1;
+  --label-tertiary: #8fa4a5;
+  --bg-window: #182c31;
+  --bg-card: #263b40;
+  --bg-sidebar: #23383e;
+  --fill-quaternary: #314b51;
+  --fill-tertiary: #49666b;
+  --separator: #58777c;
+  --accent-soft: #1d5663;
+  --workspace-header-surface: #263b40;
+  --workspace-header-border: #58777c;
+  --workspace-header-shadow: rgba(0, 0, 0, 0.54);
 }

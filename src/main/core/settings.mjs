@@ -65,6 +65,7 @@ export const THEME_PALETTE_OPTIONS = [
   'rose',
   'comic',
   'pixel',
+  'retro',
   'custom'
 ]
 const DEFAULT_NVENC_ENABLED = process.platform === 'win32'

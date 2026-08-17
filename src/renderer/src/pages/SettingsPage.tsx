@@ -41,7 +41,8 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
   { key: 'lemon', label: '柠檬黄', description: '明亮活泼，让关键操作更易发现' },
   { key: 'rose', label: '樱花粉', description: '柔和轻快，为界面增添温暖层次' },
   { key: 'comic', label: '漫画风', description: '墨线、纸张与亮黄点缀，侧栏同步切换' },
-  { key: 'pixel', label: '像素风', description: '8-bit 机能配色与像素化游戏界面质感' }
+  { key: 'pixel', label: '像素风', description: '8-bit 机能配色与像素化游戏界面质感' },
+  { key: 'retro', label: '复古未来', description: '铬金属、太空轨道与复古仪表盘质感' }
 ]
 
 const CUSTOM_PALETTE: { key: ThemePalette; label: string; description: string } = {
@@ -146,6 +147,9 @@ function SettingsPage(): React.JSX.Element {
   }
 
   const persist = async (patch: Partial<AppSettings>): Promise<void> => {
+    // 主题色板先乐观写入本地状态，避免 IPC 往返期间仍由默认海洋蓝按钮显示为选中。
+    // 主进程返回归一化结果后再覆盖，非法配置仍会被安全回退。
+    setSettings((current) => (current ? { ...current, ...patch } : current))
     const next = await window.api.updateSettings(patch)
     setSettings(next)
     setSaved(true)
