@@ -33,6 +33,8 @@ declare module './ai.mjs' {
     batchSize?: number
     /** 同时请求数（1–10），默认 3。 */
     batchConcurrency?: number
+    /** 单次请求超时毫秒数（5_000–900_000），默认 300_000。 */
+    requestTimeoutMs?: number
     files: AiFileInput[]
     fetchImpl?: typeof fetch
     /** 每批完成回调：已完成数量 */

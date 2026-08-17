@@ -349,6 +349,7 @@ export async function requestAiNames({
   thinkingEnabled,
   batchSize = AI_BATCH_SIZE,
   batchConcurrency = AI_BATCH_CONCURRENCY,
+  requestTimeoutMs = AI_REQUEST_TIMEOUT_MS,
   files,
   fetchImpl = fetch,
   onBatch,
@@ -378,6 +379,7 @@ export async function requestAiNames({
   // 分块后限流并发请求（结果按 entry.index 写回，顺序与并发无关）。
   const safeBatchSize = clampInteger(batchSize, 1, 100, AI_BATCH_SIZE)
   const safeBatchConcurrency = clampInteger(batchConcurrency, 1, 10, AI_BATCH_CONCURRENCY)
+  const safeRequestTimeoutMs = clampInteger(requestTimeoutMs, 5_000, 900_000, AI_REQUEST_TIMEOUT_MS)
   const chunks = []
   for (let i = 0; i < missing.length; i += safeBatchSize) {
     chunks.push(missing.slice(i, i + safeBatchSize))
@@ -413,7 +415,7 @@ export async function requestAiNames({
             stream: false
           })
         },
-        { fetchImpl, retryDelayMs, timeoutMs: AI_REQUEST_TIMEOUT_MS, signal }
+        { fetchImpl, retryDelayMs, timeoutMs: safeRequestTimeoutMs, signal }
       )
       if (!response.ok) {
         throw await toFriendlyHttpError(response)

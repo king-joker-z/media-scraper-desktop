@@ -8,9 +8,12 @@ export const DEFAULT_PROMPT_TEMPLATE =
 
 export const DEFAULT_AI_BATCH_SIZE = 40
 export const DEFAULT_AI_BATCH_CONCURRENCY = 3
+export const DEFAULT_AI_REQUEST_TIMEOUT_SECONDS = 300
 const normalizeAiBatchSize = (value) => clampInteger(value, 1, 100, DEFAULT_AI_BATCH_SIZE)
 const normalizeAiBatchConcurrency = (value) =>
   clampInteger(value, 1, 10, DEFAULT_AI_BATCH_CONCURRENCY)
+const normalizeAiRequestTimeoutSeconds = (value) =>
+  clampInteger(value, 5, 900, DEFAULT_AI_REQUEST_TIMEOUT_SECONDS)
 
 /** 内置 AI 平台预设（均为 OpenAI 兼容端点；baseUrl 可在设置页修改） */
 export const PROVIDER_PRESETS = [
@@ -201,7 +204,8 @@ function normalizeProvider(raw, preset) {
           model,
           {
             batchSize: normalizeAiBatchSize(tuning?.batchSize),
-            concurrency: normalizeAiBatchConcurrency(tuning?.concurrency)
+            concurrency: normalizeAiBatchConcurrency(tuning?.concurrency),
+            requestTimeoutSeconds: normalizeAiRequestTimeoutSeconds(tuning?.requestTimeoutSeconds)
           }
         ])
     ),

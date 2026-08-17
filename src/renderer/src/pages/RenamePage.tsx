@@ -425,8 +425,10 @@ function RenamePage({
                 首次生成会复用本会话内相同输入的成功结果；每批
                 {activeAi?.modelTunings[activeAi.selectedModel]?.batchSize ?? 40} 个、最多
                 {activeAi?.modelTunings[activeAi.selectedModel]?.concurrency ?? 3}
-                并发请求，每个名称独立生成互不影响。
-                点击“重新生成”或单条“重新生成”会绕过缓存并再次请求模型；返回后自动叠加序号前缀：
+                并发请求，单请求超时
+                {activeAi?.modelTunings[activeAi.selectedModel]?.requestTimeoutSeconds ?? 300} 秒，
+                每个名称独立生成互不影响。点击“重新生成”或单条“重新生成”会绕过缓存并再次请求模型；
+                返回后自动叠加序号前缀：
               </p>
               <SeqControls seq={seq} onChange={setSeq} />
               <div className="actions">

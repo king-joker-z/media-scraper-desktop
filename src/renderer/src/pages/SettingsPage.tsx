@@ -684,7 +684,10 @@ function SettingsPage(): React.JSX.Element {
                             [editing.selectedModel]: {
                               batchSize: Number(event.target.value),
                               concurrency:
-                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3
+                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
+                              requestTimeoutSeconds:
+                                editing.modelTunings[editing.selectedModel]
+                                  ?.requestTimeoutSeconds ?? 300
                             }
                           }
                         })
@@ -705,7 +708,35 @@ function SettingsPage(): React.JSX.Element {
                             [editing.selectedModel]: {
                               batchSize:
                                 editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
-                              concurrency: Number(event.target.value)
+                              concurrency: Number(event.target.value),
+                              requestTimeoutSeconds:
+                                editing.modelTunings[editing.selectedModel]
+                                  ?.requestTimeoutSeconds ?? 300
+                            }
+                          }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>单请求超时（5–900 秒）</span>
+                    <input
+                      type="number"
+                      min={5}
+                      max={900}
+                      value={
+                        editing.modelTunings[editing.selectedModel]?.requestTimeoutSeconds ?? 300
+                      }
+                      onChange={(event) =>
+                        patchProvider(editing.id, {
+                          modelTunings: {
+                            ...editing.modelTunings,
+                            [editing.selectedModel]: {
+                              batchSize:
+                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
+                              concurrency:
+                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
+                              requestTimeoutSeconds: Number(event.target.value)
                             }
                           }
                         })
@@ -714,7 +745,8 @@ function SettingsPage(): React.JSX.Element {
                   </label>
                 </div>
                 <small className="muted">
-                  仅作用于当前模型；不同模型会独立保存。模型漏项时可减小每批文件数后重试。
+                  仅作用于当前模型；不同模型会独立保存。超时按每个请求单独计时；若平台提前返回 504，
+                  请降低每批文件数或请求并发。
                 </small>
               </div>
             )}

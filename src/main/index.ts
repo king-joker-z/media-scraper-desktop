@@ -764,6 +764,9 @@ function registerIpcHandlers(): void {
           model: provider.selectedModel,
           batchSize: modelTuning?.batchSize,
           batchConcurrency: modelTuning?.concurrency,
+          requestTimeoutMs: modelTuning?.requestTimeoutSeconds
+            ? modelTuning.requestTimeoutSeconds * 1000
+            : undefined,
           // 仅向确认支持此扩展的 DeepSeek 与 LinkAI Direct 传递思考开关。
           thinkingEnabled: ['deepseek', 'linkai'].includes(provider.id)
             ? provider.thinkingEnabled

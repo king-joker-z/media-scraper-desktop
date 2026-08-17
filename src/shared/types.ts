@@ -108,6 +108,8 @@ export interface AiModelTuning {
   batchSize: number
   /** 同时向该模型发起的请求数（1–10）。 */
   concurrency: number
+  /** 单次请求超时秒数（5–900）。 */
+  requestTimeoutSeconds: number
 }
 
 /** AI 平台配置（OpenAI 兼容端点）。token 按平台独立保存，切换平台不清除。 */

@@ -259,16 +259,24 @@ test('AI 模型请求参数按模型保存并限制安全范围', () => {
         models: ['model-a', 'model-b'],
         selectedModel: 'model-a',
         modelTunings: {
-          'model-a': { batchSize: 12, concurrency: 2 },
-          'model-b': { batchSize: 999, concurrency: 0 },
-          removed: { batchSize: 5, concurrency: 5 }
+          'model-a': { batchSize: 12, concurrency: 2, requestTimeoutSeconds: 120 },
+          'model-b': { batchSize: 999, concurrency: 0, requestTimeoutSeconds: 9_999 },
+          removed: { batchSize: 5, concurrency: 5, requestTimeoutSeconds: 60 }
         }
       }
     ]
   })
   const provider = settings.aiProviders[0]
-  assert.deepEqual(provider.modelTunings['model-a'], { batchSize: 12, concurrency: 2 })
-  assert.deepEqual(provider.modelTunings['model-b'], { batchSize: 100, concurrency: 1 })
+  assert.deepEqual(provider.modelTunings['model-a'], {
+    batchSize: 12,
+    concurrency: 2,
+    requestTimeoutSeconds: 120
+  })
+  assert.deepEqual(provider.modelTunings['model-b'], {
+    batchSize: 100,
+    concurrency: 1,
+    requestTimeoutSeconds: 900
+  })
   assert.equal(provider.modelTunings.removed, undefined)
 })
 

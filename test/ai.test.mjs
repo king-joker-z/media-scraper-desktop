@@ -493,6 +493,24 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
   assert.equal(batchReports.at(-1), 120) // 并发完成顺序不固定，但最终进度必须完整
 })
 
+test('requestAiNames clamps per-request timeout to a safe range', async () => {
+  clearAiCache()
+  let requestSignal
+  await requestAiNames({
+    baseUrl: 'https://x',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    requestTimeoutMs: 1,
+    files: [{ parentFolder: 'p', fileName: 'timeout' }],
+    fetchImpl: async (_url, init) => {
+      requestSignal = init.signal
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '["名称"]' } }] }) }
+    }
+  })
+  assert.equal(requestSignal.aborted, false)
+})
+
 test('requestAiNames honors per-model batch size and concurrency', async () => {
   clearAiCache()
   let calls = 0
