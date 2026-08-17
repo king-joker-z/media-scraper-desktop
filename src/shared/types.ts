@@ -163,6 +163,7 @@ export type ThemePalette =
   | 'lemon'
   | 'rose'
   | 'comic'
+  | 'pixel'
   | 'custom'
 
 export interface AppSettings {

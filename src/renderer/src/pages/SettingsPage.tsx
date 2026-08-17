@@ -40,7 +40,8 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
   { key: 'mint', label: '薄荷绿', description: '轻盈干净，营造舒展的工作节奏' },
   { key: 'lemon', label: '柠檬黄', description: '明亮活泼，让关键操作更易发现' },
   { key: 'rose', label: '樱花粉', description: '柔和轻快，为界面增添温暖层次' },
-  { key: 'comic', label: '漫画风', description: '墨线、纸张与亮黄点缀，侧栏同步切换' }
+  { key: 'comic', label: '漫画风', description: '墨线、纸张与亮黄点缀，侧栏同步切换' },
+  { key: 'pixel', label: '像素风', description: '8-bit 机能配色与像素化游戏界面质感' }
 ]
 
 const CUSTOM_PALETTE: { key: ThemePalette; label: string; description: string } = {
