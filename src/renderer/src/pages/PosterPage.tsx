@@ -181,7 +181,7 @@ function PosterPage({
             候选先以低清预览快速生成，确认时才复截高清封面；全黑帧会划为不推荐且不会自动选中。
           </p>
         </div>
-        <div className="actions">
+        <div className="actions page-actions">
           <button className="secondary" onClick={onChooseWorkspace} disabled={capturing || saving}>
             选择工作区
           </button>

@@ -142,7 +142,7 @@ function DedupePage({
         {showCopies && copies > 1 && <span className="dup-badge">完全相同 ×{copies}</span>}
         <span className={isKeep ? 'ok-text' : 'muted'}>{isKeep ? '建议保留' : '重复'}</span>
         <button
-          className="chip-remove"
+          className="chip-remove dup-preview-button"
           title="试看对比"
           onClick={(event) => {
             event.preventDefault()
@@ -166,7 +166,7 @@ function DedupePage({
             头/中/尾内容指纹判定；「相似重复」找同片不同压制版本（同分辨率、时长相近）。
           </p>
         </div>
-        <div className="actions">
+        <div className="actions page-actions dedupe-actions">
           <button className="secondary" onClick={onChooseWorkspace} disabled={deleting}>
             选择工作区
           </button>
@@ -183,11 +183,14 @@ function DedupePage({
             />
             <span className="muted">快速模式</span>
           </label>
-          <button className="secondary" onClick={scan} disabled={!workspace || loading || deleting}>
+          <button onClick={scan} disabled={!workspace || loading || deleting}>
             {loading ? '检测中…' : '开始检测'}
           </button>
           {deleting ? (
-            <button className="secondary" onClick={() => void window.api.cancelDedupeDelete()}>
+            <button
+              className="secondary action-cancel"
+              onClick={() => void window.api.cancelDedupeDelete()}
+            >
               取消删除
             </button>
           ) : currentResult && checked.size > 0 ? (

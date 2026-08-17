@@ -487,6 +487,20 @@ h2 {
 .actions > button {
   height: var(--control-height);
 }
+/* 页面标题区统一采用“工作区 / 主操作 / 危险操作”的从左到右层级。 */
+.page-actions {
+  justify-content: flex-end;
+}
+.page-actions > button {
+  min-width: 104px;
+  white-space: nowrap;
+}
+.page-actions > button:last-child:not(.secondary):not(.danger-button) {
+  min-width: 116px;
+}
+.action-cancel {
+  min-width: 88px;
+}
 
 /* ---------- 卡片与列表 ---------- */
 .path-card,
@@ -1020,6 +1034,23 @@ h2 {
   color: var(--label-secondary);
   font-size: 12px;
 }
+.dup-preview-button {
+  min-width: 68px;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid var(--separator);
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--label-primary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.dup-preview-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--separator));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 .model-add {
   display: flex;
   gap: 8px;
@@ -1165,6 +1196,9 @@ h2 {
 }
 .danger-button {
   background: var(--danger);
+}
+.danger-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 86%, #000);
 }
 .confirm-check {
   display: flex;
@@ -1525,6 +1559,17 @@ input[type='checkbox']:disabled {
   min-width: 0;
   flex-wrap: wrap;
 }
+.poster-toolbar-controls > button {
+  min-width: 108px;
+  height: var(--control-height);
+  white-space: nowrap;
+}
+.poster-toolbar-controls > button:last-of-type:not(.secondary) {
+  min-width: 120px;
+}
+.poster-toolbar-controls > .secondary:last-child {
+  min-width: 76px;
+}
 .poster-option {
   display: inline-flex;
   align-items: center;
@@ -1618,6 +1663,13 @@ input[type='checkbox']:disabled {
   .poster-toolbar-controls {
     justify-content: flex-start;
   }
+  .library-toolbar {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .library-search-field {
+    flex-basis: 100%;
+  }
 }
 
 .candidate img {
@@ -1658,6 +1710,12 @@ input[type='checkbox']:disabled {
 }
 .library-dashboard {
   margin-top: 16px;
+}
+.library-result-line {
+  min-height: 20px;
+  margin: -2px 0 14px;
+  color: var(--label-secondary);
+  font-size: 12px;
 }
 
 .error-boundary {
@@ -2123,15 +2181,47 @@ input[type='checkbox']:disabled {
   user-select: text;
 }
 .library-toolbar {
-  margin-bottom: 14px;
   display: flex;
-  gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 8px;
+  min-height: calc(var(--control-height) + 20px);
+  margin-bottom: 12px;
+  padding: 10px;
+  overflow-x: auto;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+}
+.library-search-field {
+  flex: 1 1 260px;
+  min-width: 180px;
 }
 .library-toolbar input {
   width: 100%;
-  max-width: 360px;
+  height: var(--control-height);
+}
+.library-sort-select {
+  flex: 0 0 104px;
+  width: 104px;
+  height: var(--control-height);
+}
+.library-toolbar .mode-tabs {
+  flex: 0 0 auto;
+  height: var(--control-height);
+  margin: 0;
+}
+.library-toolbar > .secondary {
+  flex: 0 0 auto;
+  min-width: 88px;
+  height: var(--control-height);
+}
+.library-filter-tabs .mode-tab,
+.library-density-tabs .mode-tab {
+  min-width: 52px;
+}
+.library-density-tabs .mode-tab {
+  min-width: 48px;
 }
 .op-log-list {
   display: grid;
@@ -2307,6 +2397,23 @@ input[type='checkbox']:disabled {
 }
 
 @media (max-width: 900px) {
+  .page-actions {
+    justify-content: flex-start;
+  }
+  .library-toolbar {
+    align-items: stretch;
+  }
+  .library-toolbar .mode-tabs,
+  .library-sort-select,
+  .library-toolbar > .secondary {
+    flex: 1 1 auto;
+  }
+  .library-toolbar .mode-tabs {
+    justify-content: stretch;
+  }
+  .library-toolbar .mode-tab {
+    flex: 1;
+  }
   .palette-grid {
     grid-template-columns: 1fr;
   }

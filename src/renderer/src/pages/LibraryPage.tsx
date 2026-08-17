@@ -108,9 +108,6 @@ function LibraryPage({
     })
   }
 
-  const selectFiltered = (): void =>
-    setSelectedPaths(new Set(filtered.map((video) => video.relativePath)))
-
   const copySelectedPaths = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(selectedVideos.map((video) => video.path).join('\n'))
@@ -128,11 +125,11 @@ function LibraryPage({
           <h1>媒体库仪表盘</h1>
           <p className="muted">掌握容量、时长与整理缺口，再从海报墙浏览、筛选并播放视频。</p>
         </div>
-        <div className="actions">
+        <div className="actions page-actions">
           <button className="secondary" onClick={onChooseWorkspace}>
             选择工作区
           </button>
-          <button className="secondary" onClick={refresh} disabled={!workspace || loading}>
+          <button onClick={refresh} disabled={!workspace || loading}>
             {loading ? '加载中…' : '刷新媒体库'}
           </button>
         </div>
@@ -213,17 +210,18 @@ function LibraryPage({
           )}
           <div className="library-toolbar">
             <label className="library-search-field">
-              <span className="sr-only">搜索视频</span>
               <input
                 id="library-search"
                 name="library-search"
+                aria-label="搜索视频"
                 autoComplete="off"
-                placeholder={`搜索 ${videos.length} 个视频…`}
+                placeholder={`搜索视频（共 ${videos.length} 个）`}
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
               />
             </label>
             <select
+              className="library-sort-select"
               aria-label="排序方式"
               value={sortKey}
               onChange={(event) => setSortKey(event.target.value as SortKey)}
@@ -232,7 +230,7 @@ function LibraryPage({
               <option value="size">按大小</option>
               <option value="duration">按时长</option>
             </select>
-            <div className="mode-tabs" aria-label="画面方向筛选">
+            <div className="mode-tabs library-filter-tabs" aria-label="画面方向筛选">
               {(
                 [
                   ['all', '全部'],
@@ -275,11 +273,6 @@ function LibraryPage({
           </div>
           <div className="library-result-line" aria-live="polite">
             显示 {filtered.length} / {videos.length} 个视频
-            {filtered.length > 0 && (
-              <button className="text-button" onClick={selectFiltered}>
-                全选当前结果
-              </button>
-            )}
           </div>
         </>
       )}
@@ -380,13 +373,11 @@ function LibraryPage({
           <strong>已选择 {selectedVideos.length} 个视频</strong>
           <span>{formatBytes(selectedVideos.reduce((sum, video) => sum + video.size, 0))}</span>
           <div>
-            <button className="secondary" onClick={() => setPlaying(selectedVideos[0])}>
-              播放首项
-            </button>
+            <button onClick={() => setPlaying(selectedVideos[0])}>播放首项</button>
             <button className="secondary" onClick={() => void copySelectedPaths()}>
               复制路径
             </button>
-            <button className="secondary" onClick={() => setSelectedPaths(new Set())}>
+            <button className="secondary action-cancel" onClick={() => setSelectedPaths(new Set())}>
               取消选择
             </button>
           </div>
