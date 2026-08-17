@@ -11,13 +11,16 @@ import {
   WINDOWS_RESERVED_NAME_RE
 } from '../../../shared/rename-rules.mjs'
 
-// 一次请求过大容易让兼容平台代理/模型在生成前超时；15 项可降低慢模型的单次生成尾延迟。
-export const AI_BATCH_SIZE = 15
-// 三并发显著缩短大批量等待，同时仍避免一次性创建大量 SSE/HTTP 连接触发限流。
+// 默认值可被设置页按模型覆盖；保留导出以兼容调用方与测试。
+export const AI_BATCH_SIZE = 40
 const AI_BATCH_CONCURRENCY = 3
-// 慢模型经常在首 token 前排队，单次请求从 120s 放宽到 180s；仍保留取消与重试。
-const AI_REQUEST_TIMEOUT_MS = 180_000
-export const MAX_AI_PROMPT_LENGTH = 2000
+const clampInteger = (value, min, max, fallback) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback
+}
+// 慢模型经常在首 token 前排队，单次请求最长等待 300s；仍保留取消与重试。
+const AI_REQUEST_TIMEOUT_MS = 300_000
+export const MAX_AI_PROMPT_LENGTH = 8000
 
 /**
  * OpenAI 兼容端点：baseUrl + /chat/completions。
@@ -344,6 +347,8 @@ export async function requestAiNames({
   model,
   template,
   thinkingEnabled,
+  batchSize = AI_BATCH_SIZE,
+  batchConcurrency = AI_BATCH_CONCURRENCY,
   files,
   fetchImpl = fetch,
   onBatch,
@@ -370,10 +375,12 @@ export async function requestAiNames({
   let doneCount = files.length - missing.length
   if (missing.length < files.length) onBatch?.(doneCount)
 
-  // 分块后限流并发请求（结果按 entry.index 写回，顺序与并发无关）
+  // 分块后限流并发请求（结果按 entry.index 写回，顺序与并发无关）。
+  const safeBatchSize = clampInteger(batchSize, 1, 100, AI_BATCH_SIZE)
+  const safeBatchConcurrency = clampInteger(batchConcurrency, 1, 10, AI_BATCH_CONCURRENCY)
   const chunks = []
-  for (let i = 0; i < missing.length; i += AI_BATCH_SIZE) {
-    chunks.push(missing.slice(i, i + AI_BATCH_SIZE))
+  for (let i = 0; i < missing.length; i += safeBatchSize) {
+    chunks.push(missing.slice(i, i + safeBatchSize))
   }
   let cursor = 0
   const worker = async () => {
@@ -398,7 +405,7 @@ export async function requestAiNames({
               chunk.map((entry) => entry.file)
             ),
             temperature: 0.2,
-            // 仅调用方明确传入时附加 DeepSeek 专有字段；默认 false 会显式关闭其默认开启的思考模式。
+            // 仅调用方明确传入时附加平台思考扩展；默认 false 会显式关闭平台默认开启的思考模式。
             ...(typeof thinkingEnabled === 'boolean'
               ? { thinking: { type: thinkingEnabled ? 'enabled' : 'disabled' } }
               : {}),
@@ -448,6 +455,6 @@ export async function requestAiNames({
       onBatch?.(doneCount)
     }
   }
-  await Promise.all(Array.from({ length: Math.min(AI_BATCH_CONCURRENCY, chunks.length) }, worker))
+  await Promise.all(Array.from({ length: Math.min(safeBatchConcurrency, chunks.length) }, worker))
   return names
 }

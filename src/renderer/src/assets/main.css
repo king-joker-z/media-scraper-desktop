@@ -1550,15 +1550,47 @@ input[type='checkbox']:disabled {
 .task-progress-card.finished {
   opacity: 0.85;
 }
+.task-progress-card.failed {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--separator));
+}
 .task-progress-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
   font-size: 12px;
+}
+.task-progress-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 .task-progress-head span {
   color: var(--label-secondary);
   font-variant-numeric: tabular-nums;
+}
+.task-progress-dismiss {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--label-secondary);
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+}
+.task-progress-dismiss:hover {
+  color: var(--label-primary);
+  background: var(--fill-quaternary);
+}
+.task-progress-dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .task-progress-head em {
   font-style: normal;
@@ -1577,6 +1609,9 @@ input[type='checkbox']:disabled {
 }
 .progress-bar.cancelled {
   background: var(--warning);
+}
+.progress-bar.failed {
+  background: var(--danger);
 }
 .task-progress-current {
   margin: 0;

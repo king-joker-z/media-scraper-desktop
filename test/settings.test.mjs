@@ -29,9 +29,14 @@ test('returns defaults when the settings file does not exist', async () => {
     assert.ok(ids.includes('deepseek'))
     assert.ok(ids.includes('aicodemirror'))
     assert.ok(ids.includes('linkai'))
+    assert.ok(ids.includes('hapi'))
+    const hapi = settings.aiProviders.find((provider) => provider.id === 'hapi')
+    assert.equal(hapi.baseUrl, 'https://hapiopen.cc/v1')
+    assert.equal(hapi.selectedModel, 'gpt-5.4-mini')
+    assert.equal(hapi.thinkingEnabled, false)
     const linkai = settings.aiProviders.find((provider) => provider.id === 'linkai')
-    assert.equal(linkai.baseUrl, 'https://linkai.pics/v1')
-    assert.equal(linkai.selectedModel, 'linkai-auto')
+    assert.equal(linkai.baseUrl, 'https://direct.linkai.pics/v1')
+    assert.equal(linkai.selectedModel, 'gpt-5.4-mini')
     assert.ok(settings.promptTemplate.includes('文件名'))
     assert.ok(settings.regexTemplates.length >= 3)
   })
@@ -91,7 +96,7 @@ test('旧设置升级后会补齐新增的内置 AI 平台', () => {
   assert.equal(upgraded.activeProviderId, 'custom-existing')
   assert.equal(
     upgraded.aiProviders.find((provider) => provider.id === 'linkai').selectedModel,
-    'linkai-auto'
+    'gpt-5.4-mini'
   )
   assert.equal(
     upgraded.aiProviders.find((provider) => provider.id === 'custom-existing').token,
@@ -196,7 +201,7 @@ test('theme, custom palette and recentWorkspaces persist and reload', async () =
   })
 })
 
-test('DeepSeek 思考模式默认关闭，且可保存开启状态', () => {
+test('支持思考的平台默认关闭，且可保存开启状态', () => {
   assert.equal(
     normalizeSettings({}).aiProviders.find((p) => p.id === 'deepseek').thinkingEnabled,
     false
@@ -215,6 +220,56 @@ test('DeepSeek 思考模式默认关闭，且可保存开启状态', () => {
     ]
   })
   assert.equal(enabled.aiProviders[0].thinkingEnabled, true)
+  assert.equal(
+    normalizeSettings({}).aiProviders.find((p) => p.id === 'linkai').thinkingEnabled,
+    false
+  )
+})
+
+test('旧版 LinkAI 默认预设会迁移到 Direct 网关与可用模型', () => {
+  const settings = normalizeSettings({
+    aiProviders: [
+      {
+        id: 'linkai',
+        name: 'LinkAI',
+        baseUrl: 'https://linkai.pics/v1',
+        token: 'sk-linkai',
+        models: ['linkai-auto'],
+        selectedModel: 'linkai-auto'
+      }
+    ],
+    activeProviderId: 'linkai'
+  })
+  const linkai = settings.aiProviders.find((provider) => provider.id === 'linkai')
+  assert.equal(linkai.name, 'LinkAI Direct')
+  assert.equal(linkai.baseUrl, 'https://direct.linkai.pics/v1')
+  assert.deepEqual(linkai.models, ['gpt-5.4-mini'])
+  assert.equal(linkai.selectedModel, 'gpt-5.4-mini')
+  assert.equal(linkai.token, 'sk-linkai')
+})
+
+test('AI 模型请求参数按模型保存并限制安全范围', () => {
+  const settings = normalizeSettings({
+    aiProviders: [
+      {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com',
+        token: '',
+        models: ['model-a', 'model-b'],
+        selectedModel: 'model-a',
+        modelTunings: {
+          'model-a': { batchSize: 12, concurrency: 2 },
+          'model-b': { batchSize: 999, concurrency: 0 },
+          removed: { batchSize: 5, concurrency: 5 }
+        }
+      }
+    ]
+  })
+  const provider = settings.aiProviders[0]
+  assert.deepEqual(provider.modelTunings['model-a'], { batchSize: 12, concurrency: 2 })
+  assert.deepEqual(provider.modelTunings['model-b'], { batchSize: 100, concurrency: 1 })
+  assert.equal(provider.modelTunings.removed, undefined)
 })
 
 test('NVENC 开关尊重显式值，并兼容旧版 CPU 关闭设置', () => {
@@ -276,6 +331,6 @@ test('normalizeSettings filters malformed providers and models', () => {
   assert.deepEqual(ds.models, ['m1'])
   assert.equal(ds.selectedModel, 'm1') // 非法 selectedModel 回退
   // 无效 provider 被赋予自定义 id 兜底，随后补齐缺失的内置平台。
-  assert.equal(normalized.aiProviders.length, 5)
+  assert.equal(normalized.aiProviders.length, 6)
   assert.equal(normalized.activeProviderId, 'deepseek') // ghost 不存在，回退首个
 })

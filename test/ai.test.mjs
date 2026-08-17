@@ -315,7 +315,7 @@ test('requestAiNames requires token, validates prompt length and validates count
       baseUrl: 'https://x',
       token: 'sk',
       model: 'm',
-      template: 'a'.repeat(2001),
+      template: 'a'.repeat(8001),
       files: [{ parentFolder: '', fileName: 'a' }]
     }),
     /要求过长/
@@ -399,7 +399,7 @@ test('requestAiNames cancellation stops remaining batches', async () => {
   assert.ok(calls <= 3)
 })
 
-test('requestAiNames only sends the DeepSeek thinking setting when explicitly configured', async () => {
+test('requestAiNames only sends the platform thinking setting when explicitly configured', async () => {
   clearAiCache()
   const bodies = []
   const fetchImpl = async (_url, init) => {
@@ -407,9 +407,9 @@ test('requestAiNames only sends the DeepSeek thinking setting when explicitly co
     return { ok: true, json: async () => ({ choices: [{ message: { content: '["名称"]' } }] }) }
   }
   const base = {
-    baseUrl: 'https://api.deepseek.com',
+    baseUrl: 'https://direct.linkai.pics/v1',
     token: 'sk',
-    model: 'deepseek-v4-flash',
+    model: 'gpt-5.4-mini',
     template: '',
     files: [{ parentFolder: '', fileName: 'a' }],
     fetchImpl,
@@ -488,7 +488,48 @@ test('requestAiNames surfaces HTTP errors and batches over 50', async () => {
       }
     }
   })
-  assert.equal(calls, 8) // 15 × 8，三并发缩短大批量等待并降低单请求尾延迟
+  assert.equal(calls, 3) // 40 × 3，三并发降低大批量请求的网关往返次数
   assert.equal(names.length, 120)
   assert.equal(batchReports.at(-1), 120) // 并发完成顺序不固定，但最终进度必须完整
+})
+
+test('requestAiNames honors per-model batch size and concurrency', async () => {
+  clearAiCache()
+  let calls = 0
+  let active = 0
+  let peakActive = 0
+  const files = Array.from({ length: 10 }, (_, index) => ({
+    parentFolder: 'p',
+    fileName: `f${index}`
+  }))
+  const names = await requestAiNames({
+    baseUrl: 'https://x',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    files,
+    batchSize: 3,
+    batchConcurrency: 2,
+    fetchImpl: async (_url, init) => {
+      calls += 1
+      active += 1
+      peakActive = Math.max(peakActive, active)
+      const count = Number(
+        /必须恰好包含 (\d+) 项/.exec(JSON.parse(init.body).messages[1].content)?.[1]
+      )
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      active -= 1
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [
+            { message: { content: JSON.stringify(Array.from({ length: count }, () => '名称')) } }
+          ]
+        })
+      }
+    }
+  })
+  assert.equal(calls, 4)
+  assert.equal(peakActive, 2)
+  assert.equal(names.length, 10)
 })

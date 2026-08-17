@@ -185,6 +185,13 @@ const sendTaskEvent = (event: TaskEvent): void => {
   }
 }
 
+/** 设置变更后广播完整归一化配置，供常驻页面即时刷新而无需重新挂载。 */
+const sendSettingsChange = (settings: AppSettings): void => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('settings:changed', settings)
+  }
+}
+
 /**
  * 事件节流：进度类事件高频合并（120ms 刷新一次），终止类事件立即送达，
  * 避免大量文件处理时 IPC 洪峰导致渲染进程卡顿。
@@ -206,6 +213,7 @@ const createThrottledEmitter = (
       event.type === 'start' ||
       event.type === 'item-error' ||
       event.type === 'done' ||
+      event.type === 'failed' ||
       event.type === 'cancelled'
     ) {
       if (pending.has(event.taskId)) {
@@ -299,6 +307,7 @@ async function trackScan<T>(
   const emit = (type: TaskEvent['type'], current?: string): void =>
     emitTask(taskId, label, { type, current })
   let started = false
+  let failed = false
   const timer = setTimeout(() => {
     started = true
     emit('start', '扫描目录中…')
@@ -310,12 +319,15 @@ async function trackScan<T>(
     return await fn(onProgress)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    // 扫描此前通常只发“结束”，IPC 虽会拒绝但任务中心没有失败原因。
+    // 失败必须带终态，避免进度卡因只收到 item-error 而永久停在“进行中”。
     emitTask(taskId, label, { type: 'item-error', current: '扫描失败', error: message })
+    failed = true
+    // 即使扫描在 400ms 展示阈值前失败，也要补发终态，防止 item-error 单独生成悬挂卡片。
+    emit('failed', '扫描失败')
     throw error
   } finally {
     clearTimeout(timer)
-    if (started) emit('done')
+    if (started && !failed) emit('done')
   }
 }
 
@@ -532,6 +544,7 @@ function registerIpcHandlers(): void {
     const updated = await settingsStore.update(patch)
     // 运行时同步 FFmpeg 进程池大小
     if (updated.ffmpegPoolSize) setPoolSize(updated.ffmpegPoolSize)
+    sendSettingsChange(updated)
     return updated
   })
   ipcMain.handle('clean:execute', async (_event, plan: ScanPlan, picks: PosterPicks) =>
@@ -744,12 +757,17 @@ function registerIpcHandlers(): void {
         emitTask(taskId, label, { type, completed, total: files.length, current: stage })
       try {
         emit('start', 0, provider.selectedModel)
+        const modelTuning = provider.modelTunings[provider.selectedModel]
         const names = await requestAiNames({
           baseUrl: provider.baseUrl,
           token: provider.token,
           model: provider.selectedModel,
-          // thinking 是 DeepSeek 专有扩展，避免传给其他 OpenAI 兼容平台。
-          thinkingEnabled: provider.id === 'deepseek' ? provider.thinkingEnabled : undefined,
+          batchSize: modelTuning?.batchSize,
+          batchConcurrency: modelTuning?.concurrency,
+          // 仅向确认支持此扩展的 DeepSeek 与 LinkAI Direct 传递思考开关。
+          thinkingEnabled: ['deepseek', 'linkai'].includes(provider.id)
+            ? provider.thinkingEnabled
+            : undefined,
           template: settings.promptTemplate,
           files,
           useCache: !forceRefresh,
@@ -774,7 +792,7 @@ function registerIpcHandlers(): void {
             error: message
           })
           emitTask(taskId, label, {
-            type: 'done',
+            type: 'failed',
             completed: 0,
             failed: 1,
             total: files.length,
@@ -884,8 +902,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     'merge:execute',
     async (_event, root: string, items: MergeVideoItem[], outputName: string) => {
+      let progressTaskId: string | null = null
       try {
         return await runExclusiveAbort('merge', '合并', async (signal, taskId) => {
+          progressTaskId = taskId
           const safeRoot = requireVideoRoot(root)
           assertSafeFileName(outputName)
           items.forEach((item) => requireFileInRoots(item.path, [safeRoot], '合并源文件'))
@@ -927,7 +947,7 @@ function registerIpcHandlers(): void {
               error: message
             })
             emitTask(taskId, '视频合并', {
-              type: 'done',
+              type: 'failed',
               total: 100,
               completed: 0,
               failed: 1,
@@ -938,6 +958,17 @@ function registerIpcHandlers(): void {
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
+        // 运行前校验、配置读取等异常发生在 mergeVideos 之外，也必须结束已创建的进度任务。
+        if (progressTaskId) {
+          emitTask(progressTaskId, '视频合并', {
+            type: 'failed',
+            total: 100,
+            completed: 0,
+            failed: 1,
+            current: '合并启动失败',
+            error: message
+          })
+        }
         const details =
           error && typeof error === 'object'
             ? {

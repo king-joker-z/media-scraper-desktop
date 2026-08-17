@@ -27,8 +27,12 @@ declare module './ai.mjs' {
     token: string
     model: string
     template: string
-    /** DeepSeek 思考模式开关；未传时不附加平台专有参数。 */
+    /** 平台思考模式开关；未传时不附加平台扩展参数。 */
     thinkingEnabled?: boolean
+    /** 每批请求项数（1–100），默认 40。 */
+    batchSize?: number
+    /** 同时请求数（1–10），默认 3。 */
+    batchConcurrency?: number
     files: AiFileInput[]
     fetchImpl?: typeof fetch
     /** 每批完成回调：已完成数量 */

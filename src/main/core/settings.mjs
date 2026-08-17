@@ -6,6 +6,12 @@ import { writeAtomicTextFile } from './fs-ops.mjs'
 export const DEFAULT_PROMPT_TEMPLATE =
   '根据文件名生成简洁、规范的新名称；保留有意义的标题，去除网站、广告、分辨率等噪音。'
 
+export const DEFAULT_AI_BATCH_SIZE = 40
+export const DEFAULT_AI_BATCH_CONCURRENCY = 3
+const normalizeAiBatchSize = (value) => clampInteger(value, 1, 100, DEFAULT_AI_BATCH_SIZE)
+const normalizeAiBatchConcurrency = (value) =>
+  clampInteger(value, 1, 10, DEFAULT_AI_BATCH_CONCURRENCY)
+
 /** 内置 AI 平台预设（均为 OpenAI 兼容端点；baseUrl 可在设置页修改） */
 export const PROVIDER_PRESETS = [
   {
@@ -28,9 +34,15 @@ export const PROVIDER_PRESETS = [
   },
   {
     id: 'linkai',
-    name: 'LinkAI',
-    baseUrl: 'https://linkai.pics/v1',
-    models: ['linkai-auto']
+    name: 'LinkAI Direct',
+    baseUrl: 'https://direct.linkai.pics/v1',
+    models: ['gpt-5.4-mini']
+  },
+  {
+    id: 'hapi',
+    name: 'HAPI Open',
+    baseUrl: 'https://hapiopen.cc/v1',
+    models: ['gpt-5.4-mini']
   }
 ]
 
@@ -157,21 +169,43 @@ const normalizeBackgroundAppearance = (value) => {
 
 function normalizeProvider(raw, preset) {
   const input = raw && typeof raw === 'object' ? raw : {}
-  const models = sanitizeModels(input.models, preset?.models ?? [])
+  // LinkAI 原预设域名升级为 Direct 网关；仅迁移旧默认值，不覆盖用户自定义地址。
+  const isLegacyLinkAi =
+    input.id === 'linkai' && String(input.baseUrl).replace(/\/+$/, '') === 'https://linkai.pics/v1'
+  const baseUrlInput = isLegacyLinkAi ? 'https://direct.linkai.pics/v1' : input.baseUrl
+  const models =
+    isLegacyLinkAi && Array.isArray(input.models) && input.models.join() === 'linkai-auto'
+      ? ['gpt-5.4-mini']
+      : sanitizeModels(input.models, preset?.models ?? [])
   return {
     id: input.id || preset?.id || `custom-${Date.now()}`,
     name:
-      typeof input.name === 'string' && input.name.trim()
-        ? input.name
-        : (preset?.name ?? '自定义平台'),
+      isLegacyLinkAi && input.name === 'LinkAI'
+        ? 'LinkAI Direct'
+        : typeof input.name === 'string' && input.name.trim()
+          ? input.name
+          : (preset?.name ?? '自定义平台'),
     baseUrl:
-      typeof input.baseUrl === 'string' && input.baseUrl.trim()
-        ? input.baseUrl.trim().replace(/\/+$/, '')
+      typeof baseUrlInput === 'string' && baseUrlInput.trim()
+        ? baseUrlInput.trim().replace(/\/+$/, '')
         : (preset?.baseUrl ?? ''),
     token: typeof input.token === 'string' ? input.token : '',
     models,
     selectedModel: models.includes(input.selectedModel) ? input.selectedModel : (models[0] ?? ''),
-    // 仅 DeepSeek 平台在请求中读取此开关；旧配置缺失时默认关闭。
+    modelTunings: Object.fromEntries(
+      Object.entries(
+        input.modelTunings && typeof input.modelTunings === 'object' ? input.modelTunings : {}
+      )
+        .filter(([model]) => models.includes(model))
+        .map(([model, tuning]) => [
+          model,
+          {
+            batchSize: normalizeAiBatchSize(tuning?.batchSize),
+            concurrency: normalizeAiBatchConcurrency(tuning?.concurrency)
+          }
+        ])
+    ),
+    // DeepSeek 与 LinkAI Direct 平台在请求中读取此开关；旧配置缺失时默认关闭。
     thinkingEnabled: input.thinkingEnabled === true
   }
 }

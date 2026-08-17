@@ -77,7 +77,19 @@ function RenamePage({
   const [error, setError] = useState('')
 
   useEffect(() => {
-    window.api.getSettings().then(setSettings)
+    let disposed = false
+    window.api
+      .getSettings()
+      .then((next) => {
+        if (!disposed) setSettings(next)
+      })
+      .catch(() => {})
+    // 重命名页为常驻挂载；订阅设置广播，避免切换当前 AI 平台后仍展示首次加载的旧配置。
+    const unsubscribe = window.api.onSettingsChange(setSettings)
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
   }, [])
   const templates = useMemo(() => settings?.regexTemplates ?? [], [settings])
   const activeAi = useMemo(
@@ -215,9 +227,8 @@ function RenamePage({
         )
       )
     } catch (err) {
-      setError(
-        `AI 命名失败：${err instanceof Error ? err.message : String(err)}（可在设置页检查 Token/模型或切换平台）`
-      )
+      // 主进程已按 HTTP 状态返回对应处理建议；503 等服务端故障不应误导为本地 Token/模型配置问题。
+      setError(`AI 命名失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setAiLoading(false)
     }
@@ -411,8 +422,10 @@ function RenamePage({
                 。仅发送文件名与父目录名，不上传视频；平台/模型/prompt 均可在设置页调整。
               </p>
               <p className="muted">
-                首次生成会复用本会话内相同输入的成功结果；每批 20
-                个、最多双并发请求，每个名称独立生成互不影响。
+                首次生成会复用本会话内相同输入的成功结果；每批
+                {activeAi?.modelTunings[activeAi.selectedModel]?.batchSize ?? 40} 个、最多
+                {activeAi?.modelTunings[activeAi.selectedModel]?.concurrency ?? 3}
+                并发请求，每个名称独立生成互不影响。
                 点击“重新生成”或单条“重新生成”会绕过缓存并再次请求模型；返回后自动叠加序号前缀：
               </p>
               <SeqControls seq={seq} onChange={setSeq} />

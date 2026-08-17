@@ -102,9 +102,17 @@ export interface RegexTemplate {
   flags: string
 }
 
+/** 单个 AI 模型的命名请求调优参数。 */
+export interface AiModelTuning {
+  /** 每个请求携带的文件数（1–100）。 */
+  batchSize: number
+  /** 同时向该模型发起的请求数（1–10）。 */
+  concurrency: number
+}
+
 /** AI 平台配置（OpenAI 兼容端点）。token 按平台独立保存，切换平台不清除。 */
 export interface AiProviderConfig {
-  /** 预设：openrouter / deepseek / aicodemirror / linkai；自定义为 custom-<uuid> */
+  /** 预设：openrouter / deepseek / aicodemirror / linkai / hapi；自定义为 custom-<uuid> */
   id: string
   name: string
   /** OpenAI 兼容 baseUrl，如 https://api.deepseek.com */
@@ -112,7 +120,9 @@ export interface AiProviderConfig {
   token: string
   models: string[]
   selectedModel: string
-  /** DeepSeek 思考模式；仅 DeepSeek 预设读取，默认关闭以缩短轻量命名请求耗时。 */
+  /** 按模型 ID 保存的请求调优；未配置的模型使用默认值。 */
+  modelTunings: Record<string, AiModelTuning>
+  /** DeepSeek 与 LinkAI Direct 思考模式；仅支持的预设读取，默认关闭以缩短轻量命名请求耗时。 */
   thinkingEnabled: boolean
 }
 
@@ -321,7 +331,8 @@ export interface UndoReport {
 
 /* ---------------------------- 任务中心 ---------------------------- */
 
-export type TaskEventType = 'start' | 'progress' | 'item-done' | 'item-error' | 'done' | 'cancelled'
+export type TaskEventType =
+  'start' | 'progress' | 'item-done' | 'item-error' | 'done' | 'failed' | 'cancelled'
 
 export interface TaskEvent {
   type: TaskEventType

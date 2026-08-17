@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TaskEvent } from '../../../shared/types'
 
-/**
- * 全局执行进度条：订阅任务中心事件，以浮动卡片形式展示每个进行中任务的
- * 进度条 / 完成数 / 当前处理项，结束后 3 秒自动消失。所有模块共用。
- */
+const AUTO_DISMISS_MS = 3000
+
+const isTerminal = (event: TaskEvent): boolean =>
+  event.type === 'done' || event.type === 'failed' || event.type === 'cancelled'
+
 /** 长任务结束时发系统通知（仅当窗口在后台，避免打扰前台操作） */
 const notifyTaskFinished = (event: TaskEvent): void => {
   if (!('Notification' in window) || Notification.permission !== 'granted') return
@@ -12,53 +13,70 @@ const notifyTaskFinished = (event: TaskEvent): void => {
   const body =
     event.type === 'cancelled'
       ? '已取消'
-      : `完成 ${event.completed}/${event.total}${event.failed > 0 ? `，失败 ${event.failed}` : ''}`
+      : event.type === 'failed'
+        ? event.error || '执行失败'
+        : `完成 ${event.completed}/${event.total}${event.failed > 0 ? `，失败 ${event.failed}` : ''}`
   new Notification(`Media Scraper · ${event.label}`, { body })
 }
 
+/**
+ * 全局执行进度条：每个 taskId 只能从进行中转为一次终态，终态后自动隐藏。
+ * 即使主进程发生未预期异常，用户也可以单独关闭遗留卡片；被关闭的任务不再被延迟 IPC 事件复活。
+ */
 function TaskProgress(): React.JSX.Element | null {
   const [tasks, setTasks] = useState<Map<string, TaskEvent>>(new Map())
   const [taskStartedAt, setTaskStartedAt] = useState<Map<string, number>>(new Map())
-  const finishedTaskIds = useRef(new Set<string>())
+  const terminalTaskIds = useRef(new Set<string>())
+  const dismissedTaskIds = useRef(new Set<string>())
   const dismissTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+
+  const dismiss = useCallback((taskId: string): void => {
+    const timer = dismissTimers.current.get(taskId)
+    if (timer) clearTimeout(timer)
+    dismissTimers.current.delete(taskId)
+    dismissedTaskIds.current.add(taskId)
+    terminalTaskIds.current.delete(taskId)
+    setTaskStartedAt((prev) => {
+      const next = new Map(prev)
+      next.delete(taskId)
+      return next
+    })
+    setTasks((prev) => {
+      const next = new Map(prev)
+      next.delete(taskId)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     const timers = dismissTimers.current
     const unsubscribe = window.api.onTaskEvent((event) => {
-      const finished = event.type === 'done' || event.type === 'cancelled'
+      const terminal = isTerminal(event)
+      // 已手动关闭的卡片及已经到达终态的任务，不能被 IPC 队列中的旧事件重新显示。
+      if (dismissedTaskIds.current.has(event.taskId)) return
+      if (!terminal && terminalTaskIds.current.has(event.taskId)) return
+
       setTaskStartedAt((prev) => {
         if (prev.has(event.taskId) && event.type !== 'start') return prev
         const next = new Map(prev)
         next.set(event.taskId, event.at)
         return next
       })
-      // IPC 队列拥堵时，终态后抵达的旧进度事件不得让任务“复活”。
-      if (!finished && finishedTaskIds.current.has(event.taskId)) return
       setTasks((prev) => {
         const next = new Map(prev)
         next.set(event.taskId, event)
         return next
       })
-      if (finished) {
-        finishedTaskIds.current.add(event.taskId)
+
+      if (terminal) {
+        terminalTaskIds.current.add(event.taskId)
         notifyTaskFinished(event)
-        const existing = timers.get(event.taskId)
-        if (existing) clearTimeout(existing)
-        const timer = setTimeout(() => {
-          timers.delete(event.taskId)
-          finishedTaskIds.current.delete(event.taskId)
-          setTaskStartedAt((prev) => {
-            const next = new Map(prev)
-            next.delete(event.taskId)
-            return next
-          })
-          setTasks((prev) => {
-            const next = new Map(prev)
-            next.delete(event.taskId)
-            return next
-          })
-        }, 3000)
-        timers.set(event.taskId, timer)
+        const previous = timers.get(event.taskId)
+        if (previous) clearTimeout(previous)
+        timers.set(
+          event.taskId,
+          setTimeout(() => dismiss(event.taskId), AUTO_DISMISS_MS)
+        )
       }
     })
     return () => {
@@ -66,16 +84,16 @@ function TaskProgress(): React.JSX.Element | null {
       for (const timer of timers.values()) clearTimeout(timer)
       timers.clear()
     }
-  }, [])
+  }, [dismiss])
 
   if (tasks.size === 0) return null
 
   return (
-    <div className="task-progress-stack">
+    <div className="task-progress-stack" aria-live="polite">
       {[...tasks.values()].map((task) => {
-        const finished = task.type === 'done' || task.type === 'cancelled'
+        const terminal = isTerminal(task)
         // total 为 0 表示不定量任务（如目录扫描），用不定态进度条
-        const indeterminate = task.total === 0 && !finished
+        const indeterminate = task.total === 0 && !terminal
         const percent = task.total > 0 ? Math.round((task.completed / task.total) * 100) : 0
         const elapsedMs = Math.max(0, task.at - (taskStartedAt.get(task.taskId) ?? task.at))
         const rate = elapsedMs > 0 && task.completed > 0 ? task.completed / (elapsedMs / 1000) : 0
@@ -88,35 +106,53 @@ function TaskProgress(): React.JSX.Element | null {
             ? `约剩余 ${Math.floor(etaSeconds / 60)}:${String(etaSeconds % 60).padStart(2, '0')}`
             : ''
         const rateText = rate >= 0.1 ? `${rate.toFixed(rate >= 10 ? 0 : 1)} 项/秒` : ''
+        const status =
+          task.type === 'cancelled'
+            ? '已取消'
+            : task.type === 'failed'
+              ? '失败'
+              : task.type === 'done'
+                ? '完成'
+                : indeterminate
+                  ? '进行中…'
+                  : `${task.completed}/${task.total}`
         return (
-          <div key={task.taskId} className={`task-progress-card ${finished ? 'finished' : ''}`}>
+          <div
+            key={task.taskId}
+            className={`task-progress-card ${terminal ? 'finished' : ''} ${task.type === 'failed' ? 'failed' : ''}`}
+          >
             <div className="task-progress-head">
               <b>{task.label}</b>
-              <span>
-                {finished
-                  ? task.type === 'cancelled'
-                    ? '已取消'
-                    : task.failed > 0 && task.completed === 0
-                      ? '失败'
-                      : '完成'
-                  : indeterminate
-                    ? '进行中…'
-                    : `${task.completed}/${task.total}`}
-                {task.failed > 0 && <em className="danger-text">（失败 {task.failed}）</em>}
-              </span>
+              <div className="task-progress-actions">
+                <span>
+                  {status}
+                  {task.failed > 0 && task.type !== 'failed' && (
+                    <em className="danger-text">（失败 {task.failed}）</em>
+                  )}
+                </span>
+                <button
+                  className="task-progress-dismiss"
+                  type="button"
+                  aria-label={`关闭${task.label}进度提示`}
+                  title="关闭此进度提示"
+                  onClick={() => dismiss(task.taskId)}
+                >
+                  ×
+                </button>
+              </div>
             </div>
             <div className="progress-track">
               <div
                 className={`progress-bar ${task.type === 'cancelled' ? 'cancelled' : ''} ${
-                  indeterminate ? 'indeterminate' : ''
-                }`}
+                  task.type === 'failed' ? 'failed' : ''
+                } ${indeterminate ? 'indeterminate' : ''}`}
                 style={{ width: indeterminate ? undefined : `${percent}%` }}
               />
             </div>
-            {!finished && (task.current || rateText || etaText) && (
-              <p className="task-progress-current">
-                {task.current}
-                {(rateText || etaText) && (
+            {(task.type === 'failed' || (!terminal && (task.current || rateText || etaText))) && (
+              <p className="task-progress-current" title={task.error || task.current}>
+                {task.error || task.current}
+                {!terminal && (rateText || etaText) && (
                   <span> · {[rateText, etaText].filter(Boolean).join(' · ')}</span>
                 )}
               </p>

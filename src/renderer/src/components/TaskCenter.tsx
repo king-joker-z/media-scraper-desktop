@@ -24,13 +24,24 @@ function TaskCenter(): React.JSX.Element {
     [events, filter]
   )
 
-  const active = events.find((event) => event.type === 'start' || event.type === 'progress')
-  const running =
-    active &&
-    !events.some(
-      (event) =>
-        event.taskId === active.taskId && (event.type === 'done' || event.type === 'cancelled')
-    )
+  const terminalIds = useMemo(
+    () =>
+      new Set(
+        events
+          .filter(
+            (event) =>
+              event.type === 'done' || event.type === 'failed' || event.type === 'cancelled'
+          )
+          .map((event) => event.taskId)
+      ),
+    [events]
+  )
+  const active = events.find(
+    (event) =>
+      (event.type === 'start' || event.type === 'progress' || event.type === 'item-done') &&
+      !terminalIds.has(event.taskId)
+  )
+  const running = Boolean(active)
 
   return (
     <div className="task-center">
@@ -145,6 +156,13 @@ function TaskGlyph({ type }: { type: TaskEvent['type'] }): React.JSX.Element {
       </svg>
     )
   }
+  if (type === 'failed') {
+    return (
+      <svg viewBox="0 0 16 16">
+        <path d="M8 2.1 14 13H2L8 2.1Zm0 4v3.5m0 1.8v.1" />
+      </svg>
+    )
+  }
   if (type === 'cancelled') {
     return (
       <svg viewBox="0 0 16 16">
@@ -171,6 +189,8 @@ function eventLabel(type: TaskEvent['type']): string {
       return '失败'
     case 'done':
       return '结束'
+    case 'failed':
+      return '失败结束'
     case 'cancelled':
       return '取消'
   }

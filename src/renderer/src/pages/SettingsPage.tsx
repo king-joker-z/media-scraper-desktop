@@ -18,6 +18,9 @@ import {
 } from '../utils/theme'
 import { mediaUrl } from '../utils/media'
 
+const BUILT_IN_PROVIDER_IDS = new Set(['openrouter', 'deepseek', 'aicodemirror', 'linkai', 'hapi'])
+const THINKING_PROVIDER_IDS = new Set(['deepseek', 'linkai'])
+
 const THEME_TABS: { key: ThemeMode; label: string }[] = [
   { key: 'system', label: '跟随系统' },
   { key: 'light', label: '浅色' },
@@ -242,6 +245,7 @@ function SettingsPage(): React.JSX.Element {
       token: '',
       models: [],
       selectedModel: '',
+      modelTunings: {},
       thinkingEnabled: false
     }
     persist({
@@ -616,10 +620,10 @@ function SettingsPage(): React.JSX.Element {
                 设为当前使用的平台
               </button>
             )}
-            {editing.id === 'deepseek' && (
+            {THINKING_PROVIDER_IDS.has(editing.id) && (
               <label className="confirm-check">
                 <input
-                  className="check-input"
+                  className="confirm-check-input"
                   type="checkbox"
                   checked={editing.thinkingEnabled}
                   onChange={(event) =>
@@ -629,10 +633,62 @@ function SettingsPage(): React.JSX.Element {
                 <span>
                   启用思考模式
                   <small className="muted">
-                    （默认关闭；开启会增加命名准确性，但通常响应更慢）
+                    （默认关闭；开启会增加命名准确性，但通常响应更慢。仅部分模型支持）
                   </small>
                 </span>
               </label>
+            )}
+            {editing.selectedModel && (
+              <div className="field">
+                <span>当前模型请求参数</span>
+                <div className="slider-row">
+                  <label className="field">
+                    <span>每批文件数（1–100）</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={editing.modelTunings[editing.selectedModel]?.batchSize ?? 40}
+                      onChange={(event) =>
+                        patchProvider(editing.id, {
+                          modelTunings: {
+                            ...editing.modelTunings,
+                            [editing.selectedModel]: {
+                              batchSize: Number(event.target.value),
+                              concurrency:
+                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3
+                            }
+                          }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>请求并发数（1–10）</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={editing.modelTunings[editing.selectedModel]?.concurrency ?? 3}
+                      onChange={(event) =>
+                        patchProvider(editing.id, {
+                          modelTunings: {
+                            ...editing.modelTunings,
+                            [editing.selectedModel]: {
+                              batchSize:
+                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
+                              concurrency: Number(event.target.value)
+                            }
+                          }
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <small className="muted">
+                  仅作用于当前模型；不同模型会独立保存。模型漏项时可减小每批文件数后重试。
+                </small>
+              </div>
             )}
             {editing.models.length > 0 && (
               <label className="field">
@@ -672,7 +728,7 @@ function SettingsPage(): React.JSX.Element {
                 添加
               </button>
             </div>
-            {editing.id.startsWith('custom-') && (
+            {!BUILT_IN_PROVIDER_IDS.has(editing.id) && (
               <div>
                 <button className="danger-button" onClick={() => removeProvider(editing.id)}>
                   删除此平台
@@ -691,7 +747,7 @@ function SettingsPage(): React.JSX.Element {
         </p>
         <textarea
           rows={8}
-          maxLength={2000}
+          maxLength={8000}
           value={promptDraft ?? settings.promptTemplate}
           onChange={(event) => setPromptDraft(event.target.value)}
           onBlur={() => {
@@ -701,7 +757,7 @@ function SettingsPage(): React.JSX.Element {
           }}
         />
         <p className="muted">
-          {(promptDraft ?? settings.promptTemplate).length}/2000 字符。命名要求每个 AI
+          {(promptDraft ?? settings.promptTemplate).length}/8000 字符。命名要求每个 AI
           批次仅发送一次。
         </p>
       </section>
