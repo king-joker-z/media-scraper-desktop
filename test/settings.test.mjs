@@ -66,6 +66,7 @@ test('persists special palettes and rejects unknown palette values', async () =>
     assert.equal((await store.update({ themePalette: 'comic' })).themePalette, 'comic')
     assert.equal((await store.update({ themePalette: 'pixel' })).themePalette, 'pixel')
     assert.equal((await store.update({ themePalette: 'retro' })).themePalette, 'retro')
+    assert.equal((await store.update({ themePalette: 'editorial' })).themePalette, 'editorial')
     assert.equal((await store.update({ themePalette: 'not-a-theme' })).themePalette, 'ocean')
   })
 })

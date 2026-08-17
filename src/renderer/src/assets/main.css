@@ -4837,6 +4837,10 @@ body {
   background: linear-gradient(135deg, #c8d0d8 0 40%, #3aa8c1 41% 68%, #e7793f 69% 100%);
 }
 
+.palette-swatch-editorial {
+  background: linear-gradient(135deg, #171717 0 45%, #f4f0e7 46% 72%, #b43b35 73% 100%);
+}
+
 /* ---------- 状态反馈：风险色不随主题色切换，确保语义稳定 ---------- */
 .saved-badge,
 .notice-inline {
@@ -6469,6 +6473,19 @@ kbd {
 :root[data-palette='comic'] .sidebar .recents-item.active,
 :root[data-palette='comic'] .sidebar .sidebar-footer,
 :root[data-palette='comic'] .sidebar .app-icon,
+:root[data-palette='editorial'] .sidebar .module-switch,
+:root[data-palette='editorial'] .sidebar .module-switch:hover:not(:disabled),
+:root[data-palette='editorial'] .sidebar .module-switch-caret,
+:root[data-palette='editorial'] .sidebar .nav-item,
+:root[data-palette='editorial'] .sidebar .nav-item.active,
+:root[data-palette='editorial'] .sidebar .workspace-button,
+:root[data-palette='editorial'] .sidebar .recents-toggle,
+:root[data-palette='editorial'] .sidebar .recents-toggle:hover:not(:disabled),
+:root[data-palette='editorial'] .sidebar .recents-item,
+:root[data-palette='editorial'] .sidebar .recents-item:hover:not(:disabled),
+:root[data-palette='editorial'] .sidebar .recents-item.active,
+:root[data-palette='editorial'] .sidebar .sidebar-footer,
+:root[data-palette='editorial'] .sidebar .app-icon,
 :root[data-palette='retro'] .sidebar .module-switch,
 :root[data-palette='retro'] .sidebar .module-switch:hover:not(:disabled),
 :root[data-palette='retro'] .sidebar .module-switch-caret,
@@ -6500,6 +6517,8 @@ kbd {
 
 :root[data-palette='comic'] .sidebar .brand-icon,
 :root[data-palette='comic'] .sidebar .brand-icon-comic,
+:root[data-palette='editorial'] .sidebar .brand-icon,
+:root[data-palette='editorial'] .sidebar .brand-icon-comic,
 :root[data-palette='retro'] .sidebar .brand-icon,
 :root[data-palette='retro'] .sidebar .brand-icon-comic,
 :root[data-palette='pixel'] .sidebar .brand-icon,
@@ -6530,6 +6549,8 @@ kbd {
 
 :root[data-palette='comic'] .sidebar .workspace-label,
 :root[data-palette='comic'] .sidebar .workspace-value,
+:root[data-palette='editorial'] .sidebar .workspace-label,
+:root[data-palette='editorial'] .sidebar .workspace-value,
 :root[data-palette='pixel'] .sidebar .workspace-label,
 :root[data-palette='pixel'] .sidebar .workspace-value {
   color: #171616;
@@ -6919,4 +6940,257 @@ kbd {
   --workspace-header-surface: #263b40;
   --workspace-header-border: #58777c;
   --workspace-header-shadow: rgba(0, 0, 0, 0.54);
+}
+
+/* ---------- 特例主题：报纸 / 杂志编辑风 ----------
+ * 以印刷纸张、墨黑分栏与衬线标题建立内容优先的信息层级。
+ */
+:root[data-palette='editorial'] {
+  --accent: #a8322d;
+  --accent-press: #7f211e;
+  --accent-soft: #f2ddda;
+  --focus-ring: rgba(168, 50, 45, 0.35);
+  --danger: #a8322d;
+  --success: #36735a;
+  --warning: #9b621f;
+  --label-primary: #171717;
+  --label-secondary: #57534e;
+  --label-tertiary: #8c857b;
+  --bg-window: #ece7dc;
+  --bg-card: #fbf8f0;
+  --bg-sidebar: #e0d9cb;
+  --fill-quaternary: #eee8dc;
+  --fill-tertiary: #d4cbbb;
+  --separator: #777067;
+  --radius-card: 0;
+  --radius-control: 0;
+  --shadow-card: 3px 3px 0 rgba(23, 23, 23, 0.16);
+  --shadow-pop: 6px 6px 0 rgba(23, 23, 23, 0.2);
+  --workspace-header-surface: #fbf8f0;
+  --workspace-header-border: #777067;
+  --workspace-header-shadow: rgba(23, 23, 23, 0.18);
+  --font: Georgia, 'Times New Roman', 'Songti SC', STSong, serif;
+}
+
+:root[data-palette='editorial'] body,
+:root[data-palette='editorial'] .content {
+  background-color: var(--bg-window);
+  background-image: repeating-linear-gradient(0deg, rgba(23, 23, 23, 0.035) 0 1px, transparent 1px 5px);
+}
+
+:root[data-palette='editorial'] h1,
+:root[data-palette='editorial'] h2,
+:root[data-palette='editorial'] h3,
+:root[data-palette='editorial'] .brand-name {
+  font-family: Georgia, 'Times New Roman', 'Songti SC', STSong, serif;
+  letter-spacing: -0.025em;
+}
+
+:root[data-palette='editorial'] h1 {
+  font-size: clamp(30px, 4vw, 46px);
+  line-height: 0.98;
+}
+
+:root[data-palette='editorial'] .sidebar {
+  gap: 12px;
+  padding-right: 14px;
+  padding-left: 14px;
+  background: #e0d9cb;
+  border-right: 1px solid #171717;
+  box-shadow: inset -4px 0 0 #a8322d;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-palette='editorial'] .sidebar-brand {
+  padding: 0 2px 8px;
+  border-bottom: 3px double #171717;
+}
+
+:root[data-palette='editorial'] .module-switch {
+  min-height: 44px;
+  border: 1px solid #171717;
+  border-radius: 0;
+  background: #fbf8f0;
+  color: #171717;
+  box-shadow: none;
+}
+
+:root[data-palette='editorial'] .module-switch:hover:not(:disabled) {
+  background: #171717;
+  color: #fbf8f0;
+  transform: none;
+}
+
+:root[data-palette='editorial'] .brand-icon,
+:root[data-palette='editorial'] .brand-icon-comic {
+  border: 1px solid #171717;
+  border-radius: 0;
+  background: #a8322d;
+  color: #fbf8f0;
+  box-shadow: 2px 2px 0 #171717;
+}
+
+:root[data-palette='editorial'] .workspace-button,
+:root[data-palette='editorial'] .recents-pop {
+  border-color: #777067;
+  border-radius: 0;
+  background: #fbf8f0;
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-palette='editorial'] .workspace-button:hover:not(:disabled) {
+  border-color: #171717;
+  background: #f2ddda;
+  transform: none;
+}
+
+:root[data-palette='editorial'] .workspace-label,
+:root[data-palette='editorial'] .eyebrow {
+  color: #a8322d;
+  font-family: Arial, 'PingFang SC', sans-serif;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+:root[data-palette='editorial'] .recents-toggle {
+  border: 1px solid #171717;
+  border-radius: 0;
+  background: #fbf8f0;
+  color: #171717;
+  box-shadow: none;
+}
+
+:root[data-palette='editorial'] .recents-toggle:hover:not(:disabled) {
+  background: #a8322d;
+  color: #fff;
+  transform: none;
+}
+
+:root[data-palette='editorial'] .nav-item {
+  border: 0;
+  border-bottom: 1px solid #b4aa9b;
+  border-radius: 0;
+  color: #36322e;
+  font-family: Arial, 'PingFang SC', sans-serif;
+  font-weight: 700;
+}
+
+:root[data-palette='editorial'] .nav-item:hover:not(.active) {
+  background: #f2ddda;
+  color: #171717;
+}
+
+:root[data-palette='editorial'] .nav-item.active {
+  border-bottom-color: #171717;
+  background: #171717;
+  color: #fff;
+  box-shadow: inset 5px 0 0 #a8322d;
+}
+
+:root[data-palette='editorial'] .sidebar-footer {
+  border-top: 3px double #171717;
+  color: #57534e;
+  font-family: Arial, 'PingFang SC', sans-serif;
+}
+
+:root[data-palette='editorial'] .page-header,
+:root[data-palette='editorial'] .settings-card,
+:root[data-palette='editorial'] .path-card,
+:root[data-palette='editorial'] .empty,
+:root[data-palette='editorial'] .placeholder-card,
+:root[data-palette='editorial'] .comic-library-overview,
+:root[data-palette='editorial'] .comic-card,
+:root[data-palette='editorial'] .command-palette,
+:root[data-palette='editorial'] .task-panel,
+:root[data-palette='editorial'] .task-progress-card {
+  border-color: #777067;
+  border-radius: 0;
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-palette='editorial'] .page-header {
+  border-top: 5px solid #171717;
+}
+
+:root[data-palette='editorial'] .stats div {
+  border-color: #777067;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+:root[data-palette='editorial'] .stats div:nth-child(3n + 1) {
+  background: #fbf8f0;
+}
+
+:root[data-palette='editorial'] .stats div:nth-child(3n + 2) {
+  background: #eee8dc;
+}
+
+:root[data-palette='editorial'] .stats div:nth-child(3n) {
+  background: #f2ddda;
+}
+
+:root[data-palette='editorial'] button.secondary {
+  border-color: #171717;
+  border-radius: 0;
+  background: #fbf8f0;
+  box-shadow: none;
+}
+
+:root[data-palette='editorial'] button.secondary:hover:not(:disabled) {
+  background: #171717;
+  color: #fff;
+}
+
+:root[data-palette='editorial'][data-theme='dark'] {
+  --label-primary: #f6f0e4;
+  --label-secondary: #d1c7b8;
+  --label-tertiary: #a99d8e;
+  --bg-window: #282522;
+  --bg-card: #36312d;
+  --bg-sidebar: #302b27;
+  --fill-quaternary: #443e38;
+  --fill-tertiary: #5a5149;
+  --separator: #938579;
+  --accent-soft: #5d302d;
+  --workspace-header-surface: #36312d;
+  --workspace-header-border: #938579;
+  --workspace-header-shadow: rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette='editorial']:not([data-theme='light']) {
+    --label-primary: #f6f0e4;
+    --label-secondary: #d1c7b8;
+    --label-tertiary: #a99d8e;
+    --bg-window: #282522;
+    --bg-card: #36312d;
+    --bg-sidebar: #302b27;
+    --fill-quaternary: #443e38;
+    --fill-tertiary: #5a5149;
+    --separator: #938579;
+    --accent-soft: #5d302d;
+    --workspace-header-surface: #36312d;
+    --workspace-header-border: #938579;
+    --workspace-header-shadow: rgba(0, 0, 0, 0.5);
+  }
+
+  :root[data-palette='editorial']:not([data-theme='light']) .sidebar {
+    background: #302b27;
+  }
+
+  :root[data-palette='editorial']:not([data-theme='light']) .module-switch,
+  :root[data-palette='editorial']:not([data-theme='light']) .workspace-button,
+  :root[data-palette='editorial']:not([data-theme='light']) .recents-pop,
+  :root[data-palette='editorial']:not([data-theme='light']) .recents-toggle {
+    background: #36312d;
+    color: #f6f0e4;
+  }
+
+  :root[data-palette='editorial']:not([data-theme='light']) .nav-item:hover:not(.active) {
+    background: #443e38;
+    color: #f6f0e4;
+  }
 }

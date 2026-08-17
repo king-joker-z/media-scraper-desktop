@@ -165,6 +165,7 @@ export type ThemePalette =
   | 'comic'
   | 'pixel'
   | 'retro'
+  | 'editorial'
   | 'custom'
 
 export interface AppSettings {
