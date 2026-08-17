@@ -7089,6 +7089,12 @@ kbd {
   box-shadow: inset 5px 0 0 #a8322d;
 }
 
+/* 编辑风激活项使用深墨底：标签与 SVG 必须反白，避免被通用侧栏黑色规则覆盖。 */
+:root[data-palette='editorial'] .sidebar .nav-item.active,
+:root[data-palette='editorial'] .sidebar .nav-item.active .app-icon {
+  color: #fff;
+}
+
 :root[data-palette='editorial'] .sidebar-footer {
   border-top: 3px double #171717;
   color: #57534e;

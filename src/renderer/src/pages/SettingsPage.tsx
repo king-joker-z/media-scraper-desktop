@@ -151,8 +151,20 @@ function SettingsPage(): React.JSX.Element {
     // 主题色板先乐观写入本地状态，避免 IPC 往返期间仍由默认海洋蓝按钮显示为选中。
     // 主进程返回归一化结果后再覆盖，非法配置仍会被安全回退。
     setSettings((current) => (current ? { ...current, ...patch } : current))
-    const next = await window.api.updateSettings(patch)
-    setSettings(next)
+    try {
+      const next = await window.api.updateSettings(patch)
+      setSettings(next)
+      if (patch.themePalette && next.themePalette !== patch.themePalette) {
+        // 防御性处理：主题注册遗漏时，不让 UI 与实际落盘状态悄然分叉。
+        applyTheme(next.theme, next.themePalette, next.customAccent)
+      }
+    } catch {
+      // 写入失败时恢复主进程中的最新设置，避免停留在无法持久化的乐观状态。
+      const next = await window.api.getSettings()
+      setSettings(next)
+      applyTheme(next.theme, next.themePalette, next.customAccent)
+      return
+    }
     setSaved(true)
     // 连续快速操作（如拖滑杆）时清除上一个定时器，提示停留时间从最后一次操作起算
     clearTimeout(savedTimerRef.current)

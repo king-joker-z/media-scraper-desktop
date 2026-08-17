@@ -60,13 +60,15 @@ test('并发 update 串行落盘不丢数据', async () => {
   })
 })
 
-test('persists special palettes and rejects unknown palette values', async () => {
+test('persists registered special palettes and rejects removed or unknown palette values', async () => {
   await withTempDir(async (dir) => {
     const store = createSettingsStore(join(dir, 'settings.json'))
     assert.equal((await store.update({ themePalette: 'comic' })).themePalette, 'comic')
     assert.equal((await store.update({ themePalette: 'pixel' })).themePalette, 'pixel')
     assert.equal((await store.update({ themePalette: 'retro' })).themePalette, 'retro')
     assert.equal((await store.update({ themePalette: 'editorial' })).themePalette, 'editorial')
+    // 已移除的色板与未注册值都应在主进程统一回退，防止 UI 选中态和持久化状态不一致。
+    assert.equal((await store.update({ themePalette: 'chinese' })).themePalette, 'ocean')
     assert.equal((await store.update({ themePalette: 'not-a-theme' })).themePalette, 'ocean')
   })
 })

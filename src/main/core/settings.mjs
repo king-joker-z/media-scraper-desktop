@@ -293,6 +293,7 @@ export function normalizeSettings(raw) {
     mergeTempCustomPath:
       typeof input.mergeTempCustomPath === 'string' ? input.mergeTempCustomPath.trim() : '',
     theme: THEME_OPTIONS.includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
+    // 色板白名单是主进程唯一裁决点：UI 新增主题时必须同步登记，否则 IPC 会把它回退为海洋蓝。
     themePalette: THEME_PALETTE_OPTIONS.includes(input.themePalette)
       ? input.themePalette
       : DEFAULT_SETTINGS.themePalette,
