@@ -75,6 +75,10 @@ test('persists registered special palettes and rejects removed or unknown palett
     assert.equal((await store.update({ themePalette: 'clay' })).themePalette, 'clay')
     assert.equal((await store.update({ themePalette: 'paper' })).themePalette, 'paper')
     assert.equal((await store.update({ themePalette: 'industrial' })).themePalette, 'industrial')
+    assert.equal((await store.update({ themePalette: 'nordic' })).themePalette, 'nordic')
+    assert.equal((await store.update({ themePalette: 'mecha' })).themePalette, 'mecha')
+    assert.equal((await store.update({ themePalette: 'nautical' })).themePalette, 'nautical')
+    assert.equal((await store.update({ themePalette: 'ink' })).themePalette, 'ink')
     assert.equal((await store.update({ themePalette: 'deco' })).themePalette, 'ocean')
     // 已移除的色板与未注册值都应在主进程统一回退，防止 UI 选中态和持久化状态不一致。
     assert.equal((await store.update({ themePalette: 'chinese' })).themePalette, 'ocean')

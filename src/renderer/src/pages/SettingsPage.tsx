@@ -51,7 +51,11 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
   { key: 'swiss', label: '瑞士国际主义', description: '理性网格、红黑高对比与现代主义秩序' },
   { key: 'clay', label: '黏土拟态', description: '柔软体块、温和阴影与触感化界面层次' },
   { key: 'paper', label: '纸艺拼贴', description: '层叠色纸、裁切边缘与手作拼贴质感' },
-  { key: 'industrial', label: '工业控制台', description: '高密度仪表、警示色与专业控制面板' }
+  { key: 'industrial', label: '工业控制台', description: '高密度仪表、警示色与专业控制面板' },
+  { key: 'nordic', label: '北欧自然风', description: '苔藓绿、暖木色与舒展的有机留白' },
+  { key: 'mecha', label: '机甲蓝图风', description: '工程蓝图、结构标线与机甲信息层级' },
+  { key: 'nautical', label: '航海地图', description: '羊皮纸、海图经纬线与深海罗盘色彩' },
+  { key: 'ink', label: '水墨国风', description: '宣纸留白、墨色晕染与朱砂点睛' }
 ]
 
 const CUSTOM_PALETTE: { key: ThemePalette; label: string; description: string } = {

@@ -75,6 +75,10 @@ export const THEME_PALETTE_OPTIONS = [
   'clay',
   'paper',
   'industrial',
+  'nordic',
+  'mecha',
+  'nautical',
+  'ink',
   'custom'
 ]
 const DEFAULT_NVENC_ENABLED = process.platform === 'win32'

@@ -174,6 +174,10 @@ export type ThemePalette =
   | 'clay'
   | 'paper'
   | 'industrial'
+  | 'nordic'
+  | 'mecha'
+  | 'nautical'
+  | 'ink'
   | 'custom'
 
 export interface AppSettings {
