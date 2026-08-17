@@ -16,6 +16,7 @@ import type {
   NfoPlanItem,
   NfoReport,
   PosterBatchSaveReport,
+  PosterCaptureOptions,
   PosterPicks,
   PosterSaveResult,
   PosterVideoItem,
@@ -49,7 +50,8 @@ declare global {
       listPosterVideos: (root: string) => Promise<PosterVideoItem[]>
       capturePosters: (
         root: string,
-        relativePaths: string[]
+        relativePaths: string[],
+        options?: PosterCaptureOptions
       ) => Promise<{ cancelled: boolean; outcomes: CaptureOutcome[] }>
       capturePosterAt: (videoPath: string, seconds: number) => Promise<string>
       savePoster: (payload: {

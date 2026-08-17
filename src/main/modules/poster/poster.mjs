@@ -9,9 +9,10 @@ import {
 } from '../../core/frames.mjs'
 import { probeMediaCached } from '../../core/probe.mjs'
 import sharp from 'sharp'
-import { convertToJpg } from '../../core/image.mjs'
+import { convertToJpg, isJpegName } from '../../core/image.mjs'
 import {
   commitStagedFile,
+  copyFileSafe,
   createStagingPath,
   discardStagedFile,
   permanentDelete
@@ -65,6 +66,31 @@ export function framesDirFor(framesRoot, videoPath) {
 // 直接用固定百分比时点；短视频才值得跑场景检测找内容突变帧
 const SCENE_DETECT_MAX_DURATION_MS = 2 * 60 * 1000
 const SCORE_WIDTH = 320
+const PREVIEW_WIDTH = 720
+const PREVIEW_QUALITY = 5
+const FINAL_WIDTH = 1920
+const SCORE_CONCURRENCY = 2
+const BLACK_FRAME_RATIO = 0.98
+const BLACK_FRAME_BRIGHTNESS = 12
+
+const timestampFromCandidatePath = (framePath) => {
+  const match = basename(framePath).match(/-at-(\d+)ms\.jpg$/)
+  return match ? Number(match[1]) / 1000 : null
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length)
+  let cursor = 0
+  const lane = async () => {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await worker(items[index])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, lane))
+  return results
+}
 
 /**
  * 轻量候选帧质量评分：只解码 320px 灰度缩略图，不引入模型推理。
@@ -103,28 +129,31 @@ export async function scoreCandidateFrame(framePath) {
   const clarity = edgeCount ? edge / edgeCount : 0
   // 亮度接近 128 更自然，黑屏直接施加高惩罚；系数仅用于候选间排序。
   const exposure = Math.max(0, 1 - Math.abs(brightness - 128) / 128)
-  const score = clarity * 0.55 + contrast * 0.25 + exposure * 25 - blackRatio * 100
-  return { path: framePath, score, brightness, contrast, clarity, blackRatio }
+  // 近乎纯黑的过场、淡入帧不可作为自动封面；仍返回给用户手动查看，但在排序中绝不推荐。
+  const rejected = blackRatio >= BLACK_FRAME_RATIO && brightness <= BLACK_FRAME_BRIGHTNESS
+  const score = rejected
+    ? Number.NEGATIVE_INFINITY
+    : clarity * 0.55 + contrast * 0.25 + exposure * 25 - blackRatio * 100
+  return { path: framePath, score, brightness, contrast, clarity, blackRatio, rejected }
 }
 
 /** 对一批候选帧评分，返回稳定排序（同分按原始路径保证结果可复现）。 */
 export async function rankCandidateFrames(framePaths) {
-  const scored = await Promise.all(
-    framePaths.map(async (path) => {
-      try {
-        return await scoreCandidateFrame(path)
-      } catch {
-        return {
-          path,
-          score: Number.NEGATIVE_INFINITY,
-          brightness: 0,
-          contrast: 0,
-          clarity: 0,
-          blackRatio: 1
-        }
+  const scored = await mapWithConcurrency(framePaths, SCORE_CONCURRENCY, async (path) => {
+    try {
+      return await scoreCandidateFrame(path)
+    } catch {
+      return {
+        path,
+        score: Number.NEGATIVE_INFINITY,
+        brightness: 0,
+        contrast: 0,
+        clarity: 0,
+        blackRatio: 1,
+        rejected: true
       }
-    })
-  )
+    }
+  })
   return scored.sort(
     (left, right) => right.score - left.score || left.path.localeCompare(right.path)
   )
@@ -133,7 +162,7 @@ export async function rankCandidateFrames(framePaths) {
 export async function captureCandidates(
   videoPath,
   framesRoot,
-  { ffmpegPath, ffprobePath, signal } = {}
+  { ffmpegPath, ffprobePath, signal, precise = false } = {}
 ) {
   const outDir = framesDirFor(framesRoot, videoPath)
   let durationMs = 0
@@ -147,7 +176,7 @@ export async function captureCandidates(
 
   // 第一帧必须保留，场景检测只用于补齐其余候选；候选数固定最多五张。
   let timestamps = [0]
-  if (durationMs > SCENE_DETECT_MAX_DURATION_MS) {
+  if (durationMs > SCENE_DETECT_MAX_DURATION_MS || !precise) {
     timestamps = buildFrameTimestamps(durationMs)
   } else if (durationMs > 1000) {
     try {
@@ -164,13 +193,21 @@ export async function captureCandidates(
   // 进程创建开销从 N 次降为 1 次；缺帧时点被容忍剔除，全部失败才抛错
   const jobs = timestamps.map((seconds, i) => ({
     seconds,
-    target: join(outDir, `candidate-${String(i + 1).padStart(2, '0')}.jpg`)
+    target: join(
+      outDir,
+      `candidate-${String(i + 1).padStart(2, '0')}-at-${Math.round(seconds * 1000)}ms.jpg`
+    )
   }))
-  const frames = await captureFrames(videoPath, jobs, ffmpegPath, { signal })
+  // 候选只供预览和评分，低清 JPEG 大幅减少解码、编码及临时文件写入。
+  const frames = await captureFrames(videoPath, jobs, ffmpegPath, {
+    signal,
+    width: PREVIEW_WIDTH,
+    quality: PREVIEW_QUALITY
+  })
   const ranked = await rankCandidateFrames(frames)
-  // 质量排序仅影响推荐顺序，不应挤掉第一帧；将首帧固定放在候选列表首位。
+  // 质量排序仅影响推荐顺序。全黑帧会被标记并始终沉底，不参与默认推荐。
   const firstFrame = ranked.find((entry) => entry.path === jobs[0].target)
-  if (firstFrame) {
+  if (firstFrame && !firstFrame.rejected) {
     ranked.splice(ranked.indexOf(firstFrame), 1)
     ranked.unshift(firstFrame)
   }
@@ -193,7 +230,11 @@ export async function captureAt(videoPath, seconds, framesRoot, { ffmpegPath, si
   const outDir = framesDirFor(framesRoot, videoPath)
   // 毫秒 + 随机后缀，避免同一毫秒内连续手动截帧互相覆盖
   const target = join(outDir, `manual-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`)
-  return captureFrame(videoPath, Math.max(0, seconds), target, ffmpegPath, { signal })
+  return captureFrame(videoPath, Math.max(0, seconds), target, ffmpegPath, {
+    signal,
+    width: FINAL_WIDTH,
+    quality: 2
+  })
 }
 
 /**
@@ -221,8 +262,22 @@ export async function savePoster({
   // 转码本身不可中断，但取消后绝不继续提交、删除旧封面或清理候选帧。
   if (signal?.aborted) throw new Error('已取消')
   const stagingPath = createStagingPath(target)
+  const candidateSeconds = timestampFromCandidatePath(chosenFramePath)
   try {
-    await convertToJpg(chosenFramePath, stagingPath)
+    if (candidateSeconds !== null) {
+      // 选中低清候选后才按同一时点复截高清图，避免批量阶段生成五倍高清候选。
+      await captureFrame(videoPath, candidateSeconds, stagingPath, undefined, {
+        signal,
+        fast: true,
+        width: FINAL_WIDTH,
+        quality: 2
+      })
+    } else if (isJpegName(chosenFramePath)) {
+      // 手动截图和已有 JPG 无需再经 sharp 解码/编码，直接暂存复制并安全提交。
+      await copyFileSafe(chosenFramePath, stagingPath)
+    } else {
+      await convertToJpg(chosenFramePath, stagingPath)
+    }
     if (signal?.aborted) throw new Error('已取消')
     await commitStagedFile(stagingPath, target)
   } catch (error) {
@@ -234,8 +289,13 @@ export async function savePoster({
     await deleteFn(oldPosterPath)
     deletedOld.push(oldPosterPath)
   }
-  // 候选帧为应用缓存，写入成功后可安全清理；调用层按视频串行化，避免与截帧并发互删。
-  if (!signal?.aborted) await permanentDelete(dirname(chosenFramePath))
+  // 仅清理应用生成的候选/手动截帧目录；工作区中的既有 JPG 不能误删其父目录。
+  const frameName = basename(chosenFramePath)
+  const isGeneratedFrame =
+    candidateSeconds !== null ||
+    frameName.startsWith('manual-') ||
+    frameName.startsWith('candidate')
+  if (!signal?.aborted && isGeneratedFrame) await permanentDelete(dirname(chosenFramePath))
   return { saved: target, deletedOld }
 }
 

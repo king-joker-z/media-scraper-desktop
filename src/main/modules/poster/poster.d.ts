@@ -13,7 +13,7 @@ declare module './poster.mjs' {
   export function captureCandidates(
     videoPath: string,
     framesRoot: string,
-    options?: { ffmpegPath?: string; ffprobePath?: string; signal?: AbortSignal }
+    options?: { ffmpegPath?: string; ffprobePath?: string; signal?: AbortSignal; precise?: boolean }
   ): Promise<CandidateFrameScore[]>
   export function captureAt(
     videoPath: string,

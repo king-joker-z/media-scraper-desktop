@@ -71,14 +71,19 @@ test('detectSceneCuts finds the color switch point', async () => {
   }
 })
 
-test('buildFastCaptureArgs uses input-side seek only', () => {
-  const args = buildFastCaptureArgs('v.mp4', 500, 'out.jpg')
+test('buildFastCaptureArgs uses input-side seek only and skips non-video streams', () => {
+  const args = buildFastCaptureArgs('v.mp4', 500, 'out.jpg', { width: 720, quality: 5 })
   // -ss 在 -i 之前（输入侧快速 seek），无第二段精确 seek
   const ssIndex = args.indexOf('-ss')
   const inputIndex = args.indexOf('-i')
   assert.ok(ssIndex >= 0 && ssIndex < inputIndex)
   assert.equal(args.filter((a) => a === '-ss').length, 1)
   assert.equal(args[ssIndex + 1], '500')
+  assert.ok(args.includes('-an'))
+  assert.ok(args.includes('-sn'))
+  assert.ok(args.includes('-dn'))
+  assert.ok(args.includes('scale=w=min(720\\,iw):h=-2'))
+  assert.equal(args[args.indexOf('-q:v') + 1], '5')
 })
 
 test('captureFrame extracts real jpegs via both seek paths', async () => {

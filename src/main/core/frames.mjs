@@ -27,20 +27,28 @@ export function buildFrameTimestamps(durationMs, count = 5) {
  * 快速截帧参数：仅输入侧 -ss（关键帧级定位，几乎零解码）。
  * 用于候选封面等对帧精度不敏感的场景——几十分钟的长视频也能亚秒出图。
  */
-export function buildFastCaptureArgs(videoPath, seconds, targetPath) {
+export function buildFastCaptureArgs(
+  videoPath,
+  seconds,
+  targetPath,
+  { width = 1920, quality = 2 } = {}
+) {
   return [
     '-v',
     'error',
     '-ss',
     String(Math.max(0, seconds)),
+    '-an',
+    '-sn',
+    '-dn',
     '-i',
     videoPath,
     '-frames:v',
     '1',
     '-q:v',
-    '2',
+    String(quality),
     '-vf',
-    'scale=w=min(1920\\,iw):h=-2',
+    `scale=w=min(${width}\\,iw):h=-2`,
     '-y',
     targetPath
   ]
@@ -50,7 +58,12 @@ export function buildFastCaptureArgs(videoPath, seconds, targetPath) {
  * 构造截帧参数：两段式 seek——先快速跳到目标前 10 秒再精确解码，
  * 兼顾长视频速度与帧精确度；输出限宽 1920 防止超大帧撑爆内存。
  */
-export function buildCaptureArgs(videoPath, seconds, targetPath) {
+export function buildCaptureArgs(
+  videoPath,
+  seconds,
+  targetPath,
+  { width = 1920, quality = 2 } = {}
+) {
   const args = ['-v', 'error']
   let accurateSeek = seconds
   if (seconds > 10) {
@@ -58,6 +71,9 @@ export function buildCaptureArgs(videoPath, seconds, targetPath) {
     accurateSeek = 10
   }
   args.push(
+    '-an',
+    '-sn',
+    '-dn',
     '-i',
     videoPath,
     '-ss',
@@ -65,9 +81,9 @@ export function buildCaptureArgs(videoPath, seconds, targetPath) {
     '-frames:v',
     '1',
     '-q:v',
-    '2',
+    String(quality),
     '-vf',
-    'scale=w=min(1920\\,iw):h=-2',
+    `scale=w=min(${width}\\,iw):h=-2`,
     '-y',
     targetPath
   )
@@ -114,7 +130,7 @@ export async function captureFrames(
   videoPath,
   jobs,
   ffmpegPath = resolveFfmpegPath(),
-  { signal } = {}
+  { signal, width = 1920, quality = 2 } = {}
 ) {
   if (jobs.length === 0) return []
   await mkdir(dirname(jobs[0].target), { recursive: true })
@@ -127,7 +143,12 @@ export async function captureFrames(
       throw error
     }
     try {
-      await captureFrame(videoPath, job.seconds, job.target, ffmpegPath, { signal, fast: true })
+      await captureFrame(videoPath, job.seconds, job.target, ffmpegPath, {
+        signal,
+        fast: true,
+        width,
+        quality
+      })
       frames.push(job.target)
     } catch (error) {
       if (signal?.aborted || error?.name === 'AbortError') throw error
@@ -185,12 +206,13 @@ export async function captureFrame(
   seconds,
   targetPath,
   ffmpegPath = resolveFfmpegPath(),
-  { signal, fast = false } = {}
+  { signal, fast = false, width = 1920, quality = 2 } = {}
 ) {
   await mkdir(dirname(targetPath), { recursive: true })
+  const options = { width, quality }
   const args = fast
-    ? buildFastCaptureArgs(videoPath, seconds, targetPath)
-    : buildCaptureArgs(videoPath, seconds, targetPath)
+    ? buildFastCaptureArgs(videoPath, seconds, targetPath, options)
+    : buildCaptureArgs(videoPath, seconds, targetPath, options)
   await runPooled(ffmpegPath, args, { signal })
   if (!(await pathExists(targetPath))) {
     throw new Error(`截帧未生成图片（${seconds}s）：${videoPath}`)

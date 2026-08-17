@@ -17,6 +17,7 @@ import type {
   NfoPlanItem,
   NfoReport,
   PosterBatchSaveReport,
+  PosterCaptureOptions,
   PosterPicks,
   PosterSaveResult,
   PosterVideoItem,
@@ -56,9 +57,10 @@ const api = {
     ipcRenderer.invoke('poster:list', root),
   capturePosters: (
     root: string,
-    relativePaths: string[]
+    relativePaths: string[],
+    options?: PosterCaptureOptions
   ): Promise<{ cancelled: boolean; outcomes: CaptureOutcome[] }> =>
-    ipcRenderer.invoke('poster:capture', root, relativePaths),
+    ipcRenderer.invoke('poster:capture', root, relativePaths, options),
   capturePosterAt: (videoPath: string, seconds: number): Promise<string> =>
     ipcRenderer.invoke('poster:capture-at', videoPath, seconds),
   savePoster: (payload: {

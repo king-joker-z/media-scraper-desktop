@@ -133,7 +133,7 @@ test('savePoster is a no-op when choosing the current poster itself', async () =
   })
 })
 
-test('候选帧质量评分会降低黑屏优先级并保留清晰画面', async () => {
+test('候选帧质量评分会排除全黑帧且保留清晰画面', async () => {
   await withTempDir(async (root) => {
     const black = join(root, 'black.jpg')
     const sharpFrame = join(root, 'sharp.jpg')
@@ -157,9 +157,28 @@ test('候选帧质量评分会降低黑屏优先级并保留清晰画面', async
 
     const blackScore = await scoreCandidateFrame(black)
     assert.ok(blackScore.blackRatio > 0.99)
+    assert.equal(blackScore.rejected, true)
     const ranked = await rankCandidateFrames([black, sharpFrame])
     assert.equal(ranked[0].path, sharpFrame)
+    assert.equal(ranked[0].rejected, false)
     assert.equal(ranked[1].path, black)
+    assert.equal(ranked[1].rejected, true)
+  })
+})
+
+test('savePoster directly copies a JPEG that is not a generated preview', async () => {
+  await withTempDir(async (root) => {
+    const video = join(root, 'Movie.mp4')
+    const frame = join(root, 'manual.jpg')
+    await writeFile(video, 'v')
+    await writeFile(frame, Buffer.from(PNG_BASE64, 'base64'))
+
+    const result = await savePoster({
+      videoPath: video,
+      chosenFramePath: frame,
+      oldPosterPath: null
+    })
+    assert.deepEqual(await readFile(result.saved), await readFile(frame))
   })
 })
 

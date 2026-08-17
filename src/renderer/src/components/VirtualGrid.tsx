@@ -13,6 +13,8 @@ interface VirtualGridProps<T> {
   /** 视口上下额外渲染的行数，默认 3 */
   overscan?: number
   className?: string
+  /** 可视窗口变化时回传已渲染项，供页面按可见范围发起轻量操作。 */
+  onVisibleItemsChange?: (items: T[]) => void
   renderItem: (item: T, style: React.CSSProperties, index: number) => React.ReactNode
 }
 
@@ -28,6 +30,7 @@ function VirtualGrid<T>({
   thumbnailRatio = 16 / 9,
   overscan = 3,
   className,
+  onVisibleItemsChange,
   renderItem
 }: VirtualGridProps<T>): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -82,6 +85,12 @@ function VirtualGrid<T>({
       if (raf) cancelAnimationFrame(raf)
     }
   }, [rowHeight, rows, gap, overscan])
+
+  useEffect(() => {
+    onVisibleItemsChange?.(
+      items.slice(range.start * columns, Math.min(items.length, range.end * columns))
+    )
+  }, [columns, items, onVisibleItemsChange, range.end, range.start])
 
   const cells: { item: T; index: number; left: number; top: number }[] = []
   for (let row = range.start; row < range.end; row += 1) {

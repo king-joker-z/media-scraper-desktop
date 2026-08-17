@@ -602,45 +602,48 @@ function registerIpcHandlers(): void {
       listPosterVideos(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
     )
   })
-  ipcMain.handle('poster:capture', async (_event, root: string, relativePaths: string[]) =>
-    runExclusive('poster', '截帧', async (taskId) => {
-      const safeRoot = requireVideoRoot(root)
-      relativePaths.forEach((relativePath) => requireRelPath(safeRoot, relativePath))
-      const settings = await settingsStore.get()
-      const result = await taskCenter.run({
-        taskId,
-        label: '截取候选封面',
-        items: relativePaths,
-        concurrency: settings.concurrency,
-        worker: async (relativePath, signal) => {
-          const scores = await captureCandidates(
-            requireRelPath(safeRoot, relativePath),
-            framesRoot,
-            {
-              ffmpegPath: resolveFfmpegPath(),
-              ffprobePath: resolveFfprobePath(),
-              signal
-            }
-          )
-          return { relativePath, frames: scores.map((entry) => entry.path), scores }
+  ipcMain.handle(
+    'poster:capture',
+    async (_event, root: string, relativePaths: string[], options: { precise?: boolean } = {}) =>
+      runExclusive('poster', '截帧', async (taskId) => {
+        const safeRoot = requireVideoRoot(root)
+        relativePaths.forEach((relativePath) => requireRelPath(safeRoot, relativePath))
+        const settings = await settingsStore.get()
+        const result = await taskCenter.run({
+          taskId,
+          label: '截取候选封面',
+          items: relativePaths,
+          concurrency: settings.concurrency,
+          worker: async (relativePath, signal) => {
+            const scores = await captureCandidates(
+              requireRelPath(safeRoot, relativePath),
+              framesRoot,
+              {
+                ffmpegPath: resolveFfmpegPath(),
+                ffprobePath: resolveFfprobePath(),
+                signal,
+                precise: options.precise === true
+              }
+            )
+            return { relativePath, frames: scores.map((entry) => entry.path), scores }
+          }
+        })
+        return {
+          cancelled: result.cancelled,
+          outcomes: result.results
+            .map((entry, index) =>
+              entry.ok
+                ? entry.value
+                : {
+                    relativePath: relativePaths[index],
+                    frames: [],
+                    scores: [],
+                    error: entry.error ?? '已取消'
+                  }
+            )
+            .filter(Boolean)
         }
       })
-      return {
-        cancelled: result.cancelled,
-        outcomes: result.results
-          .map((entry, index) =>
-            entry.ok
-              ? entry.value
-              : {
-                  relativePath: relativePaths[index],
-                  frames: [],
-                  scores: [],
-                  error: entry.error ?? '已取消'
-                }
-          )
-          .filter(Boolean)
-      }
-    })
   )
   ipcMain.handle('poster:capture-at', async (_event, videoPath: string, seconds: number) =>
     runExclusive('poster', '封面', async () => {

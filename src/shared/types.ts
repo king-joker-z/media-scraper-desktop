@@ -217,6 +217,13 @@ export interface CandidateFrameScore {
   brightness: number
   contrast: number
   blackRatio: number
+  /** 近乎全黑的过场/淡入帧，保留供人工查看但不参与自动推荐 */
+  rejected: boolean
+}
+
+export interface PosterCaptureOptions {
+  /** 精细模式：对两分钟内视频额外进行场景切换检测，速度较慢。 */
+  precise?: boolean
 }
 
 export interface CaptureOutcome {

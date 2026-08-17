@@ -36,7 +36,9 @@ function PosterDetail({
   const [error, setError] = useState('')
 
   const generate = async (): Promise<{ frames: string[]; scores: CandidateFrameScore[] }> => {
-    const { outcomes } = await window.api.capturePosters(workspace, [video.relativePath])
+    const { outcomes } = await window.api.capturePosters(workspace, [video.relativePath], {
+      precise: true
+    })
     if (outcomes[0]?.error) throw new Error(outcomes[0].error)
     return { frames: outcomes[0]?.frames ?? [], scores: outcomes[0]?.scores ?? [] }
   }
@@ -156,7 +158,11 @@ function PosterDetail({
                 <span className="candidate-tag">当前封面</span>
               ) : (
                 scoreFor(frame) && (
-                  <span className="candidate-tag">质量 {scoreFor(frame)!.score}</span>
+                  <span className="candidate-tag">
+                    {scoreFor(frame)!.rejected
+                      ? '不推荐：近全黑'
+                      : `质量 ${scoreFor(frame)!.score}`}
+                  </span>
                 )
               )}
             </button>

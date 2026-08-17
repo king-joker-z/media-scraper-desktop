@@ -35,6 +35,10 @@ function PosterPage({
   const [error, setError] = useState('')
   // 封面保存后递增，给图片 URL 加版本号破除 Chromium 图片缓存
   const [coverEpoch, setCoverEpoch] = useState(0)
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  const [visiblePaths, setVisiblePaths] = useState<string[]>([])
+  const [captureScope, setCaptureScope] = useState<'visible' | 'selected' | 'all'>('visible')
+  const [preciseCapture, setPreciseCapture] = useState(false)
 
   const refresh = async (): Promise<void> => {
     if (!workspace) return
@@ -75,16 +79,26 @@ function PosterPage({
     [videos, candidatesMap]
   )
 
-  /** 为全部尚未生成候选的视频截帧（含已有封面的，原封面仍是默认选中） */
+  const captureTargets = useMemo(() => {
+    const visible = new Set(visiblePaths)
+    return withoutCandidates.filter((video) => {
+      if (captureScope === 'selected') return selectedPaths.has(video.relativePath)
+      if (captureScope === 'visible') return visible.has(video.relativePath)
+      return true
+    })
+  }, [captureScope, selectedPaths, visiblePaths, withoutCandidates])
+
+  /** 按当前范围生成候选预览图；精细模式才额外进行短视频场景检测。 */
   const captureAll = async (): Promise<void> => {
-    if (!workspace || withoutCandidates.length === 0) return
+    if (!workspace || captureTargets.length === 0) return
     setCapturing(true)
     setError('')
     setNotice('')
     try {
       const { outcomes } = await window.api.capturePosters(
         workspace,
-        withoutCandidates.map((v) => v.relativePath)
+        captureTargets.map((v) => v.relativePath),
+        { precise: preciseCapture }
       )
       const nextCandidates: CandidatesMap = {}
       const nextScores: ScoresMap = {}
@@ -164,7 +178,7 @@ function PosterPage({
           <p className="eyebrow">模块四 · 封面管理</p>
           <h1>Poster 封面</h1>
           <p className="muted">
-            候选帧会按清晰度、黑屏比例、亮度与对比度自动推荐最佳画面；不满意可进详情手动换帧。
+            候选先以低清预览快速生成，确认时才复截高清封面；全黑帧会划为不推荐且不会自动选中。
           </p>
         </div>
         <div className="actions">
@@ -178,12 +192,35 @@ function PosterPage({
           >
             {loading ? '扫描中…' : '刷新列表'}
           </button>
+          <label className="poster-option">
+            <span>生成范围</span>
+            <select
+              value={captureScope}
+              disabled={capturing || saving}
+              onChange={(event) =>
+                setCaptureScope(event.target.value as 'visible' | 'selected' | 'all')
+              }
+            >
+              <option value="visible">仅可视项</option>
+              <option value="selected">仅勾选项</option>
+              <option value="all">全部未生成项</option>
+            </select>
+          </label>
+          <label className="poster-option poster-check">
+            <input
+              type="checkbox"
+              checked={preciseCapture}
+              disabled={capturing || saving}
+              onChange={(event) => setPreciseCapture(event.target.checked)}
+            />
+            <span>精细模式（短视频场景检测，较慢）</span>
+          </label>
           <button
             className="secondary"
-            disabled={!workspace || capturing || saving || withoutCandidates.length === 0}
+            disabled={!workspace || capturing || saving || captureTargets.length === 0}
             onClick={captureAll}
           >
-            {capturing ? '截帧中…' : `生成候选帧（${withoutCandidates.length}）`}
+            {capturing ? '截帧中…' : `生成候选帧（${captureTargets.length}）`}
           </button>
           <button
             disabled={pending.length === 0 || saving || capturing}
@@ -229,37 +266,56 @@ function PosterPage({
       {videos.length > 0 && (
         <VirtualGrid
           items={videos}
+          onVisibleItemsChange={(items) =>
+            setVisiblePaths(items.map((video) => video.relativePath))
+          }
           renderItem={(video, style) => {
             const cover = effectiveCover(video)
             const isPending =
               !!selections[video.relativePath] &&
               selections[video.relativePath] !== video.posterPath
             return (
-              <button
+              <div
                 key={video.relativePath}
-                className="video-card"
+                className={`video-card ${selectedPaths.has(video.relativePath) ? 'selected' : ''}`}
                 style={style}
-                onClick={() => setDetail(video)}
               >
-                <span className="video-thumb">
-                  {cover ? (
-                    <img
-                      src={`${mediaUrl(cover)}?v=${coverEpoch}`}
-                      alt={video.name}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span className="video-thumb-empty" aria-label="暂无封面" />
-                  )}
-                </span>
-                <span className="video-meta">
-                  <b>{video.name}</b>
-                  <span className={isPending ? 'pending-text' : 'muted'}>
-                    {formatBytes(video.size)} ·{' '}
-                    {isPending ? '待确认' : video.posterPath ? '已有封面' : '无封面'}
+                <label className="poster-select" onClick={(event) => event.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selectedPaths.has(video.relativePath)}
+                    aria-label={`选择 ${video.name}`}
+                    onChange={(event) =>
+                      setSelectedPaths((previous) => {
+                        const next = new Set(previous)
+                        if (event.target.checked) next.add(video.relativePath)
+                        else next.delete(video.relativePath)
+                        return next
+                      })
+                    }
+                  />
+                </label>
+                <button className="video-card-open" onClick={() => setDetail(video)}>
+                  <span className="video-thumb">
+                    {cover ? (
+                      <img
+                        src={`${mediaUrl(cover)}?v=${coverEpoch}`}
+                        alt={video.name}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="video-thumb-empty" aria-label="暂无封面" />
+                    )}
                   </span>
-                </span>
-              </button>
+                  <span className="video-meta">
+                    <b>{video.name}</b>
+                    <span className={isPending ? 'pending-text' : 'muted'}>
+                      {formatBytes(video.size)} ·{' '}
+                      {isPending ? '待确认' : video.posterPath ? '已有封面' : '无封面'}
+                    </span>
+                  </span>
+                </button>
+              </div>
             )
           }}
         />

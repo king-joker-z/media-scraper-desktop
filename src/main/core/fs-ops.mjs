@@ -1,5 +1,6 @@
 import {
   access,
+  copyFile,
   link,
   mkdir,
   readdir,
@@ -29,6 +30,12 @@ const MERGE_TRANSACTION_BACKUP_RE = new RegExp(
  * 执行层唯一写入口：所有模块的删除/移动/改名/写文件必须经由本文件，
  * 以便统一审计、重名处理与隐藏内容保护（见冻结稿 §2.5/§2.7）。
  */
+
+/** 以统一文件操作入口复制文件，调用方负责目标路径的暂存与安全提交。 */
+export async function copyFileSafe(source, target) {
+  await withLockRetry(() => copyFile(source, target))
+  return target
+}
 
 export async function pathExists(target) {
   try {
