@@ -6,6 +6,7 @@ import {
   buildTranscodeArgs,
   checkCompatibility,
   estimateOutputBytes,
+  groupByOrientation,
   isMergeOutputName,
   mergeOutputName,
   selectQualityTarget,
@@ -118,6 +119,24 @@ test('estimateOutputBytes sums for copy and estimates for transcode', () => {
   assert.equal(estimateOutputBytes(items, true), 2_000_000)
   const transcoded = estimateOutputBytes(items, false)
   assert.ok(transcoded > 0)
+})
+
+test('groupByOrientation keeps same-orientation ordering and supports either leading direction', () => {
+  const items = [
+    item('p-1', { orientation: 'portrait' }),
+    item('l-1', { orientation: 'landscape' }),
+    item('p-2', { orientation: 'portrait' }),
+    item('l-2', { orientation: 'landscape' }),
+    { name: 'unknown', media: null }
+  ]
+  assert.deepEqual(
+    groupByOrientation(items, 'landscape').map((entry) => entry.name),
+    ['l-1', 'l-2', 'p-1', 'p-2', 'unknown']
+  )
+  assert.deepEqual(
+    groupByOrientation(items, 'portrait').map((entry) => entry.name),
+    ['p-1', 'p-2', 'l-1', 'l-2', 'unknown']
+  )
 })
 
 test('mergeOutputName follows the frozen naming', () => {

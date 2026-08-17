@@ -384,10 +384,9 @@ test('mergeVideos keeps output ordering while transcoding segments concurrently'
 
 test('mergeWorkDir supports a caller-selected temporary root', () => {
   const target = { width: 640, height: 480, fps: 24, pixFmt: 'yuv420p' }
-  assert.match(
-    mergeWorkDir([{ path: '/a.mp4' }], target, 'cpu', '/media/.msd-merge-temp'),
-    /^\/media\/\.msd-merge-temp\//
-  )
+  const workDir = mergeWorkDir([{ path: '/a.mp4' }], target, 'cpu', '/media/.msd-merge-temp')
+  assert.match(workDir, /msd-merge-[a-f0-9]{10}$/)
+  assert.ok(workDir.includes('.msd-merge-temp'))
 })
 
 test('mergeVideos blocks stream-copy before writing when output disk is insufficient', async () => {

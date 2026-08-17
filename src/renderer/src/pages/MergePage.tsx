@@ -3,6 +3,7 @@ import type { MergeMode, MergeResult, MergeVideoItem } from '../../../shared/typ
 import {
   checkCompatibility,
   estimateOutputBytes,
+  groupByOrientation,
   mergeOutputName
 } from '../../../shared/merge-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -33,13 +34,18 @@ function MergePage({
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState<MergeMode>('all')
   const [order, setOrder] = useState<string[]>([])
+  const [orientationFirst, setOrientationFirst] = useState<'landscape' | 'portrait'>('landscape')
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [confirmingOrientationBatch, setConfirmingOrientationBatch] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   // 源删除时是否连同 poster 一起删除（默认保留封面图，归档场景不被破坏）
   const [includePosters, setIncludePosters] = useState(false)
   const [result, setResult] = useState<MergeResult | null>(null)
+  const [orientationBatchResults, setOrientationBatchResults] = useState<
+    Array<{ mode: 'landscape' | 'portrait'; result: MergeResult }>
+  >([])
   const [deleteNote, setDeleteNote] = useState('')
   const [error, setError] = useState('')
   const [playing, setPlaying] = useState<MergeVideoItem | null>(null)
@@ -92,6 +98,21 @@ function MergePage({
     [rows, excluded]
   )
 
+  const orientationGroupedItems = useMemo(
+    () => (mode === 'all' ? groupByOrientation(items, orientationFirst) : items),
+    [items, mode, orientationFirst]
+  )
+  const orientationBatches = useMemo(
+    () => ({
+      landscape: rows.filter(
+        (item) => !excluded.has(item.relativePath) && item.media?.orientation === 'landscape'
+      ),
+      portrait: rows.filter(
+        (item) => !excluded.has(item.relativePath) && item.media?.orientation === 'portrait'
+      )
+    }),
+    [rows, excluded]
+  )
   const compatibility = useMemo(() => checkCompatibility(items), [items])
   const workspaceName = workspace.split(/[\\/]/).filter(Boolean).pop() ?? 'workspace'
   const outputName = mergeOutputName(workspaceName, mode)
@@ -131,12 +152,45 @@ function MergePage({
     setResult(null)
     setDeleteNote('')
     try {
-      const merged = await window.api.executeMerge(workspace, items, outputName)
+      const merged = await window.api.executeMerge(workspace, orientationGroupedItems, outputName)
       setResult(merged)
       // 校验通过 → 自动弹出源片段删除确认（冻结稿 §4：单独展示与确认）
       if (merged.verified && !merged.cancelled) {
         deleteWorkspaceRef.current = workspace
         setConfirmingDelete(true)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMerging(false)
+    }
+  }
+
+  const executeOrientationBatch = async (): Promise<void> => {
+    if (!workspace) return
+    setConfirmingOrientationBatch(false)
+    setMerging(true)
+    setError('')
+    setResult(null)
+    setOrientationBatchResults([])
+    setDeleteNote('')
+    const plans = (['landscape', 'portrait'] as const)
+      .map((batchMode) => ({ mode: batchMode, items: orientationBatches[batchMode] }))
+      .filter((plan) => plan.items.length >= 2)
+    const completed: Array<{ mode: 'landscape' | 'portrait'; result: MergeResult }> = []
+    try {
+      for (const plan of plans) {
+        const merged = await window.api.executeMerge(
+          workspace,
+          plan.items,
+          mergeOutputName(workspaceName, plan.mode)
+        )
+        completed.push({ mode: plan.mode, result: merged })
+        setOrientationBatchResults([...completed])
+        if (!merged.verified) break
+      }
+      if (completed.some(({ result: mergeResult }) => !mergeResult.verified)) {
+        setError('横竖分别合并未全部完成，已保留成功输出和源视频；可单独重试失败方向。')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -206,7 +260,7 @@ function MergePage({
           <button className="secondary" onClick={scan} disabled={!workspace || loading || merging}>
             {loading ? '读取中…' : '扫描视频'}
           </button>
-          {items.length >= 2 && !result && (
+          {items.length >= 2 && !result && orientationBatchResults.length === 0 && (
             <button
               disabled={merging || notEnoughSpace || cannotMerge}
               onClick={() => setConfirming(true)}
@@ -214,6 +268,18 @@ function MergePage({
               {merging ? '合并中…' : `执行合并（${items.length} 段）`}
             </button>
           )}
+          {orientationBatches.landscape.length >= 2 &&
+            orientationBatches.portrait.length >= 2 &&
+            !result &&
+            orientationBatchResults.length === 0 && (
+              <button
+                className="secondary"
+                disabled={merging}
+                onClick={() => setConfirmingOrientationBatch(true)}
+              >
+                一键分别合并横竖视频
+              </button>
+            )}
           {merging && (
             <button className="secondary" onClick={() => window.api.cancelMerge()}>
               取消
@@ -244,6 +310,27 @@ function MergePage({
               </button>
             ))}
           </div>
+
+          {mode === 'all' && items.length > 1 && (
+            <section className="notice-banner">
+              <strong>横竖自动归类：</strong>
+              全合并时按当前列表顺序保留同类内部排序，避免横竖片段交叉。
+              <div className="actions">
+                <button
+                  className={`secondary ${orientationFirst === 'landscape' ? 'active' : ''}`}
+                  onClick={() => setOrientationFirst('landscape')}
+                >
+                  横屏在前（{orientationBatches.landscape.length} 段）
+                </button>
+                <button
+                  className={`secondary ${orientationFirst === 'portrait' ? 'active' : ''}`}
+                  onClick={() => setOrientationFirst('portrait')}
+                >
+                  竖屏在前（{orientationBatches.portrait.length} 段）
+                </button>
+              </div>
+            </section>
+          )}
 
           {items.length > 0 && (
             <section className="settings-card">
@@ -294,7 +381,7 @@ function MergePage({
           )}
           <p className="muted">
             拖动 ⠿
-            调整拼接顺序；点右侧「参与」可将单个视频置灰排除（不参与本次合并），再点恢复。当前参与{' '}
+            调整同类内拼接顺序；全合并会按上方横竖顺序自动归类。点右侧「参与」可将单个视频置灰排除，再点恢复。当前参与{' '}
             {items.length} 段。
           </p>
           <MergeSortableList
@@ -316,6 +403,24 @@ function MergePage({
         <section className="empty">
           <h2>扫描后开始</h2>
           <p>选择工作区并点击「扫描视频」，将读取每个视频的编码信息用于兼容性判定。</p>
+        </section>
+      )}
+
+      {orientationBatchResults.length > 0 && (
+        <section className="report-card">
+          <h2>横竖分别合并结果</h2>
+          <p className="muted">
+            为防止一个输出成功后误删另一个方向的源视频，此流程不会自动弹出删源确认。
+          </p>
+          {orientationBatchResults.map(({ mode: batchMode, result: mergeResult }) => (
+            <p key={batchMode} className={mergeResult.verified ? 'ok-text' : 'danger-text'}>
+              {batchMode === 'landscape' ? '横屏' : '竖屏'}：
+              {mergeResult.verified ? '已完成' : '未完成'} · {mergeResult.verifyNote}
+            </p>
+          ))}
+          <button className="secondary" onClick={scan} disabled={merging}>
+            刷新列表
+          </button>
         </section>
       )}
 
@@ -395,6 +500,17 @@ function MergePage({
           extra={`将把 ${items.length} 段视频合并为 ${outputName}（${compatibility.compatible ? '无重编码拼接' : '转码统一后合并'}，预计 ${formatBytes(estimated)}）。源文件在合并校验通过后才会询问是否删除。`}
           onConfirm={execute}
           onCancel={() => setConfirming(false)}
+        />
+      )}
+      {confirmingOrientationBatch && (
+        <ConfirmDialog
+          title="确认分别合并横竖视频"
+          deleteCount={0}
+          deleteBytes={0}
+          danger={false}
+          extra={`将分别生成 ${mergeOutputName(workspaceName, 'landscape')}（${orientationBatches.landscape.length} 段）和 ${mergeOutputName(workspaceName, 'portrait')}（${orientationBatches.portrait.length} 段）。两个任务按顺序执行，源视频不会自动删除。`}
+          onConfirm={executeOrientationBatch}
+          onCancel={() => setConfirmingOrientationBatch(false)}
         />
       )}
       {confirmingDelete && (

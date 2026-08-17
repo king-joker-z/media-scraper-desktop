@@ -37,7 +37,7 @@ function PosterPage({
   const [coverEpoch, setCoverEpoch] = useState(0)
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [visiblePaths, setVisiblePaths] = useState<string[]>([])
-  const [captureScope, setCaptureScope] = useState<'visible' | 'selected' | 'all'>('visible')
+  const [captureScope, setCaptureScope] = useState<'visible' | 'selected' | 'all'>('all')
   const [preciseCapture, setPreciseCapture] = useState(false)
 
   const refresh = async (): Promise<void> => {

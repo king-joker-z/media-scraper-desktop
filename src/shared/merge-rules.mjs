@@ -96,6 +96,19 @@ export function estimateOutputBytes(items, compatible) {
   return Math.round((maxBitrate * totalSeconds * 1.1) / 8) * 8 || totalBytes * 2
 }
 
+/**
+ * 将已排好顺序的视频按方向分组；每个方向内部严格保留原顺序。
+ * 未能识别方向的条目排在第二组末尾，避免干扰已探测视频的横竖连续性。
+ */
+export function groupByOrientation(items, first = 'landscape') {
+  const second = first === 'landscape' ? 'portrait' : 'landscape'
+  return [
+    ...items.filter((item) => item.media?.orientation === first),
+    ...items.filter((item) => item.media?.orientation === second),
+    ...items.filter((item) => !item.media?.orientation)
+  ]
+}
+
 /** 输出文件名（冻结稿 §4：以工作区目录名命名） */
 export function mergeOutputName(workspaceName, mode) {
   const suffix =
