@@ -162,6 +162,7 @@ export type ThemePalette =
   | 'mint'
   | 'lemon'
   | 'rose'
+  | 'comic'
   | 'custom'
 
 export interface AppSettings {

@@ -4825,6 +4825,10 @@ body {
   background: #c44775;
 }
 
+.palette-swatch-comic {
+  background: linear-gradient(135deg, #ffd83d 0 47%, #ef4b46 48% 100%);
+}
+
 /* ---------- 状态反馈：风险色不随主题色切换，确保语义稳定 ---------- */
 .saved-badge,
 .notice-inline {
@@ -5713,5 +5717,208 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .library-skeleton span {
     animation: none;
+  }
+}
+
+/* ---------- 特例主题：漫画风 ----------
+ * 作为完整的视觉主题而非单一强调色：纸张底色、粗墨线、网点阴影与高饱和主色。
+ * 覆盖置于末尾，避免受旧版主题样式叠加的影响。
+ */
+:root[data-palette='comic'] {
+  --accent: #e63732;
+  --accent-press: #b61f25;
+  --accent-soft: #fff0bf;
+  --focus-ring: rgba(230, 55, 50, 0.38);
+  --danger: #b61f25;
+  --success: #087c5c;
+  --warning: #9a5700;
+  --label-primary: #171616;
+  --label-secondary: #514b45;
+  --label-tertiary: #8b8178;
+  --bg-window: #f7efd8;
+  --bg-card: #fffdf5;
+  --bg-sidebar: #20202b;
+  --fill-quaternary: #efe1bf;
+  --fill-tertiary: #dfcca2;
+  --separator: #2a2825;
+  --radius-card: 4px;
+  --radius-control: 3px;
+  --shadow-card: 4px 4px 0 #2a2825;
+  --shadow-pop: 7px 7px 0 #2a2825;
+  --workspace-header-surface: #fffdf5;
+  --workspace-header-border: #2a2825;
+  --workspace-header-shadow: rgba(23, 22, 22, 0.22);
+  --font: 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', sans-serif;
+}
+
+:root[data-palette='comic'] body,
+:root[data-palette='comic'] .content {
+  background-color: var(--bg-window);
+  background-image: radial-gradient(rgba(42, 40, 37, 0.1) 0.75px, transparent 0.9px);
+  background-size: 7px 7px;
+}
+
+:root[data-palette='comic'] .content::after {
+  background: color-mix(in srgb, var(--bg-window) 84%, transparent);
+}
+
+:root[data-palette='comic'] .sidebar {
+  background-color: #20202b;
+  background-image:
+    radial-gradient(circle at 17% 14%, rgba(255, 216, 61, 0.94) 0 3px, transparent 3.8px),
+    radial-gradient(circle at 65% 36%, rgba(255, 255, 255, 0.25) 0 1px, transparent 1.8px),
+    radial-gradient(circle at 38% 75%, rgba(255, 255, 255, 0.18) 0 1px, transparent 1.8px);
+  background-size: 22px 22px, 12px 12px, 16px 16px;
+  border-right: 2px solid #171616;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-palette='comic'] .brand-icon,
+:root[data-palette='comic'] .brand-icon-comic {
+  border: 2px solid #171616;
+  border-radius: 50% 47% 51% 45%;
+  background: #ffd83d;
+  color: #171616;
+  box-shadow: 3px 3px 0 #ef4b46;
+}
+
+:root[data-palette='comic'] .sidebar .app-icon {
+  stroke-width: 2.2;
+}
+
+:root[data-palette='comic'] .nav-item {
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+
+:root[data-palette='comic'] .nav-item:hover:not(.active) {
+  border-color: rgba(255, 255, 255, 0.36);
+  background: rgba(255, 216, 61, 0.2);
+}
+
+:root[data-palette='comic'] .nav-item.active {
+  border: 2px solid #171616;
+  background: #e63732;
+  box-shadow: 3px 3px 0 #ffd83d;
+  transform: translate(-1px, -1px);
+}
+
+:root[data-palette='comic'] .workspace-button,
+:root[data-palette='comic'] .recents-toggle,
+:root[data-palette='comic'] .module-switch {
+  border-radius: 2px;
+}
+
+:root[data-palette='comic'] .page-header,
+:root[data-palette='comic'] .settings-card,
+:root[data-palette='comic'] .path-card,
+:root[data-palette='comic'] .empty,
+:root[data-palette='comic'] .placeholder-card,
+:root[data-palette='comic'] .comic-library-overview,
+:root[data-palette='comic'] .comic-card,
+:root[data-palette='comic'] .command-palette,
+:root[data-palette='comic'] .task-panel,
+:root[data-palette='comic'] .task-progress-card {
+  border-width: 2px;
+  border-color: #2a2825;
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-palette='comic'] .comic-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 #2a2825;
+}
+
+:root[data-palette='comic'] button {
+  border: 2px solid #2a2825;
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 #2a2825;
+}
+
+:root[data-palette='comic'] button:hover:not(:disabled) {
+  box-shadow: 4px 4px 0 #2a2825;
+  transform: translate(-1px, -1px);
+}
+
+:root[data-palette='comic'] button:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+:root[data-palette='comic'] button.secondary {
+  border-color: #2a2825;
+  background: #fffdf5;
+}
+
+:root[data-palette='comic'] button.secondary:hover:not(:disabled) {
+  background: #ffd83d;
+  color: #171616;
+}
+
+:root[data-palette='comic'] input:not([type='checkbox']):not([type='range']),
+:root[data-palette='comic'] select,
+:root[data-palette='comic'] textarea,
+:root[data-palette='comic'] kbd {
+  border-color: #2a2825;
+  border-radius: 2px;
+}
+
+:root[data-palette='comic'] .eyebrow {
+  color: #e63732;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+:root[data-palette='comic'] .comic-format-badge {
+  border: 2px solid #171616;
+  border-radius: 2px;
+  background: #ffd83d;
+  color: #171616;
+}
+
+:root[data-palette='comic'] .comic-card-update {
+  border: 2px solid #171616;
+  border-radius: 2px;
+  background: #e63732;
+}
+
+:root[data-palette='comic'][data-theme='dark'] {
+  --label-primary: #fff9e7;
+  --label-secondary: #d7cfc0;
+  --label-tertiary: #a79c8d;
+  --bg-window: #27252a;
+  --bg-card: #353239;
+  --fill-quaternary: #46414a;
+  --fill-tertiary: #5c555f;
+  --separator: #f2e8d4;
+  --workspace-header-surface: #353239;
+  --workspace-header-border: #f2e8d4;
+  --workspace-header-shadow: rgba(0, 0, 0, 0.5);
+  --accent-soft: #5a3132;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette='comic']:not([data-theme='light']) {
+    --label-primary: #fff9e7;
+    --label-secondary: #d7cfc0;
+    --label-tertiary: #a79c8d;
+    --bg-window: #27252a;
+    --bg-card: #353239;
+    --fill-quaternary: #46414a;
+    --fill-tertiary: #5c555f;
+    --separator: #f2e8d4;
+    --workspace-header-surface: #353239;
+    --workspace-header-border: #f2e8d4;
+    --workspace-header-shadow: rgba(0, 0, 0, 0.5);
+    --accent-soft: #5a3132;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-palette='comic'] .comic-card:hover,
+  :root[data-palette='comic'] button:hover:not(:disabled),
+  :root[data-palette='comic'] button:active:not(:disabled) {
+    transform: none;
   }
 }

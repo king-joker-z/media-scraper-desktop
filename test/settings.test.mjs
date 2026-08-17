@@ -24,6 +24,7 @@ test('returns defaults when the settings file does not exist', async () => {
     const settings = await store.get()
     assert.equal(settings.concurrency, 5)
     assert.equal(settings.activeProviderId, 'openrouter')
+    assert.equal(settings.themePalette, 'ocean')
     const ids = settings.aiProviders.map((p) => p.id)
     assert.ok(ids.includes('openrouter'))
     assert.ok(ids.includes('deepseek'))
@@ -56,6 +57,14 @@ test('并发 update 串行落盘不丢数据', async () => {
     assert.equal(settings.concurrency, 9)
     assert.equal(settings.deleteToTrash, false)
     assert.equal(settings.theme, 'dark')
+  })
+})
+
+test('persists the comic palette and rejects unknown palette values', async () => {
+  await withTempDir(async (dir) => {
+    const store = createSettingsStore(join(dir, 'settings.json'))
+    assert.equal((await store.update({ themePalette: 'comic' })).themePalette, 'comic')
+    assert.equal((await store.update({ themePalette: 'not-a-theme' })).themePalette, 'ocean')
   })
 })
 
