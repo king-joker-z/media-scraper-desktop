@@ -246,7 +246,9 @@ export interface CandidateFrameScore {
   brightness: number
   contrast: number
   blackRatio: number
-  /** 近乎全黑的过场/淡入帧，保留供人工查看但不参与自动推荐 */
+  /** 与平均灰度接近的像素占比，用于识别纯黑、纯白及纯色背景 */
+  uniformRatio: number
+  /** 近乎纯色的过场/标题卡，保留供人工查看但不参与自动推荐 */
   rejected: boolean
 }
 

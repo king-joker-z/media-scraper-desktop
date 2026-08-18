@@ -1630,16 +1630,16 @@ input[type='checkbox']:disabled {
   max-width: calc(100% - 12px);
 }
 .poster-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 12px 0 18px;
-  padding: 12px 14px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
-  box-shadow: var(--shadow-card);
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 16px;
+margin: 12px 0 18px;
+padding: 12px 14px;
+border: 1px solid var(--separator);
+border-radius: var(--radius-card);
+background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+box-shadow: var(--shadow-card);
 }
 .poster-toolbar-copy {
   display: grid;

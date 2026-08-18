@@ -14,6 +14,7 @@ import TaskProgress from './components/TaskProgress'
 import ErrorBanner from './components/ErrorBanner'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
+import ConfirmDialog from './components/ConfirmDialog'
 import { prunePlayPositions } from './utils/media'
 import { applyBackgroundAppearance, applyTheme, DEFAULT_BACKGROUND_APPEARANCE } from './utils/theme'
 import { basenameOf } from './utils/format'
@@ -155,6 +156,8 @@ function App(): React.JSX.Element {
   const [dropActive, setDropActive] = useState(false)
   const [appError, setAppError] = useState('')
   const [commandOpen, setCommandOpen] = useState(false)
+  const [pendingPosterCount, setPendingPosterCount] = useState(0)
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null)
   const dragDepth = useRef(0)
 
   const workspace = module ? workspaces[module] : ''
@@ -201,13 +204,42 @@ function App(): React.JSX.Element {
   }, [])
 
   /** 切换模块（运行时灵活切换，双模块页面状态各自保留） */
-  const switchModule = useCallback((next: AppModule | null): void => {
+  const switchModuleNow = useCallback((next: AppModule | null): void => {
     setModule(next)
     setShowRecents(false)
     if (next) setPage(MODULE_META[next].home)
     // null 代表用户主动回到模块选择页，必须持久化，避免下次启动又自动进入旧模块。
     window.api.updateSettings({ activeModule: next }).catch(() => {})
   }, [])
+
+  /** 离开封面页前拦截未落盘的推荐/人工选择，避免候选被误忘。 */
+  const requestNavigation = useCallback(
+    (action: () => void): void => {
+      if (module === 'video' && page === 'poster' && pendingPosterCount > 0) {
+        setPendingNavigation(() => action)
+        return
+      }
+      action()
+    },
+    [module, page, pendingPosterCount]
+  )
+
+  const switchModule = useCallback(
+    (next: AppModule | null): void => requestNavigation(() => switchModuleNow(next)),
+    [requestNavigation, switchModuleNow]
+  )
+
+  const navigateToPage = useCallback(
+    (next: PageKey): void => requestNavigation(() => setPage(next)),
+    [requestNavigation]
+  )
+
+  const discardPendingPostersAndNavigate = useCallback((): void => {
+    const action = pendingNavigation
+    setPendingNavigation(null)
+    setPendingPosterCount(0)
+    action?.()
+  }, [pendingNavigation])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -333,6 +365,7 @@ function App(): React.JSX.Element {
           active={module === 'video' && page === 'poster'}
           workspace={workspaces.video}
           onChooseWorkspace={chooseWorkspace}
+          onPendingSaveChange={setPendingPosterCount}
         />
       )
     },
@@ -518,7 +551,7 @@ function App(): React.JSX.Element {
               key={item.key}
               className={`nav-item ${page === item.key ? 'active' : ''}`}
               aria-current={page === item.key ? 'page' : undefined}
-              onClick={() => setPage(item.key)}
+              onClick={() => navigateToPage(item.key)}
             >
               <span className="nav-icon">
                 <Icon name={item.icon} />
@@ -547,13 +580,27 @@ function App(): React.JSX.Element {
       )}
       <TaskProgress />
       <TaskCenter />
+      {pendingNavigation && (
+        <ConfirmDialog
+          title="还有封面未保存"
+          deleteCount={0}
+          deleteBytes={0}
+          danger={false}
+          ackLabel="我知道这些封面选择尚未保存"
+          cancelLabel="返回继续保存"
+          confirmLabel="不保存并离开"
+          extra={`已有 ${pendingPosterCount} 个视频选中了候选封面。返回封面页后可使用顶部的「确认封面」保存；若直接离开，这些选择会保留在当前会话中，但关闭应用后不会保留。`}
+          onConfirm={discardPendingPostersAndNavigate}
+          onCancel={() => setPendingNavigation(null)}
+        />
+      )}
       <CommandPalette
         open={commandOpen}
         module={module}
         videoItems={VIDEO_NAV_ITEMS}
         comicItems={COMIC_NAV_ITEMS}
         onClose={() => setCommandOpen(false)}
-        onNavigate={setPage}
+        onNavigate={navigateToPage}
         onSwitchModule={switchModule}
         onChooseWorkspace={() => void chooseWorkspace()}
         onFocusSearch={() =>

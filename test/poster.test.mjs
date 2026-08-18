@@ -133,14 +133,26 @@ test('savePoster is a no-op when choosing the current poster itself', async () =
   })
 })
 
-test('候选帧质量评分会排除全黑帧且保留清晰画面', async () => {
+test('候选帧质量评分会排除纯色背景且保留清晰画面', async () => {
   await withTempDir(async (root) => {
     const black = join(root, 'black.jpg')
+    const white = join(root, 'white.jpg')
+    const blue = join(root, 'blue.jpg')
+    const red = join(root, 'red.jpg')
     const sharpFrame = join(root, 'sharp.jpg')
     await sharp({ create: { width: 160, height: 90, channels: 3, background: '#000000' } })
       .jpeg()
       .toFile(black)
-    // 黑白棋盘产生稳定边缘，代表清晰且非黑屏的候选画面。
+    await sharp({ create: { width: 160, height: 90, channels: 3, background: '#ffffff' } })
+      .jpeg()
+      .toFile(white)
+    await sharp({ create: { width: 160, height: 90, channels: 3, background: '#164cc9' } })
+      .jpeg()
+      .toFile(blue)
+    await sharp({ create: { width: 160, height: 90, channels: 3, background: '#d7263d' } })
+      .jpeg()
+      .toFile(red)
+    // 黑白棋盘产生稳定边缘，代表清晰且非纯色背景的候选画面。
     const raw = Buffer.alloc(160 * 90 * 3)
     for (let y = 0; y < 90; y += 1) {
       for (let x = 0; x < 160; x += 1) {
@@ -156,13 +168,21 @@ test('候选帧质量评分会排除全黑帧且保留清晰画面', async () =>
       .toFile(sharpFrame)
 
     const blackScore = await scoreCandidateFrame(black)
+    const whiteScore = await scoreCandidateFrame(white)
+    const blueScore = await scoreCandidateFrame(blue)
+    const redScore = await scoreCandidateFrame(red)
     assert.ok(blackScore.blackRatio > 0.99)
+    assert.ok(whiteScore.uniformRatio > 0.99)
+    assert.ok(blueScore.uniformRatio > 0.99)
+    assert.ok(redScore.uniformRatio > 0.99)
     assert.equal(blackScore.rejected, true)
-    const ranked = await rankCandidateFrames([black, sharpFrame])
+    assert.equal(whiteScore.rejected, true)
+    assert.equal(blueScore.rejected, true)
+    assert.equal(redScore.rejected, true)
+    const ranked = await rankCandidateFrames([black, white, blue, red, sharpFrame])
     assert.equal(ranked[0].path, sharpFrame)
     assert.equal(ranked[0].rejected, false)
-    assert.equal(ranked[1].path, black)
-    assert.equal(ranked[1].rejected, true)
+    assert.ok(ranked.slice(1).every((entry) => entry.rejected))
   })
 })
 

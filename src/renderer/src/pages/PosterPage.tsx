@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CandidateFrameScore, PosterVideoItem } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
@@ -15,11 +15,13 @@ type ScoresMap = Record<string, CandidateFrameScore[]>
 function PosterPage({
   active,
   workspace,
-  onChooseWorkspace
+  onChooseWorkspace,
+  onPendingSaveChange
 }: {
   active: boolean
   workspace: string
   onChooseWorkspace: () => Promise<void>
+  onPendingSaveChange: (pendingCount: number) => void
 }): React.JSX.Element {
   const [videos, setVideos] = useState<PosterVideoItem[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -74,6 +76,12 @@ function PosterPage({
     [videos, selections]
   )
   const replaceCount = pending.filter((video) => video.posterPath).length
+
+  useEffect(() => {
+    onPendingSaveChange(pending.length)
+    return () => onPendingSaveChange(0)
+  }, [onPendingSaveChange, pending.length])
+
   const withoutCandidates = useMemo(
     () => videos.filter((video) => !candidatesMap[video.relativePath]),
     [videos, candidatesMap]
@@ -172,13 +180,14 @@ function PosterPage({
   }
 
   return (
-    <div className="page">
+    <div className="page poster-page">
       <header className="page-header">
         <div>
           <p className="eyebrow">模块四 · 封面管理</p>
           <h1>Poster 封面</h1>
           <p className="muted">
-            候选先以低清预览快速生成，确认时才复截高清封面；全黑帧会划为不推荐且不会自动选中。
+            每个视频生成 5 张低清候选，确认时才复截高清封面；纯黑、纯白和近乎纯色背景会划为不推荐，
+            且不会自动选中。
           </p>
         </div>
         <div className="actions page-actions">
@@ -192,6 +201,28 @@ function PosterPage({
           >
             {loading ? '扫描中…' : '刷新列表'}
           </button>
+          {workspace && (
+            <>
+              <button
+                className="secondary"
+                disabled={capturing || saving || captureTargets.length === 0}
+                onClick={captureAll}
+              >
+                {capturing ? '截帧中…' : `生成候选帧（${captureTargets.length}）`}
+              </button>
+              <button
+                disabled={pending.length === 0 || saving || capturing}
+                onClick={() => setConfirmingBatch(true)}
+              >
+                {saving ? '保存中…' : `确认封面（${pending.length}）`}
+              </button>
+              {(capturing || saving) && (
+                <button className="secondary" onClick={() => window.api.cancelPosterCapture()}>
+                  取消
+                </button>
+              )}
+            </>
+          )}
         </div>
       </header>
 
@@ -203,8 +234,12 @@ function PosterPage({
       {workspace && (
         <section className="poster-toolbar" aria-label="候选封面生成选项">
           <div className="poster-toolbar-copy">
-            <b>候选帧生成</b>
-            <span>当前可处理 {captureTargets.length} 个视频</span>
+            <b>候选帧设置</b>
+            <span>
+              {pending.length > 0
+                ? `${pending.length} 个封面待确认`
+                : `当前可处理 ${captureTargets.length} 个视频`}
+            </span>
           </div>
           <div className="poster-toolbar-controls">
             <label className="poster-option">
@@ -230,24 +265,6 @@ function PosterPage({
               />
               <span>精细模式</span>
             </label>
-            <button
-              className="secondary"
-              disabled={capturing || saving || captureTargets.length === 0}
-              onClick={captureAll}
-            >
-              {capturing ? '截帧中…' : `生成候选帧（${captureTargets.length}）`}
-            </button>
-            <button
-              disabled={pending.length === 0 || saving || capturing}
-              onClick={() => setConfirmingBatch(true)}
-            >
-              {saving ? '保存中…' : `确认封面（${pending.length}）`}
-            </button>
-            {(capturing || saving) && (
-              <button className="secondary" onClick={() => window.api.cancelPosterCapture()}>
-                取消
-              </button>
-            )}
           </div>
         </section>
       )}

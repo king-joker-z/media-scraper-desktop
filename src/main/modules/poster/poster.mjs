@@ -60,18 +60,24 @@ export function framesDirFor(framesRoot, videoPath) {
 /**
  * 为一个视频截取候选帧：
  * 优先用场景切换检测找内容突变帧（更可能是有信息的画面）；
- * 检测不足 3 个或失败时回退到固定百分比（10/30/50/70/90%）。
+ * 检测不足 3 个或失败时回退到固定百分比时点。
  */
 // 长视频不做场景切换检测：全片解码成本高（30 分钟视频几十秒），
 // 直接用固定百分比时点；短视频才值得跑场景检测找内容突变帧
 const SCENE_DETECT_MAX_DURATION_MS = 2 * 60 * 1000
-const SCORE_WIDTH = 320
-const PREVIEW_WIDTH = 720
-const PREVIEW_QUALITY = 5
+const SCORE_WIDTH = 240
+// 候选图仅用于选择；确认后才从原视频重新截取 1920px 封面。
+// 降低预览尺寸可显著减少 Windows 上的 JPEG 编码、落盘和杀毒扫描开销。
+const PREVIEW_WIDTH = 480
+const PREVIEW_QUALITY = 8
+const CANDIDATE_COUNT = 5
 const FINAL_WIDTH = 1920
 const SCORE_CONCURRENCY = 2
 const BLACK_FRAME_RATIO = 0.98
 const BLACK_FRAME_BRIGHTNESS = 12
+const UNIFORM_FRAME_RATIO = 0.98
+const UNIFORM_FRAME_DEVIATION = 10
+const UNIFORM_FRAME_CONTRAST = 8
 
 const timestampFromCandidatePath = (framePath) => {
   const match = basename(framePath).match(/-at-(\d+)ms\.jpg$/)
@@ -93,8 +99,8 @@ async function mapWithConcurrency(items, concurrency, worker) {
 }
 
 /**
- * 轻量候选帧质量评分：只解码 320px 灰度缩略图，不引入模型推理。
- * 清晰度使用相邻像素边缘能量；黑屏比例、亮度和对比度用于淘汰暗场/过曝画面。
+ * 轻量候选帧质量评分：只解码 240px 灰度缩略图，不引入模型推理。
+ * 清晰度使用相邻像素边缘能量；黑屏、纯白和近乎纯色背景均不参与自动推荐。
  */
 export async function scoreCandidateFrame(framePath) {
   const { data, info } = await sharp(framePath)
@@ -126,15 +132,31 @@ export async function scoreCandidateFrame(framePath) {
   const brightness = sum / pixels
   const contrast = Math.sqrt(Math.max(0, sumSquares / pixels - brightness * brightness))
   const blackRatio = dark / pixels
+  let uniform = 0
+  for (const value of data) {
+    if (Math.abs(value - brightness) <= UNIFORM_FRAME_DEVIATION) uniform += 1
+  }
+  const uniformRatio = uniform / pixels
   const clarity = edgeCount ? edge / edgeCount : 0
-  // 亮度接近 128 更自然，黑屏直接施加高惩罚；系数仅用于候选间排序。
+  // 亮度接近 128 更自然，纯色标题卡、淡入淡出与黑场都不适合作为自动封面。
   const exposure = Math.max(0, 1 - Math.abs(brightness - 128) / 128)
-  // 近乎纯黑的过场、淡入帧不可作为自动封面；仍返回给用户手动查看，但在排序中绝不推荐。
-  const rejected = blackRatio >= BLACK_FRAME_RATIO && brightness <= BLACK_FRAME_BRIGHTNESS
+  const isBlack = blackRatio >= BLACK_FRAME_RATIO && brightness <= BLACK_FRAME_BRIGHTNESS
+  const isUniform = uniformRatio >= UNIFORM_FRAME_RATIO && contrast <= UNIFORM_FRAME_CONTRAST
+  // 拒绝项仍返回给用户手动选择，但永远沉底且不会成为默认封面。
+  const rejected = isBlack || isUniform
   const score = rejected
     ? Number.NEGATIVE_INFINITY
     : clarity * 0.55 + contrast * 0.25 + exposure * 25 - blackRatio * 100
-  return { path: framePath, score, brightness, contrast, clarity, blackRatio, rejected }
+  return {
+    path: framePath,
+    score,
+    brightness,
+    contrast,
+    clarity,
+    blackRatio,
+    uniformRatio,
+    rejected
+  }
 }
 
 /** 对一批候选帧评分，返回稳定排序（同分按原始路径保证结果可复现）。 */
@@ -150,6 +172,7 @@ export async function rankCandidateFrames(framePaths) {
         contrast: 0,
         clarity: 0,
         blackRatio: 1,
+        uniformRatio: 1,
         rejected: true
       }
     }
@@ -174,10 +197,11 @@ export async function captureCandidates(
     durationMs = 0
   }
 
-  // 第一帧必须保留，场景检测只用于补齐其余候选；候选数固定最多五张。
+  // 普通模式与精细模式都保留五张候选，保证人工挑选空间；
+  // 精细模式仅对短视频额外进行场景切换检测。
   let timestamps = [0]
   if (durationMs > SCENE_DETECT_MAX_DURATION_MS || !precise) {
-    timestamps = buildFrameTimestamps(durationMs)
+    timestamps = buildFrameTimestamps(durationMs, CANDIDATE_COUNT)
   } else if (durationMs > 1000) {
     try {
       timestamps = (await detectSceneCuts(videoPath, { ffmpegPath, limit: 5, signal })).filter(
@@ -189,8 +213,7 @@ export async function captureCandidates(
     timestamps = [...new Set([0, ...timestamps])].slice(0, 5)
     if (timestamps.length < 3) timestamps = buildFrameTimestamps(durationMs)
   }
-  // 单进程批量截帧：一次 ffmpeg 调用完成全部时点（输入侧快速 seek + 进程内并行解码），
-  // 进程创建开销从 N 次降为 1 次；缺帧时点被容忍剔除，全部失败才抛错
+  // 候选截帧使用输入侧快速 seek；单个时点失败会被容忍剔除，全部失败才抛错。
   const jobs = timestamps.map((seconds, i) => ({
     seconds,
     target: join(
@@ -205,12 +228,7 @@ export async function captureCandidates(
     quality: PREVIEW_QUALITY
   })
   const ranked = await rankCandidateFrames(frames)
-  // 质量排序仅影响推荐顺序。全黑帧会被标记并始终沉底，不参与默认推荐。
-  const firstFrame = ranked.find((entry) => entry.path === jobs[0].target)
-  if (firstFrame && !firstFrame.rejected) {
-    ranked.splice(ranked.indexOf(firstFrame), 1)
-    ranked.unshift(firstFrame)
-  }
+  // 质量排序决定默认推荐。不能强行置顶首帧，否则纯色片头可能覆盖真正优质画面。
   const maxScore = ranked[0]?.score
   const minScore = ranked.at(-1)?.score
   const range = maxScore - minScore

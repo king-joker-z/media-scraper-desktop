@@ -14,6 +14,9 @@ function ConfirmDialog({
   toggle,
   recoverable = false,
   ackLabel,
+  cancelLabel = '取消',
+  confirmLabel = '确认执行',
+  secondaryAction,
   onConfirm,
   onCancel
 }: {
@@ -28,6 +31,10 @@ function ConfirmDialog({
   recoverable?: boolean
   /** 非危险模式下的勾选确认语文案 */
   ackLabel?: string
+  cancelLabel?: string
+  confirmLabel?: string
+  /** 可选的第三操作，如暂不保存直接离开当前页面 */
+  secondaryAction?: { label: string; onAction: () => void }
   onConfirm: () => void
   onCancel: () => void
 }): React.JSX.Element {
@@ -117,10 +124,15 @@ function ConfirmDialog({
         </label>
         <div className="dialog-actions">
           <button ref={cancelRef} className="secondary" onClick={onCancel}>
-            取消
+            {cancelLabel}
           </button>
+          {secondaryAction && (
+            <button className="secondary" disabled={!canConfirm} onClick={secondaryAction.onAction}>
+              {secondaryAction.label}
+            </button>
+          )}
           <button className="danger-button" disabled={!canConfirm} onClick={onConfirm}>
-            确认执行
+            {confirmLabel}
           </button>
         </div>
       </div>

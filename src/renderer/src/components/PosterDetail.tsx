@@ -160,7 +160,7 @@ function PosterDetail({
                 scoreFor(frame) && (
                   <span className="candidate-tag">
                     {scoreFor(frame)!.rejected
-                      ? '不推荐：近全黑'
+                      ? '不推荐：纯色背景'
                       : `质量 ${scoreFor(frame)!.score}`}
                   </span>
                 )

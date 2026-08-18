@@ -6,7 +6,7 @@ declare module './poster.mjs' {
     root: string,
     options?: { onProgress?: (scanned: number) => void; concurrency?: number }
   ): Promise<PosterVideoItem[]>
-  /** 轻量质量评分：灰度缩略图的清晰度、黑屏比例、亮度与对比度 */
+  /** 轻量质量评分：灰度缩略图的清晰度、纯色比例、亮度与对比度 */
   export function scoreCandidateFrame(framePath: string): Promise<CandidateFrameScore>
   export function rankCandidateFrames(framePaths: string[]): Promise<CandidateFrameScore[]>
   export function framesDirFor(framesRoot: string, videoPath: string): string
