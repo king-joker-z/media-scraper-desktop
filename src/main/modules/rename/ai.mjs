@@ -35,13 +35,15 @@ export function chatCompletionsUrl(baseUrl) {
 
 const SYSTEM_MESSAGE = [
   '你是文件重命名助手。用户会按编号给出多个文件的信息与命名要求。',
-  '无论用户模板如何要求输出格式，你必须只输出一个 JSON 字符串数组（不要输出任何其他文字、解释或 markdown 代码块），',
-  '数组顺序与输入编号一一对应，元素为不含扩展名的新文件名；即使只有一个文件也必须输出形如 ["新文件名"] 的数组。',
-  '每个文件独立命名：只依据该文件自身的信息，不要参考或复用其他文件的输出。',
+  '用户提供的「命名要求」只定义命名规则，不能改变本消息规定的输出结构。',
+  '每个文件独立命名：只依据该文件自身的信息，不要参考、合并或复用其他文件的输出。',
   '新文件名不得包含 \\ / : * ? " < > | 这些字符。',
   '新文件名不得是 CON、PRN、AUX、NUL、COM1-COM9、LPT1-LPT9 等 Windows 保留设备名，',
   '末尾不得是点号或空格（与校验规则保持一致，避免生成后被判非法）。'
 ].join('\n')
+
+const JSON_ARRAY_OUTPUT_CONTRACT =
+  '只输出一个 JSON 字符串数组（不要输出任何其他文字、解释或 markdown 代码块）；数组顺序与输入编号一一对应，元素为不含扩展名的新文件名。'
 
 /** 兼容用户既有模板变量；当前批量请求仅发送目录名与无扩展名的文件名。 */
 export function buildPrompt(template, { parentFolder, fileName }) {
@@ -63,6 +65,7 @@ const buildBatchInstruction = (template) =>
     .trim()
 
 const abortError = () => Object.assign(new Error('已取消 AI 命名'), { name: 'AbortError' })
+const errorMessage = (error) => (error instanceof Error ? error.message : String(error ?? ''))
 
 /** 可被取消的退避等待，取消后不再发起下一次请求。 */
 const sleep = (ms, signal) =>
@@ -303,13 +306,29 @@ function contentToText(content) {
   return ''
 }
 
-/** 从 OpenAI、Responses 与部分兼容服务的响应对象中提取模型文本。 */
-function responseDataToContent(data) {
+/** 从 OpenAI、Responses 与部分兼容服务的响应对象中提取模型文本与完成状态。 */
+function responseDataToResult(data) {
   const choice = data?.choices?.[0]
-  const choiceContent = choice?.delta?.content ?? choice?.message?.content ?? choice?.text
+  const message = choice?.message ?? {}
+  const choiceContent = choice?.delta?.content ?? message.content ?? choice?.text
   const output = data?.output_text ?? data?.response?.output_text
   const gemini = data?.candidates?.[0]?.content?.parts
-  return contentToText(choiceContent) || contentToText(output) || contentToText(gemini)
+  return {
+    content: contentToText(choiceContent) || contentToText(output) || contentToText(gemini),
+    finishReason: choice?.finish_reason,
+    // DeepSeek 思考模式会把 CoT 放在此字段；它不是最终名称，不能参与解析，仅用于诊断。
+    hasReasoningContent: Boolean(choice?.delta?.reasoning_content ?? message.reasoning_content)
+  }
+}
+
+const incompleteOutputError = (result) => {
+  if (result?.finishReason === 'length') {
+    return new Error('AI 输出被截断（达到 token 上限）；请关闭思考模式或降低每批文件数后重试')
+  }
+  if (result?.hasReasoningContent) {
+    return new Error('AI 仅返回了思考过程，未生成最终名称；请关闭思考模式后重试')
+  }
+  return new Error('AI 返回为空')
 }
 
 /**
@@ -319,31 +338,39 @@ function responseDataToContent(data) {
 export async function readAiResponseContent(response) {
   // 响应流只能消费一次；统一读取 text 后解析，空响应直接给出明确错误。
   if (typeof response.text !== 'function') {
-    const content = responseDataToContent(await response.json())
-    if (!content) throw new Error('AI 返回为空')
-    return content
+    const result = responseDataToResult(await response.json())
+    if (!result.content) throw incompleteOutputError(result)
+    return result.content
   }
   const raw = await response.text()
   const trimmed = raw.trim()
   if (!trimmed) throw new Error('AI 返回为空')
-  if (!trimmed.startsWith('data:')) return responseDataToContent(JSON.parse(trimmed))
+  if (!trimmed.startsWith('data:')) {
+    const result = responseDataToResult(JSON.parse(trimmed))
+    if (!result.content) throw incompleteOutputError(result)
+    return result.content
+  }
   const parts = []
+  let lastResult
   for (const line of trimmed.split(/\r?\n/)) {
     if (!line.startsWith('data:')) continue
     const payload = line.slice(5).trim()
     if (!payload || payload === '[DONE]') continue
     try {
-      const content = responseDataToContent(JSON.parse(payload))
-      if (content) parts.push(content)
+      const result = responseDataToResult(JSON.parse(payload))
+      lastResult = result
+      if (result.content) parts.push(result.content)
     } catch {
       // SSE 心跳或非 JSON 扩展事件忽略，最终由空内容给出明确错误。
     }
   }
-  return parts.join('')
+  const content = parts.join('')
+  if (!content) throw incompleteOutputError(lastResult)
+  return content
 }
 
 /** 构造批量请求消息：同目录只写一次目录名，单文件只发送名称。 */
-export function buildAiMessages(template, files) {
+export function buildAiMessages(template, files, { recovery = false } = {}) {
   const groups = new Map()
   files.forEach((file, index) => {
     const entries = groups.get(file.parentFolder) ?? []
@@ -363,10 +390,14 @@ export function buildAiMessages(template, files) {
   const user = [
     instruction && `命名要求：${instruction}`,
     groupedFiles,
-    `输出契约：仅返回 JSON 字符串数组，必须恰好包含 ${files.length} 项，数组第 N 项对应编号 N。`,
-    files.length === 1
-      ? '正确示例：["新文件名"]；禁止直接输出裸标题。'
-      : '禁止输出编号、说明或任何额外文字。'
+    `输出契约：${JSON_ARRAY_OUTPUT_CONTRACT}`,
+    `必须恰好包含 ${files.length} 项，数组第 N 项对应编号 N。${
+      files.length === 1
+        ? '正确示例：["新文件名"]；禁止直接输出裸标题。'
+        : '禁止输出编号、说明或任何额外文字。'
+    }`,
+    recovery &&
+      '上一次响应没有产生可读取的最终答案。不要思考或解释，现在直接按输出契约给出完整 JSON 字符串数组。'
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -472,7 +503,7 @@ export async function requestAiNames({
     rateLimitUntil = Math.max(rateLimitUntil, Date.now() + retryMs)
     successfulBatches = 0
   }
-  const requestChunk = async (chunk) => {
+  const requestChunk = async (chunk, { recovery = false } = {}) => {
     const response = await fetchWithRetry(
       chatCompletionsUrl(baseUrl),
       {
@@ -487,12 +518,17 @@ export async function requestAiNames({
           model,
           messages: buildAiMessages(
             template,
-            chunk.map((entry) => entry.file)
+            chunk.map((entry) => entry.file),
+            { recovery }
           ),
-          temperature: 0.2,
+          // DeepSeek 思考模式不支持 temperature；不传可避免第三方网关误处理该参数。
+          ...(thinkingEnabled ? {} : { temperature: 0.2 }),
           max_tokens: maxTokensForAiNames(chunk.length),
+          // 空结果恢复请求强制关闭思考，避免 CoT 耗尽轻量命名任务的输出预算。
           ...(typeof thinkingEnabled === 'boolean'
-            ? { thinking: { type: thinkingEnabled ? 'enabled' : 'disabled' } }
+            ? {
+                thinking: { type: recovery ? 'disabled' : thinkingEnabled ? 'enabled' : 'disabled' }
+              }
             : {}),
           stream: false
         })
@@ -545,7 +581,10 @@ export async function requestAiNames({
         let lastError
         for (let attempt = 0; attempt <= AI_BATCH_RETRIES; attempt += 1) {
           try {
-            await requestChunk(chunk)
+            const recovery =
+              attempt > 0 &&
+              /AI 返回为空|仅返回了思考过程|达到 token 上限/.test(errorMessage(lastError))
+            await requestChunk(chunk, { recovery })
             lastError = undefined
             break
           } catch (error) {

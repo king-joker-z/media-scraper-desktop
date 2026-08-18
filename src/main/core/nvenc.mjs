@@ -59,7 +59,7 @@ export async function probeCudaPipelineCapability(ffmpegPath, { run = runPooled 
       '-frames:v',
       '1',
       '-filter_complex',
-      '[0:v]format=nv12,hwupload_cuda,scale_cuda=320:240,pad_cuda=320:240:0:0[v]',
+      '[0:v]format=nv12,hwupload_cuda,scale_cuda=w=320:h=240,pad_cuda=w=320:h=240:x=0:y=0[v]',
       '-map',
       '[v]',
       '-c:v',

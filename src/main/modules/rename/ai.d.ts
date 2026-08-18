@@ -26,7 +26,8 @@ declare module './ai.mjs' {
   }): Promise<string>
   export function buildAiMessages(
     template: string,
-    files: AiFileInput[]
+    files: AiFileInput[],
+    options?: { recovery?: boolean }
   ): { role: string; content: string }[]
   export function requestAiNames(options: {
     baseUrl: string

@@ -213,6 +213,22 @@ test('buildTranscodeArgs uses high-quality NVENC settings when requested', () =>
   assert.ok(args.some((arg) => arg.startsWith('scale=3840:2160')))
 })
 
+test('buildTranscodeArgs uses named CUDA filter options for bundled GPU builds', () => {
+  const args = buildTranscodeArgs(
+    'in.mkv',
+    { width: 1920, height: 1080, fps: 30, pixFmt: 'yuv420p' },
+    'out.mp4',
+    { encoder: 'cuda-nvenc' }
+  )
+  assert.deepEqual(args.slice(0, 4), ['-v', 'error', '-hwaccel', 'cuda'])
+  assert.ok(args.includes('-hwaccel_output_format'))
+  assert.ok(
+    args.includes(
+      'scale_cuda=w=1920:h=1080:force_original_aspect_ratio=decrease,pad_cuda=w=1920:h=1080:x=(ow-iw)/2:y=(oh-ih)/2:color=black'
+    )
+  )
+})
+
 test('verifyMergeOutput validates duration and streams', () => {
   const items = [item('a'), item('b')]
   assert.equal(verifyMergeOutput(media({ durationMs: 20_000 }), items).ok, true)

@@ -201,6 +201,9 @@ export function buildTranscodeArgs(
 ) {
   const useNvenc = encoder === 'nvenc' || encoder === 'cuda-nvenc'
   const useCudaPipeline = encoder === 'cuda-nvenc'
+  const videoFilter = useCudaPipeline
+    ? `scale_cuda=w=${target.width}:h=${target.height}:force_original_aspect_ratio=decrease,pad_cuda=w=${target.width}:h=${target.height}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`
+    : `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`
   const videoArgs = useNvenc
     ? [
         '-c:v',
@@ -230,10 +233,8 @@ export function buildTranscodeArgs(
     '-map',
     hasAudio ? '0:a:0' : '1:a:0',
     '-vf',
-    // CUDA 路径从 NVDEC 硬件帧直接缩放/补边后交给 NVENC；任一素材/驱动不支持时主进程按段回退。
-    useCudaPipeline
-      ? `scale_cuda=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad_cuda=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black`
-      : `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`,
+    // 已包含 pad_cuda 的内置 FFmpeg 使用具名参数；缺少该滤镜或运行失败时主进程按段降级。
+    videoFilter,
     ...(useCudaPipeline ? ['-aspect', `${target.width}:${target.height}`] : []),
     '-r',
     String(target.fps),

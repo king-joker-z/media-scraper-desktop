@@ -365,7 +365,7 @@ function SettingsPage(): React.JSX.Element {
   }
 
   return (
-    <div className="page">
+    <div className="page settings-page">
       <header className="page-header">
         <div>
           <p className="eyebrow">SETTINGS</p>

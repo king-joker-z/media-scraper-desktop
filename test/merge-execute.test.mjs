@@ -280,6 +280,57 @@ test('mergeVideos falls back to CPU only when NVENC capability probe fails', asy
   }
 })
 
+test('mergeVideos falls back to NVENC + CPU filters when the CUDA pipeline probe rejects', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { size: '640x480' }))
+    let cudaProbeCount = 0
+    let nvencSegmentCount = 0
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'cuda-probe-fallback.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      nvencEnabled: true,
+      cudaPipelineEnabled: true,
+      probeNvenc: async () => ({ available: true }),
+      probeCudaPipeline: async () => {
+        cudaProbeCount += 1
+        return { available: false, reason: "Unknown filter 'pad_cuda'" }
+      },
+      diskFree: async () => Number.MAX_SAFE_INTEGER,
+      runFfmpegImpl: async (ffmpegPath, args) => {
+        assert.ok(!args.some((arg) => String(arg).includes('pad_cuda')))
+        if (args.includes('h264_nvenc')) nvencSegmentCount += 1
+        const executableArgs = []
+        for (let index = 0; index < args.length; index += 1) {
+          const arg = args[index]
+          if (['-tune', '-rc', '-cq', '-b:v'].includes(arg)) {
+            index += 1
+            continue
+          }
+          if (arg === '-preset') {
+            executableArgs.push(arg, 'veryfast')
+            index += 1
+            continue
+          }
+          executableArgs.push(arg === 'h264_nvenc' ? 'libx264' : arg)
+        }
+        await execFileAsync(ffmpegPath, executableArgs)
+      }
+    })
+    assert.equal(cudaProbeCount, 1)
+    assert.ok(nvencSegmentCount > 0)
+    assert.equal(result.verified, true)
+    assert.equal(result.videoEncoder, 'nvenc')
+    assert.match(result.verifyNote, /NVIDIA NVENC 编码完成/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('mergeVideos does not probe NVENC for stream-copy merges', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
   try {

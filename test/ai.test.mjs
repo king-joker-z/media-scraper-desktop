@@ -285,6 +285,36 @@ test('AI output limits scale with each batch and Retry-After is honored', () => 
   assert.equal(retryAfterMs({ headers: { get: () => null } }), 0)
 })
 
+test('DeepSeek 空最终答案会区分思考耗尽与 token 截断', async () => {
+  await assert.rejects(
+    readAiResponseContent({
+      text: async () =>
+        JSON.stringify({
+          choices: [
+            {
+              message: { content: '', reasoning_content: '正在推理' },
+              finish_reason: 'length'
+            }
+          ]
+        }),
+      json: async () => ({})
+    }),
+    /输出被截断.*token/
+  )
+  await assert.rejects(
+    readAiResponseContent({
+      text: async () =>
+        JSON.stringify({
+          choices: [
+            { message: { content: '', reasoning_content: '正在推理' }, finish_reason: 'stop' }
+          ]
+        }),
+      json: async () => ({})
+    }),
+    /仅返回了思考过程/
+  )
+})
+
 test('buildAiMessages groups videos by parent folder and sends no extension', () => {
   const messages = buildAiMessages(
     '清理噪音；目录={{parentFolder}}；文件={{fileName}}；扩展={{extension}}',
@@ -432,6 +462,46 @@ test('requestAiNames cancellation stops remaining batches', async () => {
   await assert.rejects(pending, /已取消 AI 命名/)
   // 批次并发为 3，取消时最多已有三条请求开始；后续批次不得再发起。
   assert.ok(calls <= 3)
+})
+
+test('requestAiNames 回退请求会关闭思考并要求直接输出结果', async () => {
+  clearAiCache()
+  const bodies = []
+  const names = await requestAiNames({
+    baseUrl: 'https://api.deepseek.com',
+    token: 'sk',
+    model: 'deepseek-v4-flash',
+    template: '',
+    thinkingEnabled: true,
+    files: [{ parentFolder: '', fileName: 'a' }],
+    useCache: false,
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body)
+      bodies.push(body)
+      if (bodies.length === 1) {
+        return {
+          ok: true,
+          text: async () =>
+            JSON.stringify({
+              choices: [
+                {
+                  message: { content: '', reasoning_content: '正在推理' },
+                  finish_reason: 'length'
+                }
+              ]
+            })
+        }
+      }
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '["名称"]' } }] }) }
+    }
+  })
+  assert.deepEqual(names, ['名称'])
+  assert.equal(bodies.length, 2)
+  assert.deepEqual(bodies[0].thinking, { type: 'enabled' })
+  assert.deepEqual(bodies[1].thinking, { type: 'disabled' })
+  assert.equal(bodies[0].temperature, undefined)
+  assert.equal(bodies[1].temperature, undefined)
+  assert.match(bodies[1].messages[1].content, /不要思考或解释/)
 })
 
 test('requestAiNames only sends the platform thinking setting when explicitly configured', async () => {
