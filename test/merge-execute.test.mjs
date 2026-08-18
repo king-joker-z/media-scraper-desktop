@@ -433,6 +433,45 @@ test('mergeVideos keeps output ordering while transcoding segments concurrently'
   }
 })
 
+test('mergeVideos keeps aggregate progress monotonic when segments transcode concurrently', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { seconds: 1, size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { seconds: 1, size: '640x480' }))
+    const progress = []
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'monotonic-progress.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      mergeTranscodeConcurrency: 2,
+      diskFree: async () => Number.MAX_SAFE_INTEGER,
+      onProgress: (percent) => progress.push(percent),
+      runFfmpegImpl: async (ffmpegPath, args, options) => {
+        const inputIndex = args.indexOf('-i')
+        const inputPath = args[inputIndex + 1]
+        if (inputPath === a.path) {
+          await new Promise((resolve) => setTimeout(resolve, 30))
+          options.onProgress?.(50)
+        } else if (inputPath === b.path) {
+          options.onProgress?.(100)
+        }
+        await execFileAsync(ffmpegPath, args)
+      }
+    })
+    assert.equal(result.verified, true)
+    assert.ok(progress.length > 0)
+    assert.deepEqual(
+      progress,
+      [...progress].sort((left, right) => left - right),
+      `进度不应回退：${progress.join(', ')}`
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('mergeWorkDir supports a caller-selected temporary root', () => {
   const target = { width: 640, height: 480, fps: 24, pixFmt: 'yuv420p' }
   const workDir = mergeWorkDir([{ path: '/a.mp4' }], target, 'cpu', '/media/.msd-merge-temp')

@@ -360,6 +360,23 @@ export async function mergeVideos({
       let hardwareSegments = 0
       let fallbackSegments = 0
       let forceCpuAfterNvencFailure = false
+      // 并发转码时，不能按片段索引直接映射进度：后面的短片段可能先到 50%，
+      // 此时前面长片段刚开始会把总进度报回 20%。按各片段实际时长汇总，且单段仅前进。
+      const segmentProgress = new Array(items.length).fill(0)
+      const totalSegmentWeight = items.reduce(
+        (sum, item) => sum + Math.max(1, item.media?.durationMs ?? 0),
+        0
+      )
+      const reportSegmentProgress = (index, percent, stage) => {
+        const normalized = Math.min(100, Math.max(0, Math.round(percent)))
+        segmentProgress[index] = Math.max(segmentProgress[index], normalized)
+        const completedWeight = segmentProgress.reduce(
+          (sum, progress, segmentIndex) =>
+            sum + Math.max(1, items[segmentIndex].media?.durationMs ?? 0) * (progress / 100),
+          0
+        )
+        onProgress?.(Math.round((completedWeight / totalSegmentWeight) * 90), stage)
+      }
       const transcodeAll = async (encoder, targetWorkDir) => {
         const segments = new Array(items.length)
         let cursor = 0
@@ -370,10 +387,8 @@ export async function mergeVideos({
             if (i >= items.length) return
             const item = items[i]
             const segment = join(targetWorkDir, `seg-${String(i).padStart(3, '0')}.mp4`)
-            const base = Math.round((i / items.length) * 90)
-            const span = Math.round(90 / items.length)
             if (await segmentReady(segment, ffprobePath, item.media?.durationMs ?? 0)) {
-              onProgress?.(base + span, `跳过已完成段 ${i + 1}/${items.length} · ${item.name}`)
+              reportSegmentProgress(i, 100, `跳过已完成段 ${i + 1}/${items.length} · ${item.name}`)
               segments[i] = segment
               continue
             }
@@ -388,8 +403,9 @@ export async function mergeVideos({
                   signal,
                   totalMs: item.media?.durationMs ?? 0,
                   onProgress: (pct) =>
-                    onProgress?.(
-                      base + Math.round((pct / 100) * span),
+                    reportSegmentProgress(
+                      i,
+                      pct,
                       `转码统一 ${i + 1}/${items.length} · ${item.name} ${pct}%${
                         segmentEncoder === 'cuda-nvenc'
                           ? '（NVIDIA · 全 GPU 流水线）'
@@ -412,8 +428,9 @@ export async function mergeVideos({
                 throw error
               if (encoder === 'cuda-nvenc') {
                 fallbackSegments += 1
-                onProgress?.(
-                  base,
+                reportSegmentProgress(
+                  i,
+                  0,
                   `GPU 完整流水线不支持第 ${i + 1} 段，改用 NVIDIA 编码 + CPU 缩放`
                 )
                 await runSegment('nvenc')
@@ -426,12 +443,13 @@ export async function mergeVideos({
                 // 默认串行模式在首个 NVENC 失败后不再反复尝试该设备，后续段都稳定使用 CPU。
                 forceCpuAfterNvencFailure = true
                 activeEncoder = 'cpu'
-                onProgress?.(base, `第 ${i + 1} 段 NVIDIA 编码失败，后续统一使用 CPU x264`)
+                reportSegmentProgress(i, 0, `第 ${i + 1} 段 NVIDIA 编码失败，后续统一使用 CPU x264`)
                 await runSegment('cpu')
               } else {
                 throw error
               }
             }
+            reportSegmentProgress(i, 100, `转码统一完成 ${i + 1}/${items.length} · ${item.name}`)
             segments[i] = segment
           }
           throw new Error('已取消')
