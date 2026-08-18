@@ -955,6 +955,10 @@ function registerIpcHandlers(): void {
           progressTaskId = taskId
           const safeRoot = requireVideoRoot(root)
           assertSafeFileName(outputName)
+          if (items.length < 2) throw new Error('至少需要选择两个视频片段')
+          if (extname(outputName).toLowerCase() !== '.mp4') {
+            throw new Error('合并输出文件必须使用 .mp4 扩展名')
+          }
           items.forEach((item) => requireFileInRoots(item.path, [safeRoot], '合并源文件'))
           const emit = (type: TaskEvent['type'], percent: number, stage: string): void =>
             emitTask(taskId, '视频合并', { type, total: 100, completed: percent, current: stage })

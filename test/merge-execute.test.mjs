@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, readdir, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mergeVideos, mergeWorkDir } from '../src/main/modules/merge/merge.mjs'
@@ -188,6 +188,32 @@ test('merge keeps workdir on cancel for resume and cleans on success', async () 
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('mergeVideos rejects fewer than two items and non-MP4 outputs before touching files', async () => {
+  const baseOptions = {
+    outputDir: tmpdir(),
+    ffmpegPath: resolveFfmpegPath(),
+    ffprobePath: resolveFfprobePath()
+  }
+  const single = await mergeVideos({
+    ...baseOptions,
+    items: [{ path: '/not-used/a.mp4', name: '单段', media: null }],
+    outputName: 'single.mp4'
+  })
+  assert.equal(single.verified, false)
+  assert.match(single.verifyNote, /至少需要选择两个视频片段/)
+
+  const invalidExtension = await mergeVideos({
+    ...baseOptions,
+    items: [
+      { path: '/not-used/a.mp4', name: 'a', media: null },
+      { path: '/not-used/b.mp4', name: 'b', media: null }
+    ],
+    outputName: 'merged.mkv'
+  })
+  assert.equal(invalidExtension.verified, false)
+  assert.match(invalidExtension.verifyNote, /.mp4 扩展名/)
 })
 
 test('mergeVideos refuses to merge items with unreadable media information', async () => {
@@ -410,6 +436,40 @@ test('mergeVideos retries from an isolated CPU workdir after a runtime NVENC fai
   }
 })
 
+test('mergeVideos does not reuse a cached segment that violates the unified media contract', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { seconds: 1, size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { seconds: 1, size: '640x480' }))
+    const target = checkCompatibility([a, b]).target
+    const versionedItems = await Promise.all(
+      [a, b].map(async (clip) => ({
+        ...clip,
+        sourceMtimeMs: (await stat(clip.path)).mtimeMs,
+        sourceSizeBytes: (await stat(clip.path)).size
+      }))
+    )
+    const workDir = mergeWorkDir(versionedItems, target, 'cpu')
+    await mkdir(workDir, { recursive: true })
+    await makeClip(join(workDir, 'seg-000.mp4'), { seconds: 1, size: '320x240' })
+
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'contract.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      diskFree: async () => Number.MAX_SAFE_INTEGER
+    })
+    assert.equal(result.verified, true)
+    const output = await probeMedia(result.outputPath, resolveFfprobePath())
+    assert.equal(output.width, 640)
+    assert.equal(output.height, 480)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('mergeVideos keeps output ordering while transcoding segments concurrently', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
   try {
@@ -428,6 +488,48 @@ test('mergeVideos keeps output ordering while transcoding segments concurrently'
     assert.equal(result.verified, true)
     assert.equal(result.videoEncoder, 'cpu')
     assert.match(result.tempDirectory, /msd-merge-/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeVideos switches to an isolated CPU workdir after runtime NVENC failure', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-merge-'))
+  try {
+    const a = await probeItem(await makeClip(join(dir, 'a.mp4'), { seconds: 1, size: '320x240' }))
+    const b = await probeItem(await makeClip(join(dir, 'b.mp4'), { seconds: 1, size: '640x480' }))
+    const target = checkCompatibility([a, b]).target
+    const versionedItems = await Promise.all(
+      [a, b].map(async (clip) => ({
+        ...clip,
+        sourceMtimeMs: (await stat(clip.path)).mtimeMs,
+        sourceSizeBytes: (await stat(clip.path)).size
+      }))
+    )
+    const nvencDir = mergeWorkDir(versionedItems, target, 'nvenc')
+    const cpuDir = mergeWorkDir(versionedItems, target, 'cpu')
+    let nvencAttempts = 0
+    const result = await mergeVideos({
+      items: [a, b],
+      outputDir: dir,
+      outputName: 'isolated-fallback.mp4',
+      ffmpegPath: resolveFfmpegPath(),
+      ffprobePath: resolveFfprobePath(),
+      nvencEnabled: true,
+      probeNvenc: async () => ({ available: true }),
+      diskFree: async () => Number.MAX_SAFE_INTEGER,
+      runFfmpegImpl: async (ffmpegPath, args) => {
+        if (args.includes('h264_nvenc')) {
+          nvencAttempts += 1
+          throw new Error('h264_nvenc: InitializeEncoder failed while opening encoder')
+        }
+        await execFileAsync(ffmpegPath, args)
+      }
+    })
+    assert.equal(nvencAttempts, 1)
+    assert.equal(result.verified, true)
+    assert.equal(result.tempDirectory, cpuDir)
+    assert.equal(await pathExists(nvencDir), false)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

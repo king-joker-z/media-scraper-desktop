@@ -7,6 +7,7 @@ declare module './merge.mjs' {
       path: string
       media?: Pick<MediaInfo, 'sizeBytes' | 'durationMs'> | null
       sourceMtimeMs?: number
+      sourceSizeBytes?: number
     }[],
     target: { width: number; height: number; fps: number; pixFmt: string } | null,
     encoder?: 'cpu' | 'nvenc' | 'cuda-nvenc',

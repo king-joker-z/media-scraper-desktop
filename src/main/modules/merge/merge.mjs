@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, extname } from 'node:path'
 import {
   createMergeTransactionPath,
   createStagingPath,
   discardStagedFile,
   diskFreeBytes,
   ensureDir,
-  fileMtimeMs,
   ensureUniquePath,
   fileSystemId,
+  fileMtimeMs,
+  fileSize,
   installStagedFileIfAbsent,
   permanentDelete,
   writeAtomicTextFile,
@@ -78,7 +79,7 @@ export function mergeWorkDir(items, target, encoder = 'cpu', tempRoot = tmpdir()
     version: 2,
     items: items.map((item) => ({
       path: item.path,
-      sizeBytes: item.media?.sizeBytes ?? null,
+      sizeBytes: item.sourceSizeBytes ?? item.media?.sizeBytes ?? null,
       durationMs: item.media?.durationMs ?? null,
       sourceMtimeMs: item.sourceMtimeMs ?? null
     })),
@@ -95,11 +96,24 @@ export function mergeWorkDir(items, target, encoder = 'cpu', tempRoot = tmpdir()
  * 时长+可解析校验是关键——取消（尤其 Windows 强杀）留下的截断/无 moov 段必须重转，
  * 否则输出时长校验会失败。
  */
-async function segmentReady(segment, ffprobePath, expectedMs) {
+async function segmentReady(segment, ffprobePath, expectedMs, target) {
   try {
     const info = await probeMedia(segment, ffprobePath)
     if ((info.sizeBytes ?? 0) < 1024) return false
     if (expectedMs > 0 && Math.abs(info.durationMs - expectedMs) > 1000) return false
+    // 断点段必须满足最终 concat 的统一流契约，不能只因“可读且时长相近”就复用。
+    if (
+      info.videoCodec !== 'h264' ||
+      info.width !== target.width ||
+      info.height !== target.height ||
+      info.pixFmt !== target.pixFmt ||
+      Math.abs((info.fps ?? 0) - target.fps) > 0.5 ||
+      info.audioCodec !== 'aac' ||
+      info.sampleRate !== 44100 ||
+      info.channels !== 2
+    ) {
+      return false
+    }
     return true
   } catch {
     return false
@@ -143,6 +157,26 @@ export async function mergeVideos({
   volumeId = fileSystemId,
   runFfmpegImpl = runFfmpeg
 }) {
+  if (!Array.isArray(items) || items.length < 2) {
+    return {
+      cancelled: false,
+      outputPath: null,
+      verified: false,
+      verifyNote: '合并前检查失败：至少需要选择两个视频片段',
+      transcoded: false,
+      videoEncoder: 'copy'
+    }
+  }
+  if (typeof outputName !== 'string' || extname(outputName).toLowerCase() !== '.mp4') {
+    return {
+      cancelled: false,
+      outputPath: null,
+      verified: false,
+      verifyNote: '合并前检查失败：输出文件必须使用 .mp4 扩展名',
+      transcoded: false,
+      videoEncoder: 'copy'
+    }
+  }
   const compatibility = checkCompatibility(items)
   const unreadableItems = items.filter((item) => !item.media)
   if (unreadableItems.length > 0 || (!compatibility.compatible && !compatibility.target)) {
@@ -188,7 +222,14 @@ export async function mergeVideos({
   let versionedItems
   try {
     versionedItems = await Promise.all(
-      items.map(async (item) => ({ ...item, sourceMtimeMs: await fileMtimeMs(item.path) }))
+      items.map(async (item) => {
+        // 缓存键只信任执行前读取的文件版本，不信任 renderer 扫描快照中的大小。
+        const [sourceMtimeMs, sourceSizeBytes] = await Promise.all([
+          fileMtimeMs(item.path),
+          fileSize(item.path)
+        ])
+        return { ...item, sourceMtimeMs, sourceSizeBytes }
+      })
     )
   } catch (error) {
     return {
@@ -325,6 +366,7 @@ export async function mergeVideos({
     }
   }
   let verified = false
+  const cleanupWorkDirs = new Set()
   let transactionCleanupPending = false
   let gpuSummary = {
     requested: nvencEnabled,
@@ -355,11 +397,11 @@ export async function mergeVideos({
       const target = compatibility.target
       const requestedConcurrency = Math.min(4, Math.max(1, Math.round(mergeTranscodeConcurrency)))
       // GPU 会话/显存更敏感：完整 CUDA 路径最多两路；默认值为 1，维持原有最稳行为。
-      const transcodeConcurrency =
-        activeEncoder === 'cuda-nvenc' ? Math.min(2, requestedConcurrency) : requestedConcurrency
+      // GPU 运行时故障会导致整批任务切换 CPU；GPU 阶段保持串行，避免多个 worker
+      // 同时写入不同策略的段，并让回退后的断点目录保持单一编码契约。
+      const transcodeConcurrency = activeEncoder === 'cpu' ? requestedConcurrency : 1
       let hardwareSegments = 0
       let fallbackSegments = 0
-      let forceCpuAfterNvencFailure = false
       // 并发转码时，不能按片段索引直接映射进度：后面的短片段可能先到 50%，
       // 此时前面长片段刚开始会把总进度报回 20%。按各片段实际时长汇总，且单段仅前进。
       const segmentProgress = new Array(items.length).fill(0)
@@ -387,7 +429,7 @@ export async function mergeVideos({
             if (i >= items.length) return
             const item = items[i]
             const segment = join(targetWorkDir, `seg-${String(i).padStart(3, '0')}.mp4`)
-            if (await segmentReady(segment, ffprobePath, item.media?.durationMs ?? 0)) {
+            if (await segmentReady(segment, ffprobePath, item.media?.durationMs ?? 0, target)) {
               reportSegmentProgress(i, 100, `跳过已完成段 ${i + 1}/${items.length} · ${item.name}`)
               segments[i] = segment
               continue
@@ -416,7 +458,7 @@ export async function mergeVideos({
                     )
                 }
               )
-            const effectiveEncoder = forceCpuAfterNvencFailure ? 'cpu' : encoder
+            const effectiveEncoder = encoder
             try {
               await runSegment(effectiveEncoder)
               if (effectiveEncoder === 'nvenc' || effectiveEncoder === 'cuda-nvenc')
@@ -433,18 +475,20 @@ export async function mergeVideos({
                   0,
                   `GPU 完整流水线不支持第 ${i + 1} 段，改用 NVIDIA 编码 + CPU 缩放`
                 )
-                await runSegment('nvenc')
-                hardwareSegments += 1
+                try {
+                  await runSegment('nvenc')
+                  hardwareSegments += 1
+                } catch (nvencError) {
+                  if (!isNvencRuntimeFailure(nvencError)) throw nvencError
+                  const fallback = new Error('NVENC_RUNTIME_FALLBACK')
+                  fallback.cause = nvencError
+                  throw fallback
+                }
               } else if (encoder === 'nvenc') {
-                fallbackSegments += 1
-                nvencFallbackReason = `实际转码时 NVIDIA NVENC 不可用：${
-                  error instanceof Error ? error.message : String(error)
-                }`
-                // 默认串行模式在首个 NVENC 失败后不再反复尝试该设备，后续段都稳定使用 CPU。
-                forceCpuAfterNvencFailure = true
-                activeEncoder = 'cpu'
-                reportSegmentProgress(i, 0, `第 ${i + 1} 段 NVIDIA 编码失败，后续统一使用 CPU x264`)
-                await runSegment('cpu')
+                // 不在 NVENC 工作目录混入 CPU 中间段：由外层切到独立 CPU 目录后完整续传。
+                const fallback = new Error('NVENC_RUNTIME_FALLBACK')
+                fallback.cause = error
+                throw fallback
               } else {
                 throw error
               }
@@ -459,7 +503,27 @@ export async function mergeVideos({
         )
         return segments
       }
-      const segments = await transcodeAll(activeEncoder, workDir)
+      let segments
+      try {
+        segments = await transcodeAll(activeEncoder, workDir)
+      } catch (error) {
+        if (error instanceof Error && error.message === 'NVENC_RUNTIME_FALLBACK') {
+          fallbackSegments += 1
+          nvencFallbackReason = `实际转码时 NVIDIA NVENC 不可用：${
+            error.cause instanceof Error ? error.cause.message : String(error.cause ?? error)
+          }`
+          activeEncoder = 'cpu'
+          cudaPipelineAvailable = false
+          cleanupWorkDirs.add(workDir)
+          workDir = mergeWorkDir(versionedItems, target, 'cpu', resolvedTempRoot)
+          await ensureDir(workDir)
+          segmentProgress.fill(0)
+          onProgress?.(0, 'NVIDIA 编码失败，已切换独立 CPU x264 断点目录重新处理')
+          segments = await transcodeAll('cpu', workDir)
+        } else {
+          throw error
+        }
+      }
       gpuSummary = {
         requested: nvencEnabled,
         encoder: compatibility.compatible ? 'copy' : activeEncoder === 'cpu' ? 'cpu' : 'nvenc',
@@ -614,7 +678,11 @@ export async function mergeVideos({
   } finally {
     // 仅在输出已通过完整校验时清理临时目录；失败/取消保留供断点续传。
     // Windows 索引器、杀软瞬态占用时，清理失败不能否定已经提交并校验过的输出。
-    if (verified) await permanentDelete(workDir).catch(() => {})
+    if (verified) {
+      await Promise.all(
+        [...cleanupWorkDirs, workDir].map((dir) => permanentDelete(dir).catch(() => {}))
+      )
+    }
   }
 }
 
