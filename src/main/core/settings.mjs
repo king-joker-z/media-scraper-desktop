@@ -163,7 +163,13 @@ export const DEFAULT_SETTINGS = {
   activeProviderId: 'openrouter',
   promptTemplate: DEFAULT_PROMPT_TEMPLATE,
   regexTemplates: [
-    { name: '去除 @ 尾巴', pattern: '@[^\\s@]+$', replacement: '', flags: 'g' },
+    {
+      name: '提取 @ 后标题',
+      // 常见来源形如“域名@编号.标题”：删除前缀、编号和分隔点，只保留标题。
+      pattern: '^.*@[^\\s@.]+\\.',
+      replacement: '',
+      flags: 'g'
+    },
     { name: '去除【】标签', pattern: '【[^】]*】', replacement: '', flags: 'g' },
     { name: '去除 [] 标签', pattern: '\\[[^\\]]*\\]', replacement: '', flags: 'g' }
   ],
@@ -364,9 +370,15 @@ export function normalizeSettings(raw) {
         ? input.promptTemplate
         : DEFAULT_SETTINGS.promptTemplate,
     regexTemplates: Array.isArray(input.regexTemplates)
-      ? input.regexTemplates.filter(
-          (t) => t && typeof t.name === 'string' && typeof t.pattern === 'string'
-        )
+      ? input.regexTemplates
+          .filter((t) => t && typeof t.name === 'string' && typeof t.pattern === 'string')
+          .map((t) =>
+            // 升级历史默认规则：旧规则要么吞掉标题，要么只删编号而留下无意义前缀。
+            (t.name === '去除 @ 尾巴' && t.pattern === '@[^\\s@]+$') ||
+            (t.name === '去除 @ 标记' && t.pattern === '@[^\\s@.]+(?=\\.|$)')
+              ? DEFAULT_SETTINGS.regexTemplates[0]
+              : t
+          )
       : DEFAULT_SETTINGS.regexTemplates,
     recentWorkspaces: Array.isArray(input.recentWorkspaces)
       ? input.recentWorkspaces

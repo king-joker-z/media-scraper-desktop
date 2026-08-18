@@ -50,8 +50,30 @@ test('returns defaults when the settings file does not exist', async () => {
     assert.equal(acucompute.apiProtocol, 'openai-responses')
     assert.equal(acucompute.selectedModel, 'acu-auto')
     assert.ok(settings.promptTemplate.includes('文件名'))
+    assert.deepEqual(settings.regexTemplates[0], {
+      name: '提取 @ 后标题',
+      pattern: '^.*@[^\\s@.]+\\.',
+      replacement: '',
+      flags: 'g'
+    })
     assert.ok(settings.regexTemplates.length >= 3)
   })
+})
+
+test('历史 @ 默认规则会升级为仅保留标题的新规则', () => {
+  const legacyRules = [
+    { name: '去除 @ 尾巴', pattern: '@[^\\s@]+$', replacement: '', flags: 'g' },
+    { name: '去除 @ 标记', pattern: '@[^\\s@.]+(?=\\.|$)', replacement: '', flags: 'g' }
+  ]
+  for (const legacyRule of legacyRules) {
+    const settings = normalizeSettings({ regexTemplates: [legacyRule] })
+    assert.deepEqual(settings.regexTemplates[0], {
+      name: '提取 @ 后标题',
+      pattern: '^.*@[^\\s@.]+\\.',
+      replacement: '',
+      flags: 'g'
+    })
+  }
 })
 
 test('并发 update 串行落盘不丢数据', async () => {

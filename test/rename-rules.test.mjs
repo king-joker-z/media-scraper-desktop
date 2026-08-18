@@ -115,13 +115,14 @@ test('withSequencePrefix prefixes stems in given order', () => {
   ])
 })
 
-test('applyRegexRules cleans noise and tolerates invalid patterns', () => {
+test('applyRegexRules extracts the title after @ marker and tolerates invalid patterns', () => {
   const rules = [
-    { pattern: '@[^\\s@]+$', replacement: '', flags: 'g' },
+    { pattern: '^.*@[^\\s@.]+\\.', replacement: '', flags: 'g' },
     { pattern: '【[^】]*】', replacement: '', flags: 'g' },
     { pattern: '([invalid', replacement: '', flags: 'g' } // 非法正则跳过
   ]
-  assert.equal(applyRegexRules('abc@111', rules), 'abc')
+  assert.equal(applyRegexRules('abc@111', rules), 'abc@111')
+  assert.equal(applyRegexRules('www.abc.com@123.测试用视频', rules), '测试用视频')
   assert.equal(applyRegexRules('【广告】电影  名', rules), '电影 名')
 })
 
