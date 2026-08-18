@@ -178,7 +178,8 @@ body {
   color: var(--label-primary);
   background: var(--bg-window);
   -webkit-font-smoothing: antialiased;
-  user-select: none;
+  /* 操作提示、错误详情与路径等文字默认允许选中，方便复制排查。 */
+  user-select: text;
 }
 button {
   min-height: var(--control-height);
