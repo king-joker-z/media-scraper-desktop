@@ -1,3 +1,4 @@
+import { HexColorInput, HexColorPicker } from 'react-colorful'
 import { useEffect, useRef, useState } from 'react'
 import type {
   AiProviderConfig,
@@ -72,14 +73,8 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
 const CUSTOM_PALETTE: { key: ThemePalette; label: string; description: string } = {
   key: 'custom',
   label: '自定义强调色',
-  description: '可用色轮或屏幕取色实时预览'
+  description: '可用跨平台色轮实时预览'
 }
-
-type ScreenColorPickerWindow = Window & {
-  EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> }
-}
-
-const screenColorPickerWindow = window as ScreenColorPickerWindow
 
 type SettingsGroup = {
   id: string
@@ -117,9 +112,9 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
 
 function SettingsPage(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
-  // 色彩选择器使用本地值驱动，防止异步 settings IPC 回包短暂覆盖吸管刚选中的颜色。
+  // 色彩选择器使用本地值驱动，防止异步 settings IPC 回包短暂覆盖刚选中的颜色。
   const [customAccent, setCustomAccent] = useState('#1687d9')
-  const isScreenPickerAvailable = Boolean(screenColorPickerWindow.EyeDropper)
+  const [isCustomColorPickerOpen, setIsCustomColorPickerOpen] = useState(false)
   const [backgroundNotice, setBackgroundNotice] = useState('')
   const [backgroundBusy, setBackgroundBusy] = useState(false)
   const [editingId, setEditingId] = useState<string>('')
@@ -269,17 +264,6 @@ function SettingsPage(): React.JSX.Element {
     applyBackgroundAppearance(appearance)
     setSettings((current) => (current ? { ...current, backgroundAppearance: appearance } : current))
     if (saveNow) void persist({ backgroundAppearance: appearance })
-  }
-
-  const pickScreenAccent = async (): Promise<void> => {
-    const EyeDropper = screenColorPickerWindow.EyeDropper
-    if (!EyeDropper) return
-    try {
-      const result = await new EyeDropper().open()
-      applyCustomAccent(result.sRGBHex, true)
-    } catch {
-      // 用户按 Esc 或取消取色不应显示错误提示。
-    }
   }
 
   const selectBackgroundImage = async (): Promise<void> => {
@@ -496,7 +480,7 @@ function SettingsPage(): React.JSX.Element {
             </button>
           ))}
         </div>
-        <p className="settings-hint">选择一套预设，或用色轮、屏幕取色创建只属于你的强调色。</p>
+        <p className="settings-hint">选择一套预设，或用跨平台色轮创建只属于你的强调色。</p>
         <div className="palette-grid" aria-label="预设强调色方案">
           {PALETTE_OPTIONS.map((palette) => (
             <button
@@ -534,24 +518,37 @@ function SettingsPage(): React.JSX.Element {
             </span>
           </button>
           <div className="custom-color-picker">
-            <span className="sr-only">选择自定义强调色</span>
-            <input
-              type="color"
-              value={customAccent}
-              aria-label="通过色轮选择自定义强调色"
-              onInput={(event) => applyCustomAccent(event.currentTarget.value)}
-              onChange={(event) => applyCustomAccent(event.currentTarget.value, true)}
-            />
+            <button
+              type="button"
+              className="custom-color-picker-trigger"
+              aria-expanded={isCustomColorPickerOpen}
+              aria-controls="custom-accent-picker"
+              onClick={() => setIsCustomColorPickerOpen((open) => !open)}
+            >
+              <span
+                className="custom-color-preview"
+                style={{ background: customAccent }}
+                aria-hidden="true"
+              />
+              <span>选择颜色</span>
+            </button>
             <output>{customAccent.toUpperCase()}</output>
-            {isScreenPickerAvailable && (
-              <button
-                type="button"
-                className="screen-color-picker"
-                onClick={() => void pickScreenAccent()}
-                title="从屏幕任意位置取色（按 Esc 取消）"
-              >
-                屏幕取色
-              </button>
+            {isCustomColorPickerOpen && (
+              <div id="custom-accent-picker" className="custom-color-picker-popover">
+                <HexColorPicker
+                  color={customAccent}
+                  aria-label="通过色轮选择自定义强调色"
+                  onChange={applyCustomAccent}
+                />
+                <label className="custom-color-hex-input">
+                  <span>HEX</span>
+                  <HexColorInput
+                    color={customAccent}
+                    prefixed
+                    onChange={(color) => applyCustomAccent(color, true)}
+                  />
+                </label>
+              </div>
             )}
           </div>
         </div>
