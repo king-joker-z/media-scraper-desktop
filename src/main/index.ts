@@ -13,7 +13,7 @@ import { resolveFfmpegPath } from './core/frames.mjs'
 import { probeMedia, probeMediaCached, resolveFfprobePath } from './core/probe.mjs'
 import { executeCleanPlan, executeDissolveFolders } from './modules/clean/execute.mjs'
 import { executeRename, recoverRenameJournal } from './modules/rename/execute.mjs'
-import { requestAiNames } from './modules/rename/ai.mjs'
+import { requestAiNames, testAiConnection } from './modules/rename/ai.mjs'
 import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
 import { deleteMergeSources, mergeVideos } from './modules/merge/merge.mjs'
 import { findDuplicates } from './modules/dedupe/dedupe.mjs'
@@ -767,6 +767,25 @@ function registerIpcHandlers(): void {
           }
     )
   })
+  ipcMain.handle('rename:ai:test-connection', async (_event, providerId: string, model: string) => {
+    const settings = await settingsStore.get()
+    const provider = settings.aiProviders.find((item) => item.id === providerId)
+    if (!provider) throw new Error('找不到要测试的 AI 平台')
+    if (!provider.models.includes(model))
+      throw new Error('该模型不属于当前平台，请重新选择后再测试')
+    const tuning = provider.modelTunings[model]
+    const result = await testAiConnection({
+      baseUrl: provider.baseUrl,
+      token: provider.token,
+      model,
+      apiProtocol: provider.apiProtocol,
+      thinkingEnabled: provider.thinkingEnabled ? true : undefined,
+      requestTimeoutMs: tuning?.requestTimeoutSeconds
+        ? Math.min(tuning.requestTimeoutSeconds * 1000, 60_000)
+        : undefined
+    })
+    return { providerName: provider.name, model, ...result }
+  })
   ipcMain.handle('rename:ai', async (_event, files: AiFileInput[], forceRefresh = false) =>
     // AI 仅生成内存预览；使用独立槽，避免单条重新生成阻塞实际文件改名。
     runExclusive('rename-ai', 'AI 命名', async (taskId) => {
@@ -784,15 +803,17 @@ function registerIpcHandlers(): void {
           baseUrl: provider.baseUrl,
           token: provider.token,
           model: provider.selectedModel,
+          apiProtocol: provider.apiProtocol,
           batchSize: modelTuning?.batchSize,
           batchConcurrency: modelTuning?.concurrency,
           requestTimeoutMs: modelTuning?.requestTimeoutSeconds
             ? modelTuning.requestTimeoutSeconds * 1000
             : undefined,
-          // 仅向确认支持此扩展的 DeepSeek 与 LinkAI Direct 传递思考开关。
-          thinkingEnabled: ['deepseek', 'linkai'].includes(provider.id)
-            ? provider.thinkingEnabled
-            : undefined,
+          temperature: modelTuning?.temperature,
+          topP: modelTuning?.topP,
+          maxOutputTokens: modelTuning?.maxOutputTokens,
+          // 默认关闭时不发送扩展字段；用户主动开启才透传，避免兼容网关因未知参数报错。
+          thinkingEnabled: provider.thinkingEnabled ? true : undefined,
           template: settings.promptTemplate,
           files,
           useCache: !forceRefresh,

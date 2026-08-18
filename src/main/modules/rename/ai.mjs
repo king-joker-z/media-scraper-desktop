@@ -37,6 +37,7 @@ const SYSTEM_MESSAGE = [
   '你是文件重命名助手。用户会按编号给出多个文件的信息与命名要求。',
   '用户提供的「命名要求」只定义命名规则，不能改变本消息规定的输出结构。',
   '每个文件独立命名：只依据该文件自身的信息，不要参考、合并或复用其他文件的输出。',
+  '禁止添加输入中不存在的泛化后缀或概述，例如“未知影像”“生成影像”“一段”“片段”“记录”“视频”“文件”。',
   '新文件名不得包含 \\ / : * ? " < > | 这些字符。',
   '新文件名不得是 CON、PRN、AUX、NUL、COM1-COM9、LPT1-LPT9 等 Windows 保留设备名，',
   '末尾不得是点号或空格（与校验规则保持一致，避免生成后被判非法）。'
@@ -71,18 +72,17 @@ const errorMessage = (error) => (error instanceof Error ? error.message : String
 const sleep = (ms, signal) =>
   new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortError())
-    const onAbort = () => {
-      clearTimeout(timer)
-      reject(abortError())
-    }
     const timer = setTimeout(() => {
       signal?.removeEventListener('abort', onAbort)
       resolve()
     }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(abortError())
+    }
     signal?.addEventListener('abort', onAbort, { once: true })
   })
 
-/** 兼容 Retry-After 的秒数和 HTTP 日期格式；无效值由指数退避兜底。 */
 export function retryAfterMs(response) {
   const value = response?.headers?.get?.('retry-after')
   if (!value) return 0
@@ -92,101 +92,40 @@ export function retryAfterMs(response) {
   return Number.isNaN(timestamp) ? 0 : Math.max(0, timestamp - Date.now())
 }
 
-/** 按父目录边界构建批次；超出批大小的大目录再在目录内部拆分。 */
-export function buildAiChunks(entries, batchSize) {
-  const chunks = []
-  const groups = new Map()
-  for (const entry of entries) {
-    const group = groups.get(entry.file.parentFolder) ?? []
-    group.push(entry)
-    groups.set(entry.file.parentFolder, group)
-  }
-  let current = []
-  const flush = () => {
-    if (current.length > 0) chunks.push(current)
-    current = []
-  }
-  for (const group of groups.values()) {
-    if (group.length > batchSize) {
-      flush()
-      for (let index = 0; index < group.length; index += batchSize) {
-        chunks.push(group.slice(index, index + batchSize))
-      }
-    } else if (current.length + group.length > batchSize) {
-      flush()
-      current = [...group]
-    } else {
-      current.push(...group)
-    }
-  }
-  flush()
-  return chunks
-}
-
-/** 为 JSON 名称数组预留足够的输出长度，同时限制异常模型的冗长解释。 */
-export function maxTokensForAiNames(itemCount) {
-  return Math.min(8192, Math.max(256, itemCount * 128 + 128))
-}
-
-/** 将模型常见的非法输出规整为可落盘词干，拒绝空名、保留名和超长名称。 */
-export function normalizeAiName(value) {
-  const name = String(value ?? '')
-    .split(ILLEGAL_NAME_RE)
-    .join(' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-    .replace(TRAILING_DOT_SPACE_RE, '')
-    .trim()
-  if (!name) throw new Error('AI 返回了空名称或仅包含非法字符')
-  if (WINDOWS_RESERVED_NAME_RE.test(name)) {
-    throw new Error(`AI 返回了 Windows 保留设备名「${name}」`)
-  }
-  if (name.length > MAX_STEM_LENGTH) {
-    throw new Error(`AI 返回名称过长（>${MAX_STEM_LENGTH} 字符）`)
-  }
-  return name
-}
-
-/** HTTP 状态码 → 用户可懂的中文提示（U4：AI 命名失败提示友好化） */
-const HTTP_HINTS = {
-  400: '请求被平台拒绝（模型 ID 或参数可能不受支持）',
-  401: 'Token 无效或已过期，请到设置页检查',
-  402: '平台余额不足，请充值后重试',
-  403: 'Token 权限不足或已被封禁',
-  404: '接口地址或模型不存在，请检查设置页的 baseUrl 与模型 ID',
-  429: '触发平台限流，请稍后重试或降低请求频率',
-  502: '平台网关暂时异常，请稍后重试',
-  503: '平台暂时不可用（可能维护或过载）；已自动重试，请稍后再试',
-  504: '平台响应超时，请稍后重试'
-}
-
-/** 把 AI 平台失败响应转成可读错误（附平台返回摘要，便于排查） */
-export async function toFriendlyHttpError(response) {
-  const hint =
-    HTTP_HINTS[response.status] ??
-    (response.status >= 500 ? '平台服务故障，请稍后重试' : '请求失败')
-  let detail = ''
+/** 获取 HTTP 响应的有限错误摘要，避免网关 HTML/超长错误污染 UI。 */
+async function responseErrorSummary(response) {
   try {
-    detail = (await response.text()).slice(0, 200).trim()
+    const text = await response.text()
+    return String(text ?? '')
+      .replaceAll(/\s+/g, ' ')
+      .trim()
+      .slice(0, 400)
   } catch {
-    detail = ''
+    return ''
   }
-  const head = `${hint}（HTTP ${response.status}）`
-  return new Error(detail ? `${head}。平台返回：${detail}` : head)
 }
 
-/**
- * 带超时与指数退避重试的 fetch：
- * 网络错误/超时/5xx/429 重试（默认 2 次，1s → 2s），4xx 业务错误不重试。
- */
+export async function toFriendlyHttpError(response) {
+  const summary = await responseErrorSummary(response)
+  const suffix = summary ? `：${summary}` : ''
+  if (response.status === 401 || response.status === 403)
+    return new Error(`AI 平台鉴权失败（HTTP ${response.status}），请检查 API Token${suffix}`)
+  if (response.status === 404) return new Error(`AI 接口地址或模型不存在${suffix}`)
+  if (response.status === 429) return new Error(`AI 平台请求过于频繁，请稍后重试${suffix}`)
+  if (response.status >= 500)
+    return new Error(`AI 平台暂时不可用（HTTP ${response.status}）${suffix}`)
+  return new Error(`AI 请求失败（HTTP ${response.status}）${suffix}`)
+}
+
+/** 带指数退避的 fetch；网络错误与 5xx 自动重试，AbortSignal 可随时停止。 */
 export async function fetchWithRetry(
   url,
-  init,
+  options,
   {
     fetchImpl = fetch,
     retries = 2,
-    timeoutMs = AI_REQUEST_TIMEOUT_MS,
     retryDelayMs = 1000,
+    timeoutMs = AI_REQUEST_TIMEOUT_MS,
     signal,
     onRateLimit
   } = {}
@@ -194,57 +133,110 @@ export async function fetchWithRetry(
   let lastError
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     if (signal?.aborted) throw abortError()
-    const timeoutSignal = AbortSignal.timeout(timeoutMs)
-    const requestSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal
+    const timeoutController = new AbortController()
+    const timeout = setTimeout(() => timeoutController.abort(), timeoutMs)
+    const onAbort = () => timeoutController.abort()
+    signal?.addEventListener('abort', onAbort, { once: true })
     try {
-      const response = await fetchImpl(url, { ...init, signal: requestSignal })
+      const response = await fetchImpl(url, {
+        ...options,
+        signal: timeoutController.signal
+      })
       if (
-        !response.ok &&
-        (response.status >= 500 || response.status === 429) &&
-        attempt < retries
+        response.ok ||
+        (response.status >= 400 && response.status < 500 && response.status !== 429)
       ) {
-        const retryMs =
-          response.status === 429
-            ? Math.max(retryDelayMs * 2 ** attempt, retryAfterMs(response))
-            : retryDelayMs * 2 ** attempt
-        if (response.status === 429) onRateLimit?.(retryMs)
-        await sleep(retryMs, signal)
-        continue
+        return response
       }
-      return response
+      lastError = response
+      if (response.status === 429) {
+        const waitMs = retryAfterMs(response) || retryDelayMs * 2 ** attempt
+        onRateLimit?.(waitMs)
+        if (attempt < retries) await sleep(waitMs, signal)
+      } else if (attempt < retries) {
+        await sleep(retryDelayMs * 2 ** attempt, signal)
+      }
     } catch (error) {
-      if (signal?.aborted || error?.name === 'AbortError') throw abortError()
+      if (signal?.aborted || error?.name === 'AbortError') {
+        if (signal?.aborted) throw abortError()
+        throw new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`)
+      }
       lastError = error
-      if (attempt >= retries) break
-      await sleep(retryDelayMs * 2 ** attempt, signal)
+      if (attempt < retries) await sleep(retryDelayMs * 2 ** attempt, signal)
+    } finally {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
     }
   }
-  throw new Error(
-    `无法连接 AI 平台（已重试 ${retries} 次），请检查网络与设置页的 baseUrl：${lastError?.message ?? lastError}`
-  )
+  if (lastError instanceof Error) {
+    throw new Error(`AI 请求失败，已重试 ${retries} 次：${lastError.message}`)
+  }
+  return lastError
 }
 
-/** 从文本中的指定起点读取一个完整 JSON 数组（字符串中的方括号不会误截断）。 */
-function parseArrayAt(text, start) {
-  let depth = 0
-  let quoted = false
-  let escaped = false
-  for (let index = start; index < text.length; index += 1) {
-    const char = text[index]
-    if (quoted) {
-      if (escaped) escaped = false
-      else if (char === '\\') escaped = true
-      else if (char === '"') quoted = false
+/** 按父目录分组、在不超过批大小的前提下尽可能不拆分同目录文件。 */
+export function buildAiChunks(entries, batchSize = AI_BATCH_SIZE) {
+  const limit = clampInteger(batchSize, 1, 100, AI_BATCH_SIZE)
+  const groups = []
+  const byFolder = new Map()
+  for (const entry of entries) {
+    const folder = entry.file.parentFolder ?? ''
+    if (!byFolder.has(folder)) {
+      const group = []
+      byFolder.set(folder, group)
+      groups.push(group)
+    }
+    byFolder.get(folder).push(entry)
+  }
+  const chunks = []
+  let current = []
+  const flush = () => {
+    if (current.length) chunks.push(current)
+    current = []
+  }
+  for (const group of groups) {
+    if (group.length > limit) {
+      flush()
+      for (let offset = 0; offset < group.length; offset += limit) {
+        chunks.push(group.slice(offset, offset + limit))
+      }
       continue
     }
-    if (char === '"') quoted = true
+    if (current.length + group.length > limit) flush()
+    current.push(...group)
+  }
+  flush()
+  return chunks
+}
+
+/** 计算批次所需输出 token；用户显式设置时尊重配置，否则按名称数量预留。 */
+export function maxTokensForAiNames(itemCount, configuredMaxTokens = 0) {
+  const configured = clampInteger(configuredMaxTokens, 0, 32768, 0)
+  if (configured) return configured
+  return Math.min(16384, Math.max(448, itemCount * 192 + 256))
+}
+
+/** 在文本中从指定位置读取完整 JSON 数组，支持名称中的方括号和转义字符。 */
+function parseArrayAt(text, start) {
+  let inString = false
+  let escaped = false
+  let depth = 0
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') inString = false
+      continue
+    }
+    if (char === '"') inString = true
     else if (char === '[') depth += 1
     else if (char === ']') {
       depth -= 1
       if (depth === 0) return JSON.parse(text.slice(start, index + 1))
     }
   }
-  throw new Error('AI 返回中的 JSON 数组不完整')
+  throw new Error('JSON 数组不完整')
 }
 
 /** 从模型输出中提取 JSON 名称数组，兼容代码块、包装对象与前后说明文本。 */
@@ -274,7 +266,7 @@ export function extractJsonArray(content) {
     }
     searchFrom = start + 1
   }
-  throw new Error('AI 返回中未找到有效 JSON 数组')
+  throw new Error('AI 返回中未找到有效 JSON 数组（名称列表）')
 }
 
 /** 单条重生成的兜底：少数模型无视数组约束但直接给出标题时，安全地接受该标题。 */
@@ -306,24 +298,52 @@ function contentToText(content) {
   return ''
 }
 
-/** 从 OpenAI、Responses 与部分兼容服务的响应对象中提取模型文本与完成状态。 */
+/** 提取 OpenAI Responses API 的 output[].content[] 文本块。 */
+function responsesOutputToText(output) {
+  if (!Array.isArray(output)) return ''
+  return output
+    .filter((item) => item?.type === 'message')
+    .flatMap((item) => (Array.isArray(item.content) ? item.content : []))
+    .filter((part) => part?.type === 'output_text')
+    .map((part) => contentToText(part.text))
+    .join('')
+}
+
+/** 从 OpenAI、Anthropic、Gemini 与常见兼容服务的响应对象中提取模型文本与完成状态。 */
 function responseDataToResult(data) {
   const choice = data?.choices?.[0]
   const message = choice?.message ?? {}
   const choiceContent = choice?.delta?.content ?? message.content ?? choice?.text
   const output = data?.output_text ?? data?.response?.output_text
+  const responsesOutput = data?.output ?? data?.response?.output
   const gemini = data?.candidates?.[0]?.content?.parts
+  const anthropic = data?.content
+  const toolCall =
+    choice?.delta?.tool_calls ?? message.tool_calls ?? message.function_call ?? data?.tool_use
   return {
-    content: contentToText(choiceContent) || contentToText(output) || contentToText(gemini),
-    finishReason: choice?.finish_reason,
+    content:
+      contentToText(choiceContent) ||
+      contentToText(output) ||
+      responsesOutputToText(responsesOutput) ||
+      contentToText(gemini) ||
+      contentToText(anthropic),
+    finishReason:
+      choice?.finish_reason ??
+      data?.stop_reason ??
+      data?.candidates?.[0]?.finishReason ??
+      data?.incomplete_details?.reason,
+    hasToolCall: Boolean(toolCall),
     // DeepSeek 思考模式会把 CoT 放在此字段；它不是最终名称，不能参与解析，仅用于诊断。
     hasReasoningContent: Boolean(choice?.delta?.reasoning_content ?? message.reasoning_content)
   }
 }
 
 const incompleteOutputError = (result) => {
-  if (result?.finishReason === 'length') {
-    return new Error('AI 输出被截断（达到 token 上限）；请关闭思考模式或降低每批文件数后重试')
+  if (result?.hasToolCall) {
+    return new Error('AI 尝试调用工具而非直接输出名称，请关闭模型工具调用后重试')
+  }
+  if (['length', 'MAX_TOKENS', 'max_output_tokens', 'max_tokens'].includes(result?.finishReason)) {
+    return new Error('AI 输出被截断（达到输出 token 上限）；请提高输出 token 预算后重试')
   }
   if (result?.hasReasoningContent) {
     return new Error('AI 仅返回了思考过程，未生成最终名称；请关闭思考模式后重试')
@@ -412,17 +432,176 @@ export function buildAiMessages(template, files, { recovery = false } = {}) {
 // LRU 有界缓存（与探测/哈希缓存同策略）：防止长期使用后无界增长
 const aiCache = createLruCache(5000)
 
-const cacheKeyOf = (baseUrl, model, template, file) =>
-  `${chatCompletionsUrl(baseUrl)}|${model}|${template}|${file.parentFolder}|${file.fileName}`
+const endpointUrl = (baseUrl, suffix) => {
+  const cleaned = String(baseUrl).replace(/\/+$/, '')
+  return cleaned.endsWith(suffix) ? cleaned : `${cleaned}${suffix}`
+}
+
+/** 为不同供应商协议构造请求；OpenRouter 专用归因头不再污染其它网关。 */
+export function buildAiRequest({
+  apiProtocol,
+  baseUrl,
+  token,
+  model,
+  messages,
+  temperature,
+  topP,
+  maxOutputTokens,
+  thinkingEnabled,
+  omitSampling = false
+}) {
+  const system = messages.find((message) => message.role === 'system')?.content ?? ''
+  const user = messages
+    .filter((message) => message.role !== 'system')
+    .map((message) => message.content)
+    .join('\n\n')
+  if (apiProtocol === 'anthropic-messages') {
+    return {
+      url: endpointUrl(baseUrl, '/messages'),
+      headers: {
+        'x-api-key': token,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: {
+        model,
+        system,
+        messages: [{ role: 'user', content: user }],
+        max_tokens: maxOutputTokens,
+        temperature,
+        top_p: topP
+      }
+    }
+  }
+  if (apiProtocol === 'gemini-generate-content') {
+    return {
+      url: `${endpointUrl(baseUrl, '')}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(token)}`,
+      headers: { 'Content-Type': 'application/json' },
+      body: {
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        generationConfig: { temperature, topP, maxOutputTokens }
+      }
+    }
+  }
+  if (apiProtocol === 'openai-responses') {
+    return {
+      url: endpointUrl(baseUrl, '/responses'),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: {
+        model,
+        // 与 Responses API 的控制台示例一致：将系统规则与用户输入组合到 input，
+        // 且不发送部分 Codex 路由拒绝的 temperature/top_p/thinking 扩展。
+        input: [system, user].filter(Boolean).join('\n\n'),
+        max_output_tokens: maxOutputTokens,
+        stream: false
+      }
+    }
+  }
+  return {
+    url: chatCompletionsUrl(baseUrl),
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...(String(baseUrl).includes('openrouter.ai')
+        ? {
+            'HTTP-Referer': 'https://github.com/king-joker-z/media-scraper-desktop',
+            'X-Title': 'Media Scraper'
+          }
+        : {})
+    },
+    body: {
+      model,
+      messages,
+      // DeepSeek 思考模式不支持 temperature；其它模型按用户调优参数发送。
+      ...(thinkingEnabled || omitSampling ? {} : { temperature, top_p: topP }),
+      max_tokens: maxOutputTokens,
+      // 各家兼容网关对未知字段的容忍度不同，默认关闭时完全不发送 thinking。
+      ...(thinkingEnabled === true ? { thinking: { type: 'enabled' } } : {}),
+      stream: false
+    }
+  }
+}
+
+const cacheKeyOf = (baseUrl, model, template, protocol, thinkingEnabled, tuning, file) =>
+  `${protocol}|${protocol === 'openai-responses' ? endpointUrl(baseUrl, '/responses') : chatCompletionsUrl(baseUrl)}|${model}|${template}|thinking:${thinkingEnabled === true}|` +
+  `temperature:${tuning.temperature}|topP:${tuning.topP}|maxTokens:${tuning.maxOutputTokens}|` +
+  `${file.parentFolder}|${file.fileName}`
 
 export function clearAiCache() {
   aiCache.clear()
 }
 
 /**
+ * 对单一模型发送一个极小的端到端请求，用于验证 URL、Token、模型 ID 和响应解析是否可用。
+ * 不接入会话缓存，也不使用用户的批量命名模板，避免测试污染正式命名结果。
+ */
+export async function testAiConnection({
+  baseUrl,
+  token,
+  model,
+  apiProtocol = 'openai-chat',
+  thinkingEnabled,
+  requestTimeoutMs = 30_000,
+  fetchImpl = fetch
+}) {
+  if (!token) throw new Error('当前平台未配置 API Token，请先填写后再测试')
+  if (!baseUrl) throw new Error('当前平台未配置 baseUrl')
+  if (!model) throw new Error('请先选择或添加一个模型后再测试')
+  if (
+    !['openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-generate-content'].includes(
+      apiProtocol
+    )
+  ) {
+    throw new Error(`不支持的 AI 协议：${apiProtocol}`)
+  }
+  const messages = [
+    { role: 'system', content: '你是连接测试助手。' },
+    { role: 'user', content: '请只回复：连接成功' }
+  ]
+  const request = buildAiRequest({
+    apiProtocol,
+    baseUrl,
+    token,
+    model,
+    messages,
+    temperature: 0,
+    topP: 1,
+    // Responses/Codex 模型可能先消耗推理 token；32 会导致没有最终文本，保持与单文件命名相同的最低预算。
+    maxOutputTokens: apiProtocol === 'openai-responses' ? maxTokensForAiNames(1) : 32,
+    // 连通性测试遵循当前模型的开关，确保能验证用户实际会使用的请求参数。
+    thinkingEnabled,
+    omitSampling: thinkingEnabled === true
+  })
+  const startedAt = performance.now()
+  const response = await fetchWithRetry(
+    request.url,
+    {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(request.body)
+    },
+    {
+      fetchImpl,
+      retries: 0,
+      timeoutMs: clampInteger(requestTimeoutMs, 5_000, 60_000, 30_000)
+    }
+  )
+  if (!response.ok) throw await toFriendlyHttpError(response)
+  const content = await readAiResponseContent(response)
+  return {
+    latencyMs: Math.round(performance.now() - startedAt),
+    preview: String(content).replaceAll(/\s+/g, ' ').trim().slice(0, 120)
+  }
+}
+
+/**
  * 请求 AI 平台（OpenAI 兼容端点）生成新文件名。
  * 命中会话缓存的文件不重复请求；仅对未命中的分批调用。
- * @param {object} options { baseUrl, token, model, template, files: AiFileInput[], fetchImpl?, onBatch?, useCache? }
+ * @param {object} options { baseUrl, token, model, apiProtocol, template, files: AiFileInput[], fetchImpl?, onBatch?, useCache? }
  * useCache=false 用于用户主动重新生成：绕过旧结果，并在成功后刷新缓存。
  * @returns {Promise<string[]>} 与 files 等长的新词干数组
  */
@@ -430,11 +609,15 @@ export async function requestAiNames({
   baseUrl,
   token,
   model,
+  apiProtocol = 'openai-chat',
   template,
   thinkingEnabled,
   batchSize = AI_BATCH_SIZE,
   batchConcurrency = AI_BATCH_CONCURRENCY,
   requestTimeoutMs = AI_REQUEST_TIMEOUT_MS,
+  temperature = 0.2,
+  topP = 1,
+  maxOutputTokens = 0,
   files,
   fetchImpl = fetch,
   onBatch,
@@ -444,44 +627,60 @@ export async function requestAiNames({
 }) {
   if (!token) throw new Error('当前平台未配置 API Token，请先到设置页填写')
   if (!baseUrl) throw new Error('当前平台未配置 baseUrl')
-  if (String(template ?? '').length > MAX_AI_PROMPT_LENGTH) {
-    throw new Error(`AI 命名要求过长（最多 ${MAX_AI_PROMPT_LENGTH} 字符），请到设置页精简后重试`)
+  if (
+    !['openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-generate-content'].includes(
+      apiProtocol
+    )
+  ) {
+    throw new Error(`不支持的 AI 协议：${apiProtocol}`)
   }
-  if (files.length === 0) return []
-
-  // 缓存命中拆分；同一次请求中的相同输入只生成一次，再扇出回所有位置。
-  const names = new Array(files.length)
-  const missingByKey = new Map()
-  let doneCount = 0
-  files.forEach((file, index) => {
-    const key = cacheKeyOf(baseUrl, model, template, file)
-    const cached = useCache ? aiCache.get(key) : undefined
-    if (cached !== undefined) {
-      names[index] = cached
-      doneCount += 1
-      return
-    }
-    const entry = missingByKey.get(key)
-    if (entry) entry.indexes.push(index)
-    else missingByKey.set(key, { key, file, indexes: [index] })
-  })
-  const missing = [...missingByKey.values()]
-  if (doneCount > 0) onBatch?.(doneCount)
+  if (String(template ?? '').length > MAX_AI_PROMPT_LENGTH) {
+    throw new Error(`命名要求过长，请控制在 ${MAX_AI_PROMPT_LENGTH} 个字符以内`)
+  }
+  if (!Array.isArray(files) || files.length === 0) return []
 
   const safeBatchSize = clampInteger(batchSize, 1, 100, AI_BATCH_SIZE)
   const safeBatchConcurrency = clampInteger(batchConcurrency, 1, 10, AI_BATCH_CONCURRENCY)
   const safeRequestTimeoutMs = clampInteger(requestTimeoutMs, 5_000, 900_000, AI_REQUEST_TIMEOUT_MS)
-  const chunks = buildAiChunks(missing, safeBatchSize)
-  const failedChunks = []
+  const safeTemperature = Number.isFinite(Number(temperature))
+    ? Math.min(2, Math.max(0, Number(temperature)))
+    : 0.2
+  const safeTopP = Number.isFinite(Number(topP)) ? Math.min(1, Math.max(0, Number(topP))) : 1
+  const safeMaxOutputTokens = clampInteger(maxOutputTokens, 0, 32768, 0)
+  const entries = files.map((file, index) => ({ file, index }))
+  const result = new Array(files.length)
+  const pending = []
+  for (const entry of entries) {
+    const tuning = {
+      temperature: safeTemperature,
+      topP: safeTopP,
+      maxOutputTokens: safeMaxOutputTokens
+    }
+    const key = cacheKeyOf(
+      baseUrl,
+      model,
+      template,
+      apiProtocol,
+      thinkingEnabled,
+      tuning,
+      entry.file
+    )
+    const cached = useCache ? aiCache.get(key) : undefined
+    if (cached) result[entry.index] = cached
+    else pending.push(entry)
+  }
+  if (!pending.length) return result
+
+  const chunks = buildAiChunks(pending, safeBatchSize)
   let cursor = 0
   let activeWorkers = 0
+  let completed = result.filter(Boolean).length
   let allowedConcurrency = safeBatchConcurrency
   let successfulBatches = 0
   let rateLimitUntil = 0
-
   const waitForRateLimit = async () => {
-    const waitMs = rateLimitUntil - Date.now()
-    if (waitMs > 0) await sleep(waitMs, signal)
+    const delay = rateLimitUntil - Date.now()
+    if (delay > 0) await sleep(delay, signal)
   }
   const takeChunk = async () => {
     while (true) {
@@ -504,34 +703,30 @@ export async function requestAiNames({
     successfulBatches = 0
   }
   const requestChunk = async (chunk, { recovery = false } = {}) => {
+    const messages = buildAiMessages(
+      template,
+      chunk.map((entry) => entry.file),
+      { recovery }
+    )
+    const request = buildAiRequest({
+      apiProtocol,
+      baseUrl,
+      token,
+      model,
+      messages,
+      temperature: safeTemperature,
+      topP: safeTopP,
+      maxOutputTokens: maxTokensForAiNames(chunk.length, safeMaxOutputTokens),
+      thinkingEnabled: recovery ? undefined : thinkingEnabled,
+      // 恢复请求不带思考扩展；原先开启时继续省略模型可能拒绝的采样参数。
+      omitSampling: recovery && thinkingEnabled === true
+    })
     const response = await fetchWithRetry(
-      chatCompletionsUrl(baseUrl),
+      request.url,
       {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://github.com/king-joker-z/media-scraper-desktop',
-          'X-Title': 'Media Scraper'
-        },
-        body: JSON.stringify({
-          model,
-          messages: buildAiMessages(
-            template,
-            chunk.map((entry) => entry.file),
-            { recovery }
-          ),
-          // DeepSeek 思考模式不支持 temperature；不传可避免第三方网关误处理该参数。
-          ...(thinkingEnabled ? {} : { temperature: 0.2 }),
-          max_tokens: maxTokensForAiNames(chunk.length),
-          // 空结果恢复请求强制关闭思考，避免 CoT 耗尽轻量命名任务的输出预算。
-          ...(typeof thinkingEnabled === 'boolean'
-            ? {
-                thinking: { type: recovery ? 'disabled' : thinkingEnabled ? 'enabled' : 'disabled' }
-              }
-            : {}),
-          stream: false
-        })
+        headers: request.headers,
+        body: JSON.stringify(request.body)
       },
       { fetchImpl, retryDelayMs, timeoutMs: safeRequestTimeoutMs, signal, onRateLimit }
     )
@@ -545,33 +740,29 @@ export async function requestAiNames({
         try {
           chunkNames = [extractSingleName(responseContent)]
         } catch {
-          const preview = String(responseContent).replaceAll(/\s+/g, ' ').slice(0, 160)
-          const detail = preview ? `；返回片段：${preview}` : ''
-          throw new Error(`AI 返回内容无法解析（不是有效的名称列表）：${error.message}${detail}`)
+          throw error
         }
       } else {
-        const preview = String(responseContent).replaceAll(/\s+/g, ' ').slice(0, 160)
-        const detail = preview ? `；返回片段：${preview}` : ''
-        throw new Error(`AI 返回内容无法解析（不是有效的名称列表）：${error.message}${detail}`)
+        throw error
       }
     }
     if (chunkNames.length !== chunk.length) {
-      throw new Error(`AI 返回数量（${chunkNames.length}）与请求数量（${chunk.length}）不一致`)
+      throw new Error(`AI 返回数量不匹配：期望 ${chunk.length} 条，实际 ${chunkNames.length} 条`)
     }
-    chunk.forEach((entry, chunkIndex) => {
-      const name = normalizeAiName(chunkNames[chunkIndex])
-      entry.indexes.forEach((index) => {
-        names[index] = name
-      })
-      aiCache.set(entry.key, name)
+    const normalized = chunkNames.map((name) => normalizeAiName(name))
+    normalized.forEach((name, index) => {
+      const entry = chunk[index]
+      result[entry.index] = name
+      const tuning = {
+        temperature: safeTemperature,
+        topP: safeTopP,
+        maxOutputTokens: safeMaxOutputTokens
+      }
+      aiCache.set(
+        cacheKeyOf(baseUrl, model, template, apiProtocol, thinkingEnabled, tuning, entry.file),
+        name
+      )
     })
-    doneCount += chunk.reduce((count, entry) => count + entry.indexes.length, 0)
-    onBatch?.(doneCount)
-    successfulBatches += 1
-    if (successfulBatches >= AI_SUCCESSFUL_BATCHES_BEFORE_RAMP_UP) {
-      allowedConcurrency = Math.min(safeBatchConcurrency, allowedConcurrency + 1)
-      successfulBatches = 0
-    }
   }
   const worker = async () => {
     while (true) {
@@ -583,32 +774,50 @@ export async function requestAiNames({
           try {
             const recovery =
               attempt > 0 &&
-              /AI 返回为空|仅返回了思考过程|达到 token 上限/.test(errorMessage(lastError))
+              /AI 返回为空|仅返回了思考过程|输出 token 上限/.test(errorMessage(lastError))
             await requestChunk(chunk, { recovery })
             lastError = undefined
             break
           } catch (error) {
             if (signal?.aborted || error?.name === 'AbortError') throw abortError()
             lastError = error
+            if (attempt === AI_BATCH_RETRIES) throw error
           }
         }
-        if (lastError) failedChunks.push({ chunk, error: lastError })
+        if (!lastError) {
+          completed += chunk.length
+          successfulBatches += 1
+          if (successfulBatches >= AI_SUCCESSFUL_BATCHES_BEFORE_RAMP_UP) {
+            allowedConcurrency = Math.min(safeBatchConcurrency, allowedConcurrency + 1)
+            successfulBatches = 0
+          }
+          onBatch?.(completed)
+        }
       } finally {
         activeWorkers -= 1
       }
     }
   }
-  await Promise.all(Array.from({ length: Math.min(safeBatchConcurrency, chunks.length) }, worker))
-  if (failedChunks.length > 0) {
-    const failedCount = failedChunks.reduce(
-      (count, { chunk }) => count + chunk.reduce((size, entry) => size + entry.indexes.length, 0),
-      0
-    )
-    const detail = failedChunks
-      .slice(0, 3)
-      .map(({ error }) => (error instanceof Error ? error.message : String(error)))
-      .join('；')
-    throw new Error(`AI 命名有 ${failedCount} 项在局部重试后仍失败：${detail}`)
+  const workers = Array.from({ length: Math.min(safeBatchConcurrency, chunks.length) }, () =>
+    worker()
+  )
+  await Promise.all(workers)
+  return result
+}
+
+/** 文件名安全规范化：删除非法字符、清理末尾点空格、拒绝 Windows 保留名和超长名称。 */
+export function normalizeAiName(name) {
+  const normalized = String(name ?? '')
+    .replace(new RegExp(ILLEGAL_NAME_RE, 'g'), '')
+    .trim()
+    .replace(TRAILING_DOT_SPACE_RE, '')
+    .trim()
+  if (!normalized) throw new Error('AI 返回的空名称或仅含非法字符')
+  if (WINDOWS_RESERVED_NAME_RE.test(normalized)) {
+    throw new Error(`AI 返回了 Windows 保留设备名：${normalized}`)
   }
-  return names
+  if (normalized.length > MAX_STEM_LENGTH) {
+    throw new Error(`AI 返回的名称过长（最多 ${MAX_STEM_LENGTH} 个字符）`)
+  }
+  return normalized
 }

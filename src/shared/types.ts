@@ -103,6 +103,10 @@ export interface RegexTemplate {
 }
 
 /** 单个 AI 模型的命名请求调优参数。 */
+export type AiApiProtocol =
+  'openai-chat' | 'openai-responses' | 'anthropic-messages' | 'gemini-generate-content'
+
+/** 单个 AI 模型的命名请求调优参数。0 表示由应用按批次自动计算输出 token。 */
 export interface AiModelTuning {
   /** 每个请求携带的文件数（1–100）。 */
   batchSize: number
@@ -110,22 +114,42 @@ export interface AiModelTuning {
   concurrency: number
   /** 单次请求超时秒数（5–900）。 */
   requestTimeoutSeconds: number
+  /** 采样温度（0–2）；命名任务默认 0.2。 */
+  temperature: number
+  /** 核采样 top_p（0–1）；默认 1 表示不额外收窄。 */
+  topP: number
+  /** 最大输出 token（0–32768）；0 为按文件数自动计算。 */
+  maxOutputTokens: number
 }
 
-/** AI 平台配置（OpenAI 兼容端点）。token 按平台独立保存，切换平台不清除。 */
+/** AI 平台配置。token 按平台独立保存，切换平台不清除。 */
+export interface AiConnectionTestResult {
+  /** 实际被测试的平台与模型，避免 UI 状态切换后产生歧义。 */
+  providerName: string
+  model: string
+  /** 端到端请求耗时（毫秒）。 */
+  latencyMs: number
+  /** 模型返回的精简预览，不包含 Token。 */
+  preview: string
+}
+
 export interface AiProviderConfig {
-  /** 预设：openrouter / deepseek / aicodemirror / linkai / hapi；自定义为 custom-<uuid> */
+  /** 内置或 custom-<uuid> 平台标识。 */
   id: string
   name: string
-  /** OpenAI 兼容 baseUrl，如 https://api.deepseek.com */
+  /** 与 apiProtocol 对应的 baseUrl；OpenAI 兼容地址、Anthropic API 或 Gemini v1beta 地址。 */
   baseUrl: string
+  /** OpenAI Chat / Responses、Anthropic Messages 或 Gemini 原生协议。 */
+  apiProtocol: AiApiProtocol
   token: string
   models: string[]
   selectedModel: string
   /** 按模型 ID 保存的请求调优；未配置的模型使用默认值。 */
   modelTunings: Record<string, AiModelTuning>
-  /** DeepSeek 与 LinkAI Direct 思考模式；仅支持的预设读取，默认关闭以缩短轻量命名请求耗时。 */
+  /** 仅 DeepSeek 兼容协议使用的 thinking 扩展；默认关闭。 */
   thinkingEnabled: boolean
+  /** 此平台是否接受 DeepSeek 风格的 thinking 参数。 */
+  supportsThinking: boolean
 }
 
 /** 界面主题：跟随系统 / 浅色 / 深色 */

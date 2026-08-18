@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   activeProvider,
   createSettingsStore,
+  DEFAULT_PROMPT_TEMPLATE,
   normalizeSettings
 } from '../src/main/core/settings.mjs'
 
@@ -18,6 +19,12 @@ async function withTempDir(fn) {
   }
 }
 
+test('默认命名提示词禁止基于题材编造概述式后缀', () => {
+  assert.match(DEFAULT_PROMPT_TEMPLATE, /不得根据题材、关键词或目录联想补写/)
+  assert.match(DEFAULT_PROMPT_TEMPLATE, /未知影像/)
+  assert.match(DEFAULT_PROMPT_TEMPLATE, /名称可短，不要为了凑字数编造/)
+})
+
 test('returns defaults when the settings file does not exist', async () => {
   await withTempDir(async (dir) => {
     const store = createSettingsStore(join(dir, 'settings.json'))
@@ -28,16 +35,20 @@ test('returns defaults when the settings file does not exist', async () => {
     const ids = settings.aiProviders.map((p) => p.id)
     assert.ok(ids.includes('openrouter'))
     assert.ok(ids.includes('deepseek'))
+    assert.equal(ids.includes('anthropic'), false)
+    assert.equal(ids.includes('gemini'), false)
+    assert.equal(ids.includes('ollama'), false)
     assert.ok(ids.includes('aicodemirror'))
     assert.ok(ids.includes('linkai'))
-    assert.ok(ids.includes('hapi'))
-    const hapi = settings.aiProviders.find((provider) => provider.id === 'hapi')
-    assert.equal(hapi.baseUrl, 'https://hapiopen.cc/v1')
-    assert.equal(hapi.selectedModel, 'gpt-5.4-mini')
-    assert.equal(hapi.thinkingEnabled, false)
+    assert.ok(ids.includes('acucompute'))
+    assert.equal(ids.includes('hapi'), false)
     const linkai = settings.aiProviders.find((provider) => provider.id === 'linkai')
     assert.equal(linkai.baseUrl, 'https://direct.linkai.pics/v1')
     assert.equal(linkai.selectedModel, 'gpt-5.4-mini')
+    const acucompute = settings.aiProviders.find((provider) => provider.id === 'acucompute')
+    assert.equal(acucompute.baseUrl, 'https://api.acucompute.com/v1')
+    assert.equal(acucompute.apiProtocol, 'openai-responses')
+    assert.equal(acucompute.selectedModel, 'acu-auto')
     assert.ok(settings.promptTemplate.includes('文件名'))
     assert.ok(settings.regexTemplates.length >= 3)
   })
@@ -228,7 +239,7 @@ test('theme, custom palette and recentWorkspaces persist and reload', async () =
   })
 })
 
-test('支持思考的平台默认关闭，且可保存开启状态', () => {
+test('全部平台的思考开关默认关闭，且可保存开启状态', () => {
   assert.equal(
     normalizeSettings({}).aiProviders.find((p) => p.id === 'deepseek').thinkingEnabled,
     false
@@ -247,10 +258,26 @@ test('支持思考的平台默认关闭，且可保存开启状态', () => {
     ]
   })
   assert.equal(enabled.aiProviders[0].thinkingEnabled, true)
-  assert.equal(
-    normalizeSettings({}).aiProviders.find((p) => p.id === 'linkai').thinkingEnabled,
-    false
-  )
+  const defaults = normalizeSettings({}).aiProviders
+  assert.ok(defaults.every((provider) => provider.thinkingEnabled === false))
+  assert.ok(defaults.every((provider) => provider.supportsThinking === true))
+})
+
+test('旧版 AcuCompute Chat Completions 配置会迁移为 Responses 协议', () => {
+  const settings = normalizeSettings({
+    aiProviders: [
+      {
+        id: 'acucompute',
+        name: 'AcuCompute',
+        baseUrl: 'https://api.acucompute.com/v1',
+        apiProtocol: 'openai-chat',
+        models: ['gpt-5.6-luna'],
+        selectedModel: 'gpt-5.6-luna'
+      }
+    ]
+  })
+  assert.equal(settings.aiProviders[0].apiProtocol, 'openai-responses')
+  assert.equal(settings.aiProviders[0].selectedModel, 'gpt-5.6-luna')
 })
 
 test('旧版 LinkAI 默认预设会迁移到 Direct 网关与可用模型', () => {
@@ -297,14 +324,90 @@ test('AI 模型请求参数按模型保存并限制安全范围', () => {
   assert.deepEqual(provider.modelTunings['model-a'], {
     batchSize: 12,
     concurrency: 2,
-    requestTimeoutSeconds: 120
+    requestTimeoutSeconds: 120,
+    temperature: 0.2,
+    topP: 1,
+    maxOutputTokens: 0
   })
   assert.deepEqual(provider.modelTunings['model-b'], {
     batchSize: 100,
     concurrency: 1,
-    requestTimeoutSeconds: 900
+    requestTimeoutSeconds: 900,
+    temperature: 0.2,
+    topP: 1,
+    maxOutputTokens: 0
   })
   assert.equal(provider.modelTunings.removed, undefined)
+})
+
+test('AI 平台协议与模型采样参数会归一化并保留 OpenAI 兼容预设能力', () => {
+  const settings = normalizeSettings({
+    aiProviders: [
+      {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiProtocol: 'openai-chat',
+        models: ['model-a'],
+        selectedModel: 'model-a',
+        modelTunings: {
+          'model-a': {
+            batchSize: 4,
+            concurrency: 2,
+            requestTimeoutSeconds: 90,
+            temperature: 5,
+            topP: -1,
+            maxOutputTokens: 99999
+          }
+        }
+      }
+    ]
+  })
+  const openrouter = settings.aiProviders.find((provider) => provider.id === 'openrouter')
+  assert.equal(openrouter.apiProtocol, 'openai-chat')
+  assert.equal(openrouter.supportsThinking, true)
+  assert.deepEqual(openrouter.modelTunings['model-a'], {
+    batchSize: 4,
+    concurrency: 2,
+    requestTimeoutSeconds: 90,
+    temperature: 2,
+    topP: 0,
+    maxOutputTokens: 32768
+  })
+  assert.equal(
+    normalizeSettings({}).aiProviders.some((provider) => provider.id === 'anthropic'),
+    false
+  )
+})
+
+test('旧版已取消的内置平台配置会在升级时自动移除', () => {
+  const settings = normalizeSettings({
+    activeProviderId: 'hapi',
+    aiProviders: [
+      {
+        id: 'hapi',
+        name: 'HAPI Open',
+        baseUrl: 'https://hapiopen.cc/v1',
+        token: 'old-token',
+        models: ['gpt-5.4-mini'],
+        selectedModel: 'gpt-5.4-mini'
+      },
+      {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        token: 'current-token',
+        models: ['model-a'],
+        selectedModel: 'model-a'
+      }
+    ]
+  })
+  assert.equal(
+    settings.aiProviders.some((provider) => provider.id === 'hapi'),
+    false
+  )
+  assert.equal(settings.activeProviderId, 'openrouter')
+  assert.equal(activeProvider(settings).token, 'current-token')
 })
 
 test('合并性能设置使用安全默认值并收敛非法输入', () => {

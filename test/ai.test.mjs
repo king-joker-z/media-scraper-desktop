@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildAiChunks,
   buildAiMessages,
+  buildAiRequest,
   buildPrompt,
   chatCompletionsUrl,
   clearAiCache,
@@ -14,6 +15,7 @@ import {
   fetchWithRetry,
   requestAiNames,
   readAiResponseContent,
+  testAiConnection,
   toFriendlyHttpError
 } from '../src/main/modules/rename/ai.mjs'
 
@@ -247,6 +249,25 @@ test('readAiResponseContent accepts SSE data events and compatible content shape
   })
   assert.equal(outputContent, '["兼容名称"]')
 
+  const responsesApiContent = await readAiResponseContent({
+    text: async () =>
+      JSON.stringify({
+        status: 'completed',
+        output: [
+          { type: 'reasoning', content: [] },
+          {
+            type: 'message',
+            content: [
+              { type: 'output_text', text: '["Responses 名称"]' },
+              { type: 'refusal', refusal: null }
+            ]
+          }
+        ]
+      }),
+    json: async () => ({})
+  })
+  assert.equal(responsesApiContent, '["Responses 名称"]')
+
   await assert.rejects(
     readAiResponseContent({ text: async () => '', json: async () => ({}) }),
     /AI 返回为空/
@@ -278,9 +299,10 @@ test('buildAiChunks keeps parent folders intact when possible and splits oversiz
 })
 
 test('AI output limits scale with each batch and Retry-After is honored', () => {
-  assert.equal(maxTokensForAiNames(1), 256)
-  assert.equal(maxTokensForAiNames(40), 5248)
-  assert.equal(maxTokensForAiNames(100), 8192)
+  assert.equal(maxTokensForAiNames(1), 448)
+  assert.equal(maxTokensForAiNames(40), 7936)
+  assert.equal(maxTokensForAiNames(100), 16384)
+  assert.equal(maxTokensForAiNames(5, 4096), 4096)
   assert.equal(retryAfterMs({ headers: { get: () => '2' } }), 2000)
   assert.equal(retryAfterMs({ headers: { get: () => null } }), 0)
 })
@@ -312,6 +334,17 @@ test('DeepSeek 空最终答案会区分思考耗尽与 token 截断', async () =
       json: async () => ({})
     }),
     /仅返回了思考过程/
+  )
+  await assert.rejects(
+    readAiResponseContent({
+      text: async () =>
+        JSON.stringify({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' }
+        }),
+      json: async () => ({})
+    }),
+    /输出 token 上限/
   )
 })
 
@@ -498,7 +531,7 @@ test('requestAiNames 回退请求会关闭思考并要求直接输出结果', as
   assert.deepEqual(names, ['名称'])
   assert.equal(bodies.length, 2)
   assert.deepEqual(bodies[0].thinking, { type: 'enabled' })
-  assert.deepEqual(bodies[1].thinking, { type: 'disabled' })
+  assert.equal(bodies[1].thinking, undefined)
   assert.equal(bodies[0].temperature, undefined)
   assert.equal(bodies[1].temperature, undefined)
   assert.match(bodies[1].messages[1].content, /不要思考或解释/)
@@ -523,7 +556,7 @@ test('requestAiNames only sends the platform thinking setting when explicitly co
   await requestAiNames({ ...base, thinkingEnabled: false })
   await requestAiNames({ ...base, thinkingEnabled: true })
   await requestAiNames(base)
-  assert.deepEqual(bodies[0].thinking, { type: 'disabled' })
+  assert.equal(bodies[0].thinking, undefined)
   assert.deepEqual(bodies[1].thinking, { type: 'enabled' })
   assert.equal(bodies[2].thinking, undefined)
 })
@@ -548,7 +581,142 @@ test('requestAiNames parses SSE response and disables stream requests', async ()
   })
   assert.deepEqual(names, ['已整理'])
   assert.equal(body.stream, false)
-  assert.equal(body.max_tokens, 256)
+  assert.equal(body.max_tokens, 448)
+})
+
+test('buildAiRequest adapts authentication, endpoint and payload to native provider protocols', () => {
+  const messages = [
+    { role: 'system', content: '规则' },
+    { role: 'user', content: '文件列表' }
+  ]
+  const common = {
+    token: 'secret',
+    model: 'model-a',
+    messages,
+    temperature: 0.2,
+    topP: 0.9,
+    maxOutputTokens: 1024
+  }
+  const openRouter = buildAiRequest({
+    ...common,
+    apiProtocol: 'openai-chat',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    thinkingEnabled: undefined
+  })
+  assert.equal(openRouter.url, 'https://openrouter.ai/api/v1/chat/completions')
+  assert.equal(
+    openRouter.headers['HTTP-Referer'],
+    'https://github.com/king-joker-z/media-scraper-desktop'
+  )
+  assert.equal(openRouter.body.temperature, 0.2)
+  assert.equal(openRouter.body.top_p, 0.9)
+
+  const responses = buildAiRequest({
+    ...common,
+    apiProtocol: 'openai-responses',
+    baseUrl: 'https://api.acucompute.com/v1',
+    thinkingEnabled: true
+  })
+  assert.equal(responses.url, 'https://api.acucompute.com/v1/responses')
+  assert.equal(responses.headers.Authorization, 'Bearer secret')
+  assert.deepEqual(responses.body, {
+    model: 'model-a',
+    input: '规则\n\n文件列表',
+    max_output_tokens: 1024,
+    stream: false
+  })
+
+  const anthropic = buildAiRequest({
+    ...common,
+    apiProtocol: 'anthropic-messages',
+    baseUrl: 'https://api.anthropic.com/v1',
+    thinkingEnabled: undefined
+  })
+  assert.equal(anthropic.url, 'https://api.anthropic.com/v1/messages')
+  assert.equal(anthropic.headers['x-api-key'], 'secret')
+  assert.equal(anthropic.headers.Authorization, undefined)
+  assert.equal(anthropic.body.system, '规则')
+  assert.deepEqual(anthropic.body.messages, [{ role: 'user', content: '文件列表' }])
+
+  const gemini = buildAiRequest({
+    ...common,
+    apiProtocol: 'gemini-generate-content',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    thinkingEnabled: undefined
+  })
+  assert.match(gemini.url, /models\/model-a:generateContent\?key=secret$/)
+  assert.equal(gemini.headers.Authorization, undefined)
+  assert.deepEqual(gemini.body.generationConfig, {
+    temperature: 0.2,
+    topP: 0.9,
+    maxOutputTokens: 1024
+  })
+})
+
+test('testAiConnection tests exactly one model without using name cache or batch prompt', async () => {
+  const requests = []
+  const result = await testAiConnection({
+    baseUrl: 'https://api.example.com/v1',
+    token: 'test-token',
+    model: 'single-model',
+    apiProtocol: 'openai-chat',
+    thinkingEnabled: true,
+    fetchImpl: async (url, init) => {
+      requests.push({ url, body: JSON.parse(init.body) })
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '连接成功' } }] }) }
+    }
+  })
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].url, 'https://api.example.com/v1/chat/completions')
+  assert.equal(requests[0].body.model, 'single-model')
+  assert.deepEqual(requests[0].body.thinking, { type: 'enabled' })
+  assert.equal(requests[0].body.temperature, undefined)
+  assert.equal(requests[0].body.max_tokens, 32)
+
+  const responsesRequests = []
+  await testAiConnection({
+    baseUrl: 'https://api.acucompute.com/v1',
+    token: 'test-token',
+    model: 'acu-auto',
+    apiProtocol: 'openai-responses',
+    fetchImpl: async (url, init) => {
+      responsesRequests.push({ url, body: JSON.parse(init.body) })
+      return {
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            status: 'completed',
+            output: [{ type: 'message', content: [{ type: 'output_text', text: '连接成功' }] }]
+          })
+      }
+    }
+  })
+  assert.equal(responsesRequests[0].url, 'https://api.acucompute.com/v1/responses')
+  assert.deepEqual(responsesRequests[0].body, {
+    model: 'acu-auto',
+    input: '你是连接测试助手。\n\n请只回复：连接成功',
+    max_output_tokens: 448,
+    stream: false
+  })
+  assert.equal(result.preview, '连接成功')
+  assert.ok(result.latencyMs >= 0)
+})
+
+test('testAiConnection validates required connection fields and surfaces HTTP errors', async () => {
+  await assert.rejects(testAiConnection({ baseUrl: 'https://x', token: '', model: 'm' }), /Token/)
+  await assert.rejects(
+    testAiConnection({ baseUrl: 'https://x', token: 't', model: '' }),
+    /选择或添加/
+  )
+  await assert.rejects(
+    testAiConnection({
+      baseUrl: 'https://x',
+      token: 't',
+      model: 'm',
+      fetchImpl: async () => ({ ok: false, status: 401, text: async () => 'bad token' })
+    }),
+    /401/
+  )
 })
 
 test('requestAiNames retries a failed batch locally and retains successful batch cache', async () => {

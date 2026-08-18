@@ -4,7 +4,20 @@ declare module './ai.mjs' {
   export const AI_BATCH_SIZE: number
   export const MAX_AI_PROMPT_LENGTH: number
   export function retryAfterMs(response: { headers?: { get(name: string): string | null } }): number
-  export function maxTokensForAiNames(itemCount: number): number
+  export function maxTokensForAiNames(itemCount: number, configuredMaxTokens?: number): number
+  export function buildAiRequest(options: {
+    apiProtocol:
+      'openai-chat' | 'openai-responses' | 'anthropic-messages' | 'gemini-generate-content'
+    baseUrl: string
+    token: string
+    model: string
+    messages: { role: string; content: string }[]
+    temperature: number
+    topP: number
+    maxOutputTokens: number
+    thinkingEnabled?: boolean
+    omitSampling?: boolean
+  }): { url: string; headers: Record<string, string>; body: Record<string, unknown> }
   export function buildAiChunks<T extends { file: AiFileInput }>(
     entries: T[],
     batchSize: number
@@ -33,8 +46,10 @@ declare module './ai.mjs' {
     baseUrl: string
     token: string
     model: string
+    /** API 协议，默认 OpenAI Chat Completions。 */
+    apiProtocol?: 'openai-chat' | 'anthropic-messages' | 'gemini-generate-content'
     template: string
-    /** 平台思考模式开关；未传时不附加平台扩展参数。 */
+    /** 仅支持的平台传递思考模式开关；未传时不附加平台扩展参数。 */
     thinkingEnabled?: boolean
     /** 每批请求项数（1–100），默认 40。 */
     batchSize?: number
@@ -42,6 +57,12 @@ declare module './ai.mjs' {
     batchConcurrency?: number
     /** 单次请求超时毫秒数（5_000–900_000），默认 300_000。 */
     requestTimeoutMs?: number
+    /** 采样温度（0–2），默认 0.2。 */
+    temperature?: number
+    /** 核采样（0–1），默认 1。 */
+    topP?: number
+    /** 最大输出 token（0–32768）；0 为随批大小自动计算。 */
+    maxOutputTokens?: number
     files: AiFileInput[]
     fetchImpl?: typeof fetch
     /** 每批完成回调：已完成数量 */
@@ -54,6 +75,16 @@ declare module './ai.mjs' {
     signal?: AbortSignal
   }): Promise<string[]>
   export function clearAiCache(): void
+  /** 向指定单一模型发送最小请求，验证端点、鉴权、模型 ID 与响应解析。 */
+  export function testAiConnection(options: {
+    baseUrl: string
+    token: string
+    model: string
+    apiProtocol?: 'openai-chat' | 'anthropic-messages' | 'gemini-generate-content'
+    thinkingEnabled?: boolean
+    requestTimeoutMs?: number
+    fetchImpl?: typeof fetch
+  }): Promise<{ latencyMs: number; preview: string }>
   /** 把 AI 平台失败响应转成可读中文错误（附平台返回摘要） */
   export function toFriendlyHttpError(response: {
     status: number

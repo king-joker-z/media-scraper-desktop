@@ -17,8 +17,20 @@ import {
 } from '../utils/theme'
 import { mediaUrl } from '../utils/media'
 
-const BUILT_IN_PROVIDER_IDS = new Set(['openrouter', 'deepseek', 'aicodemirror', 'linkai', 'hapi'])
-const THINKING_PROVIDER_IDS = new Set(['deepseek', 'linkai'])
+const BUILT_IN_PROVIDER_IDS = new Set([
+  'openrouter',
+  'deepseek',
+  'aicodemirror',
+  'linkai',
+  'acucompute'
+])
+
+const AI_PROTOCOL_OPTIONS = [
+  { value: 'openai-chat', label: 'OpenAI Chat Completions 兼容' },
+  { value: 'openai-responses', label: 'OpenAI Responses / Codex 兼容' },
+  { value: 'anthropic-messages', label: 'Anthropic Messages 原生' },
+  { value: 'gemini-generate-content', label: 'Google Gemini 原生' }
+] as const
 
 const THEME_TABS: { key: ThemeMode; label: string }[] = [
   { key: 'system', label: '跟随系统' },
@@ -114,6 +126,8 @@ function SettingsPage(): React.JSX.Element {
   const [newModel, setNewModel] = useState('')
   const [newProvider, setNewProvider] = useState({ name: '', baseUrl: '' })
   const [addingProvider, setAddingProvider] = useState(false)
+  const [connectionTesting, setConnectionTesting] = useState(false)
+  const [connectionNotice, setConnectionNotice] = useState('')
   const [saved, setSaved] = useState(false)
   // 「已保存」提示的定时器句柄（persist 内 clearTimeout 复用，防快速连续操作堆叠定时器）
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -314,6 +328,23 @@ function SettingsPage(): React.JSX.Element {
     }
   }
 
+  const testConnection = async (): Promise<void> => {
+    if (!editing.token || !editing.selectedModel || connectionTesting) return
+    setConnectionTesting(true)
+    setConnectionNotice('')
+    try {
+      const result = await window.api.testAiConnection(editing.id, editing.selectedModel)
+      const preview = result.preview ? ` · 返回：${result.preview}` : ''
+      setConnectionNotice(
+        `连接成功：${result.providerName} / ${result.model}（${result.latencyMs} ms）${preview}`
+      )
+    } catch (error) {
+      setConnectionNotice(`连接失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setConnectionTesting(false)
+    }
+  }
+
   const addModel = (): void => {
     const model = newModel.trim()
     if (!model || editing.models.includes(model)) return
@@ -340,10 +371,12 @@ function SettingsPage(): React.JSX.Element {
       name,
       baseUrl,
       token: '',
+      apiProtocol: 'openai-chat',
       models: [],
       selectedModel: '',
       modelTunings: {},
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      supportsThinking: false
     }
     persist({
       aiProviders: [...settings.aiProviders, provider],
@@ -785,11 +818,13 @@ function SettingsPage(): React.JSX.Element {
         tabIndex={-1}
       >
         <h2>AI 平台</h2>
-        <div className="mode-tabs">
+        <div className="mode-tabs provider-tabs" role="tablist" aria-label="AI 平台列表">
           {settings.aiProviders.map((provider) => (
             <button
               key={provider.id}
               className={`mode-tab ${editingId === provider.id ? 'active' : ''}`}
+              role="tab"
+              aria-selected={editingId === provider.id}
               onClick={() => selectProvider(provider.id)}
             >
               {provider.name}
@@ -831,7 +866,33 @@ function SettingsPage(): React.JSX.Element {
         {editing && (
           <>
             <label className="field">
-              <span>Base URL（OpenAI 兼容，自动拼接 /chat/completions）</span>
+              <span>API 协议</span>
+              <select
+                value={editing.apiProtocol}
+                onChange={(event) =>
+                  patchProvider(editing.id, {
+                    apiProtocol: event.target.value as AiProviderConfig['apiProtocol']
+                  })
+                }
+              >
+                {AI_PROTOCOL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>
+                Base URL
+                {editing.apiProtocol === 'openai-chat'
+                  ? '（自动拼接 /chat/completions）'
+                  : editing.apiProtocol === 'openai-responses'
+                    ? '（自动拼接 /responses）'
+                    : editing.apiProtocol === 'anthropic-messages'
+                      ? '（自动拼接 /messages）'
+                      : '（使用 /models/{模型}:generateContent）'}
+              </span>
               <input
                 value={drafts[editing.id]?.baseUrl ?? editing.baseUrl}
                 onChange={(event) =>
@@ -868,12 +929,33 @@ function SettingsPage(): React.JSX.Element {
                 }}
               />
             </label>
-            {editing.id !== settings.activeProviderId && (
-              <button className="secondary" onClick={activateProvider}>
-                设为当前使用的平台
+            <div className="settings-inline-actions">
+              {editing.id !== settings.activeProviderId && (
+                <button className="secondary" onClick={activateProvider}>
+                  设为当前使用的平台
+                </button>
+              )}
+              <button
+                className="secondary"
+                onClick={() => void testConnection()}
+                disabled={connectionTesting || !editing.token || !editing.selectedModel}
+                title={
+                  !editing.token
+                    ? '请先填写 API Token'
+                    : !editing.selectedModel
+                      ? '请先选择模型'
+                      : ''
+                }
+              >
+                {connectionTesting ? '测试中…' : '测试当前模型连接'}
               </button>
+            </div>
+            {connectionNotice && (
+              <p className="notice-inline" role="status">
+                {connectionNotice}
+              </p>
             )}
-            {THINKING_PROVIDER_IDS.has(editing.id) && (
+            {editing.supportsThinking && (
               <label className="confirm-check">
                 <input
                   className="confirm-check-input"
@@ -912,7 +994,12 @@ function SettingsPage(): React.JSX.Element {
                                 editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
                               requestTimeoutSeconds:
                                 editing.modelTunings[editing.selectedModel]
-                                  ?.requestTimeoutSeconds ?? 300
+                                  ?.requestTimeoutSeconds ?? 300,
+                              temperature:
+                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
+                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
+                              maxOutputTokens:
+                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
                             }
                           }
                         })
@@ -936,7 +1023,12 @@ function SettingsPage(): React.JSX.Element {
                               concurrency: Number(event.target.value),
                               requestTimeoutSeconds:
                                 editing.modelTunings[editing.selectedModel]
-                                  ?.requestTimeoutSeconds ?? 300
+                                  ?.requestTimeoutSeconds ?? 300,
+                              temperature:
+                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
+                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
+                              maxOutputTokens:
+                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
                             }
                           }
                         })
@@ -961,7 +1053,105 @@ function SettingsPage(): React.JSX.Element {
                                 editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
                               concurrency:
                                 editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
-                              requestTimeoutSeconds: Number(event.target.value)
+                              requestTimeoutSeconds: Number(event.target.value),
+                              temperature:
+                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
+                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
+                              maxOutputTokens:
+                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
+                            }
+                          }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>温度（0–2，默认 0.2）</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={2}
+                      step={0.1}
+                      disabled={editing.thinkingEnabled}
+                      value={editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2}
+                      onChange={(event) =>
+                        patchProvider(editing.id, {
+                          modelTunings: {
+                            ...editing.modelTunings,
+                            [editing.selectedModel]: {
+                              batchSize:
+                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
+                              concurrency:
+                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
+                              requestTimeoutSeconds:
+                                editing.modelTunings[editing.selectedModel]
+                                  ?.requestTimeoutSeconds ?? 300,
+                              temperature: Number(event.target.value),
+                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
+                              maxOutputTokens:
+                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
+                            }
+                          }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Top P（0–1，默认 1）</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      disabled={editing.thinkingEnabled}
+                      value={editing.modelTunings[editing.selectedModel]?.topP ?? 1}
+                      onChange={(event) =>
+                        patchProvider(editing.id, {
+                          modelTunings: {
+                            ...editing.modelTunings,
+                            [editing.selectedModel]: {
+                              batchSize:
+                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
+                              concurrency:
+                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
+                              requestTimeoutSeconds:
+                                editing.modelTunings[editing.selectedModel]
+                                  ?.requestTimeoutSeconds ?? 300,
+                              temperature:
+                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
+                              topP: Number(event.target.value),
+                              maxOutputTokens:
+                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
+                            }
+                          }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>最大输出 Token（0=自动，最多 32768）</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={32768}
+                      step={256}
+                      value={editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0}
+                      onChange={(event) =>
+                        patchProvider(editing.id, {
+                          modelTunings: {
+                            ...editing.modelTunings,
+                            [editing.selectedModel]: {
+                              batchSize:
+                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
+                              concurrency:
+                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
+                              requestTimeoutSeconds:
+                                editing.modelTunings[editing.selectedModel]
+                                  ?.requestTimeoutSeconds ?? 300,
+                              temperature:
+                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
+                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
+                              maxOutputTokens: Number(event.target.value)
                             }
                           }
                         })
@@ -970,8 +1160,9 @@ function SettingsPage(): React.JSX.Element {
                   </label>
                 </div>
                 <small className="muted">
-                  仅作用于当前模型；不同模型会独立保存。超时按每个请求单独计时；若平台提前返回 504，
-                  请降低每批文件数或请求并发。
+                  仅作用于当前模型；不同模型会独立保存。温度越低结果越稳定，命名建议保持 0–0.4；
+                  思考模式下平台不接受温度与 Top P，因此会暂时禁用。最大输出 Token 设为 0
+                  时按批量自动计算。
                 </small>
               </div>
             )}

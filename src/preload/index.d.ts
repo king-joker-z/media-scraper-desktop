@@ -1,5 +1,6 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
+  AiConnectionTestResult,
   AiFileInput,
   AppModule,
   AppSettings,
@@ -67,6 +68,8 @@ declare global {
       cancelPosterCapture: () => Promise<void>
       probeContainers: (root: string, relativePaths: string[]) => Promise<ProbeContainerItem[]>
       requestAiNames: (files: AiFileInput[], forceRefresh?: boolean) => Promise<string[]>
+      /** 对当前设置中指定的平台和单一模型执行最小请求连通性测试。 */
+      testAiConnection: (providerId: string, model: string) => Promise<AiConnectionTestResult>
       executeRename: (root: string, pairs: RenamePairInput[]) => Promise<RenameReport>
       cancelRename: () => Promise<void>
       createNfoPlan: (root: string) => Promise<NfoPlan>

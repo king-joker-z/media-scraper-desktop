@@ -1630,16 +1630,16 @@ input[type='checkbox']:disabled {
   max-width: calc(100% - 12px);
 }
 .poster-toolbar {
-display: flex;
-align-items: center;
-justify-content: space-between;
-gap: 16px;
-margin: 12px 0 18px;
-padding: 12px 14px;
-border: 1px solid var(--separator);
-border-radius: var(--radius-card);
-background: color-mix(in srgb, var(--bg-card) 88%, transparent);
-box-shadow: var(--shadow-card);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 12px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  box-shadow: var(--shadow-card);
 }
 .poster-toolbar-copy {
   display: grid;
@@ -1973,6 +1973,28 @@ box-shadow: var(--shadow-card);
   background: var(--accent-press);
   color: #fff;
 }
+/* AI 平台可横向滚动，避免标签在窄窗口被压扁或挤出卡片。 */
+.provider-tabs {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--separator) transparent;
+  scroll-snap-type: x proximity;
+}
+.provider-tabs .mode-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  scroll-snap-align: start;
+}
+.provider-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+.provider-tabs::-webkit-scrollbar-thumb {
+  background: var(--separator);
+  border-radius: 999px;
+}
 /* 工具栏内部不应继承分段控件在表单区的底部间距。 */
 .library-toolbar .mode-tabs,
 .comic-toolbar .mode-tabs {
@@ -2103,6 +2125,14 @@ box-shadow: var(--shadow-card);
 .ok-text {
   color: var(--success);
 }
+.settings-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
 .notice-inline {
   margin: 4px 0;
   font-size: 13px;

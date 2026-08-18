@@ -4,48 +4,66 @@ import { clampConcurrency, DEFAULT_CONCURRENCY } from './task-center.mjs'
 import { writeAtomicTextFile } from './fs-ops.mjs'
 
 export const DEFAULT_PROMPT_TEMPLATE =
-  '根据文件名生成简洁、规范的新名称；保留有意义的标题，去除网站、广告、分辨率等噪音。'
+  '根据文件名与父文件夹名称，提取原有作品标题并生成简洁、统一的本地媒体库名称。仅保留输入中能够直接确认的标题、集数或季数；去除网站名、上传者标记、推广语、无意义标签、分辨率、编码、码率、音轨、字幕和容器格式。不得根据题材、关键词或目录联想补写剧情、用途或描述；不得添加“未知影像”“生成影像”“一段”“片段”“记录”“视频”“文件”等输入中不存在的泛化词。信息不足时只清理原文件名并保留可确认内容，名称可短，不要为了凑字数编造。中文作品优先使用简体中文；原始名称明确为其他语言时才翻译为中文。不得包含扩展名、无意义长数字、“未命名”或“根目录”。'
 
 export const DEFAULT_AI_BATCH_SIZE = 40
 export const DEFAULT_AI_BATCH_CONCURRENCY = 3
 export const DEFAULT_AI_REQUEST_TIMEOUT_SECONDS = 300
+export const DEFAULT_AI_TEMPERATURE = 0.2
+export const DEFAULT_AI_TOP_P = 1
+export const DEFAULT_AI_MAX_OUTPUT_TOKENS = 0
 const normalizeAiBatchSize = (value) => clampInteger(value, 1, 100, DEFAULT_AI_BATCH_SIZE)
 const normalizeAiBatchConcurrency = (value) =>
   clampInteger(value, 1, 10, DEFAULT_AI_BATCH_CONCURRENCY)
 const normalizeAiRequestTimeoutSeconds = (value) =>
   clampInteger(value, 5, 900, DEFAULT_AI_REQUEST_TIMEOUT_SECONDS)
+const normalizeAiTemperature = (value) => clampNumber(value, 0, 2, DEFAULT_AI_TEMPERATURE)
+const normalizeAiTopP = (value) => clampNumber(value, 0, 1, DEFAULT_AI_TOP_P)
+const normalizeAiMaxOutputTokens = (value) =>
+  clampInteger(value, 0, 32768, DEFAULT_AI_MAX_OUTPUT_TOKENS)
 
-/** 内置 AI 平台预设（均为 OpenAI 兼容端点；baseUrl 可在设置页修改） */
+/** 内置 AI 平台预设：协议与扩展能力集中声明，避免 UI、IPC、请求层各自维护白名单。 */
 export const PROVIDER_PRESETS = [
   {
     id: 'openrouter',
     name: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
-    models: ['deepseek/deepseek-chat', 'openai/gpt-5.6-luna']
+    apiProtocol: 'openai-chat',
+    models: ['deepseek/deepseek-chat', 'openai/gpt-5.6-luna'],
+    supportsThinking: false
   },
   {
     id: 'deepseek',
     name: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
-    models: ['deepseek-v4-flash', 'deepseek-v4-pro']
+    apiProtocol: 'openai-chat',
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    supportsThinking: true
   },
   {
     id: 'aicodemirror',
     name: 'AiCodeMirror',
     baseUrl: 'https://api.aicodemirror.ai/api/codex/backend-api/codex/v1',
-    models: ['gpt-5.6-luna']
+    apiProtocol: 'openai-chat',
+    models: ['gpt-5.6-luna'],
+    supportsThinking: false
   },
   {
     id: 'linkai',
     name: 'LinkAI Direct',
     baseUrl: 'https://direct.linkai.pics/v1',
-    models: ['gpt-5.4-mini']
+    apiProtocol: 'openai-chat',
+    models: ['gpt-5.4-mini'],
+    supportsThinking: true
   },
   {
-    id: 'hapi',
-    name: 'HAPI Open',
-    baseUrl: 'https://hapiopen.cc/v1',
-    models: ['gpt-5.4-mini']
+    id: 'acucompute',
+    name: 'AcuCompute',
+    baseUrl: 'https://api.acucompute.com/v1',
+    apiProtocol: 'openai-responses',
+    // 平台模型会随账户套餐变化，预置控制台的自动路由；可在设置中按账户列表增删。
+    models: ['acu-auto'],
+    supportsThinking: true
   }
 ]
 
@@ -179,6 +197,11 @@ const clampInteger = (value, min, max, fallback) => {
   return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback
 }
 
+const clampNumber = (value, min, max, fallback) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback
+}
+
 const normalizeBackgroundAppearance = (value) => {
   const input = value && typeof value === 'object' ? value : {}
   return {
@@ -206,6 +229,8 @@ function normalizeProvider(raw, preset) {
   const isLegacyLinkAi =
     input.id === 'linkai' && String(input.baseUrl).replace(/\/+$/, '') === 'https://linkai.pics/v1'
   const baseUrlInput = isLegacyLinkAi ? 'https://direct.linkai.pics/v1' : input.baseUrl
+  // AcuCompute 内置平台最初误按 Chat Completions 配置；其 Codex 路由实际使用 Responses API。
+  const isLegacyAcuCompute = input.id === 'acucompute' && input.apiProtocol === 'openai-chat'
   const models =
     isLegacyLinkAi && Array.isArray(input.models) && input.models.join() === 'linkai-auto'
       ? ['gpt-5.4-mini']
@@ -223,6 +248,16 @@ function normalizeProvider(raw, preset) {
         ? baseUrlInput.trim().replace(/\/+$/, '')
         : (preset?.baseUrl ?? ''),
     token: typeof input.token === 'string' ? input.token : '',
+    apiProtocol: isLegacyAcuCompute
+      ? 'openai-responses'
+      : [
+            'openai-chat',
+            'openai-responses',
+            'anthropic-messages',
+            'gemini-generate-content'
+          ].includes(input.apiProtocol)
+        ? input.apiProtocol
+        : (preset?.apiProtocol ?? 'openai-chat'),
     models,
     selectedModel: models.includes(input.selectedModel) ? input.selectedModel : (models[0] ?? ''),
     modelTunings: Object.fromEntries(
@@ -235,11 +270,15 @@ function normalizeProvider(raw, preset) {
           {
             batchSize: normalizeAiBatchSize(tuning?.batchSize),
             concurrency: normalizeAiBatchConcurrency(tuning?.concurrency),
-            requestTimeoutSeconds: normalizeAiRequestTimeoutSeconds(tuning?.requestTimeoutSeconds)
+            requestTimeoutSeconds: normalizeAiRequestTimeoutSeconds(tuning?.requestTimeoutSeconds),
+            temperature: normalizeAiTemperature(tuning?.temperature),
+            topP: normalizeAiTopP(tuning?.topP),
+            maxOutputTokens: normalizeAiMaxOutputTokens(tuning?.maxOutputTokens)
           }
         ])
     ),
-    // DeepSeek 与 LinkAI Direct 平台在请求中读取此开关；旧配置缺失时默认关闭。
+    // 开关统一展示给全部平台；默认关闭，并且仅在用户主动开启时才发送扩展参数。
+    supportsThinking: true,
     thinkingEnabled: input.thinkingEnabled === true
   }
 }
@@ -269,12 +308,16 @@ export function normalizeSettings(raw) {
           }
     )
   }
-  const configuredProviders = (providers ?? DEFAULT_SETTINGS.aiProviders).map((rawProvider) =>
-    normalizeProvider(
-      rawProvider,
-      PROVIDER_PRESETS.find((p) => p.id === rawProvider?.id)
+  // 已取消内置的原生平台不再出现在标签栏；用户手动创建的平台仍完整保留。
+  const retiredPresetIds = new Set(['hapi', 'anthropic', 'gemini', 'ollama'])
+  const configuredProviders = (providers ?? DEFAULT_SETTINGS.aiProviders)
+    .filter((rawProvider) => !retiredPresetIds.has(rawProvider?.id))
+    .map((rawProvider) =>
+      normalizeProvider(
+        rawProvider,
+        PROVIDER_PRESETS.find((p) => p.id === rawProvider?.id)
+      )
     )
-  )
   // 升级后补齐新内置平台，保留用户已有的平台顺序与自定义平台。
   const aiProviders = [
     ...configuredProviders,

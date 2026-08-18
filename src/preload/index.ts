@@ -78,6 +78,8 @@ const api = {
     ipcRenderer.invoke('rename:probe', root, relativePaths),
   requestAiNames: (files: AiFileInput[], forceRefresh = false): Promise<string[]> =>
     ipcRenderer.invoke('rename:ai', files, forceRefresh),
+  testAiConnection: (providerId: string, model: string) =>
+    ipcRenderer.invoke('rename:ai:test-connection', providerId, model),
   executeRename: (root: string, pairs: RenamePairInput[]): Promise<RenameReport> =>
     ipcRenderer.invoke('rename:execute', root, pairs),
   cancelRename: (): Promise<void> => ipcRenderer.invoke('rename:cancel'),
