@@ -91,6 +91,34 @@ test('ext-only mode rejects unsafe Windows names before any write', async () => 
   })
 })
 
+test(
+  'rejects Windows-unsafe target paths before any write',
+  { skip: process.platform !== 'win32' },
+  async () => {
+    await withTempDir(async (root) => {
+      const nested = join(root, 'a'.repeat(120))
+      await mkdir(nested)
+      await writeFile(join(nested, 'movie.mp4'), 'v')
+
+      await assert.rejects(
+        executeRename(
+          root,
+          [
+            {
+              videoRel: join('a'.repeat(120), 'movie.mp4'),
+              posterRel: null,
+              newStem: 'b'.repeat(130)
+            }
+          ],
+          { taskCenter: center(), taskId: 'r-path-too-long' }
+        ),
+        /目标完整路径过长/
+      )
+      assert.equal(await pathExists(join(nested, 'movie.mp4')), true)
+    })
+  }
+)
+
 test('validation failure blocks any write', async () => {
   await withTempDir(async (root) => {
     await mkdir(join(root, 'sub'))

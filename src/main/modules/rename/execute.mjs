@@ -15,6 +15,9 @@ import {
   WINDOWS_RESERVED_NAME_RE
 } from '../../../shared/rename-rules.mjs'
 
+// 为兼容未开启 LongPathsEnabled 的 Windows 环境，目标完整路径保留安全余量。
+const WINDOWS_SAFE_PATH_MAX = 240
+
 /**
  * 两阶段改名（冻结稿 §5）：
  * 阶段一全部改为临时名（规避 A→B、B→A 互换死锁），阶段二改为目标名（重名自动 (n)）。
@@ -36,9 +39,12 @@ export async function executeRename(
   const startedAt = Date.now()
   const errors = validateStems(pairs)
   for (const pair of pairs) {
-    if (!pair.newExt) continue
-    const extensionError = validateTargetExtension(pair.newExt)
-    if (extensionError) errors[pair.videoRel] = extensionError
+    if (pair.newExt) {
+      const extensionError = validateTargetExtension(pair.newExt)
+      if (extensionError) errors[pair.videoRel] = extensionError
+    }
+    const pathError = validateTargetPaths(root, pair)
+    if (pathError) errors[pair.videoRel] = pathError
   }
   if (Object.keys(errors).length > 0) {
     const [rel, message] = Object.entries(errors)[0]
@@ -140,6 +146,26 @@ export async function executeRename(
   }
 
   return finishReport(report, startedAt, cancelled)
+}
+
+/**
+ * Windows 默认 MAX_PATH 仍可能在未启用 LongPathsEnabled 的设备上生效。
+ * 改名前预检视频及其关联海报的最终完整路径，避免阶段一完成后才因 ENAMETOOLONG 留下临时名。
+ */
+function validateTargetPaths(root, pair) {
+  if (process.platform !== 'win32') return null
+  const videoRel = String(pair.videoRel ?? '')
+  const videoExt = extname(videoRel)
+  const finalVideoName = pair.newExt
+    ? `${pair.newStem}${pair.newExt}`
+    : `${pair.newStem}${videoExt}`
+  const targets = [join(dirname(join(root, videoRel)), finalVideoName)]
+  if (pair.posterRel && !pair.newExt) {
+    targets.push(join(dirname(join(root, pair.posterRel)), `${pair.newStem}-poster.jpg`))
+  }
+  return targets.some((target) => target.length > WINDOWS_SAFE_PATH_MAX)
+    ? `目标完整路径过长，Windows 兼容路径不能超过 ${WINDOWS_SAFE_PATH_MAX} 个字符`
+    : null
 }
 
 /**
