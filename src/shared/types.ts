@@ -114,8 +114,12 @@ export interface AiModelTuning {
   concurrency: number
   /** 单次请求超时秒数（5–900）。 */
   requestTimeoutSeconds: number
+  /** 是否向模型请求发送 temperature；默认启用。 */
+  temperatureEnabled?: boolean
   /** 采样温度（0–2）；命名任务默认 0.2。 */
   temperature: number
+  /** 是否向模型请求发送 top_p；默认启用。 */
+  topPEnabled?: boolean
   /** 核采样 top_p（0–1）；默认 1 表示不额外收窄。 */
   topP: number
   /** 最大输出 token（0–32768）；0 为按文件数自动计算。 */

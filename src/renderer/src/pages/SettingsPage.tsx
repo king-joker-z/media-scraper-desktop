@@ -158,7 +158,9 @@ function SettingsPage(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    window.api.getSettings().then((next) => {
+    let disposed = false
+    const applySettings = (next: AppSettings): void => {
+      if (disposed) return
       // HMR 时预加载层可能短暂仍返回旧版设置结构，渲染端先兜底以确保设置页可打开。
       const nextSettings: AppSettings = {
         ...next,
@@ -167,9 +169,24 @@ function SettingsPage(): React.JSX.Element {
       setSettings(nextSettings)
       setCustomAccent(nextSettings.customAccent || '#1687d9')
       applyBackgroundAppearance(nextSettings.backgroundAppearance)
-      setEditingId(nextSettings.activeProviderId)
-    })
+      // 设置广播只刷新数据；用户正在编辑的非当前平台必须保持选中，不能因为
+      // 任一保存操作就被强制跳回当前使用的平台。首次加载或平台被删除时才回退。
+      setEditingId((currentId) =>
+        nextSettings.aiProviders.some((provider) => provider.id === currentId)
+          ? currentId
+          : nextSettings.activeProviderId
+      )
+    }
+
+    // 设置页常驻时也必须接收主进程的归一化结果。否则点击开关后的乐观状态，
+    // 可能被首次异步读取或其他页面的旧设置响应覆盖，视觉上就像“点了没反应”。
+    const unsubscribe = window.api.onSettingsChange(applySettings)
+    void window.api.getSettings().then(applySettings)
     refreshStorage()
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
   }, [])
 
   const cleanStorage = async (category: StorageCategory): Promise<void> => {
@@ -299,6 +316,29 @@ function SettingsPage(): React.JSX.Element {
   const patchProvider = (id: string, patch: Partial<AiProviderConfig>): void => {
     persist({
       aiProviders: settings.aiProviders.map((p) => (p.id === id ? { ...p, ...patch } : p))
+    })
+  }
+
+  const currentTuning = editing.modelTunings[editing.selectedModel]
+  const temperatureEnabled = currentTuning?.temperatureEnabled !== false
+  const topPEnabled = currentTuning?.topPEnabled !== false
+  const patchCurrentTuning = (patch: Partial<AiProviderConfig['modelTunings'][string]>): void => {
+    if (!editing.selectedModel) return
+    patchProvider(editing.id, {
+      modelTunings: {
+        ...editing.modelTunings,
+        [editing.selectedModel]: {
+          batchSize: currentTuning?.batchSize ?? 40,
+          concurrency: currentTuning?.concurrency ?? 3,
+          requestTimeoutSeconds: currentTuning?.requestTimeoutSeconds ?? 300,
+          temperatureEnabled: currentTuning?.temperatureEnabled !== false,
+          temperature: currentTuning?.temperature ?? 0.2,
+          topPEnabled: currentTuning?.topPEnabled !== false,
+          topP: currentTuning?.topP ?? 1,
+          maxOutputTokens: currentTuning?.maxOutputTokens ?? 0,
+          ...patch
+        }
+      }
     })
   }
 
@@ -973,7 +1013,7 @@ function SettingsPage(): React.JSX.Element {
             {editing.selectedModel && (
               <div className="field">
                 <span>当前模型请求参数</span>
-                <div className="slider-row">
+                <div className="model-tuning-grid">
                   <label className="field">
                     <span>每批文件数（1–100）</span>
                     <input
@@ -982,24 +1022,7 @@ function SettingsPage(): React.JSX.Element {
                       max={100}
                       value={editing.modelTunings[editing.selectedModel]?.batchSize ?? 40}
                       onChange={(event) =>
-                        patchProvider(editing.id, {
-                          modelTunings: {
-                            ...editing.modelTunings,
-                            [editing.selectedModel]: {
-                              batchSize: Number(event.target.value),
-                              concurrency:
-                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
-                              requestTimeoutSeconds:
-                                editing.modelTunings[editing.selectedModel]
-                                  ?.requestTimeoutSeconds ?? 300,
-                              temperature:
-                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
-                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
-                              maxOutputTokens:
-                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
-                            }
-                          }
-                        })
+                        patchCurrentTuning({ batchSize: Number(event.target.value) })
                       }
                     />
                   </label>
@@ -1011,24 +1034,7 @@ function SettingsPage(): React.JSX.Element {
                       max={10}
                       value={editing.modelTunings[editing.selectedModel]?.concurrency ?? 3}
                       onChange={(event) =>
-                        patchProvider(editing.id, {
-                          modelTunings: {
-                            ...editing.modelTunings,
-                            [editing.selectedModel]: {
-                              batchSize:
-                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
-                              concurrency: Number(event.target.value),
-                              requestTimeoutSeconds:
-                                editing.modelTunings[editing.selectedModel]
-                                  ?.requestTimeoutSeconds ?? 300,
-                              temperature:
-                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
-                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
-                              maxOutputTokens:
-                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
-                            }
-                          }
-                        })
+                        patchCurrentTuning({ concurrency: Number(event.target.value) })
                       }
                     />
                   </label>
@@ -1042,89 +1048,72 @@ function SettingsPage(): React.JSX.Element {
                         editing.modelTunings[editing.selectedModel]?.requestTimeoutSeconds ?? 300
                       }
                       onChange={(event) =>
-                        patchProvider(editing.id, {
-                          modelTunings: {
-                            ...editing.modelTunings,
-                            [editing.selectedModel]: {
-                              batchSize:
-                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
-                              concurrency:
-                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
-                              requestTimeoutSeconds: Number(event.target.value),
-                              temperature:
-                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
-                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
-                              maxOutputTokens:
-                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
-                            }
-                          }
-                        })
+                        patchCurrentTuning({ requestTimeoutSeconds: Number(event.target.value) })
                       }
                     />
                   </label>
-                  <label className="field">
-                    <span>温度（0–2，默认 0.2）</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={2}
-                      step={0.1}
-                      disabled={editing.thinkingEnabled}
-                      value={editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2}
-                      onChange={(event) =>
-                        patchProvider(editing.id, {
-                          modelTunings: {
-                            ...editing.modelTunings,
-                            [editing.selectedModel]: {
-                              batchSize:
-                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
-                              concurrency:
-                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
-                              requestTimeoutSeconds:
-                                editing.modelTunings[editing.selectedModel]
-                                  ?.requestTimeoutSeconds ?? 300,
-                              temperature: Number(event.target.value),
-                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
-                              maxOutputTokens:
-                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
-                            }
+                  <div className="sampling-controls" aria-label="采样参数">
+                    <div className="sampling-control">
+                      <div className="sampling-control-header">
+                        <label htmlFor="temperature-enabled">温度</label>
+                        <button
+                          type="button"
+                          className="sampling-switch"
+                          role="switch"
+                          aria-checked={temperatureEnabled}
+                          disabled={editing.thinkingEnabled}
+                          onClick={() =>
+                            patchCurrentTuning({ temperatureEnabled: !temperatureEnabled })
                           }
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Top P（0–1，默认 1）</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      disabled={editing.thinkingEnabled}
-                      value={editing.modelTunings[editing.selectedModel]?.topP ?? 1}
-                      onChange={(event) =>
-                        patchProvider(editing.id, {
-                          modelTunings: {
-                            ...editing.modelTunings,
-                            [editing.selectedModel]: {
-                              batchSize:
-                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
-                              concurrency:
-                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
-                              requestTimeoutSeconds:
-                                editing.modelTunings[editing.selectedModel]
-                                  ?.requestTimeoutSeconds ?? 300,
-                              temperature:
-                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
-                              topP: Number(event.target.value),
-                              maxOutputTokens:
-                                editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0
-                            }
-                          }
-                        })
-                      }
-                    />
-                  </label>
+                        >
+                          <span className="sampling-switch-track" aria-hidden="true" />
+                          <span>{temperatureEnabled ? '已发送' : '不发送'}</span>
+                        </button>
+                      </div>
+                      <input
+                        aria-label="温度"
+                        type="number"
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        disabled={editing.thinkingEnabled || !temperatureEnabled}
+                        value={currentTuning?.temperature ?? 0.2}
+                        onChange={(event) =>
+                          patchCurrentTuning({ temperature: Number(event.target.value) })
+                        }
+                      />
+                      <small>建议 0–0.4，数值越低结果越稳定</small>
+                    </div>
+                    <div className="sampling-control">
+                      <div className="sampling-control-header">
+                        <label htmlFor="top-p-enabled">Top P</label>
+                        <button
+                          type="button"
+                          className="sampling-switch"
+                          role="switch"
+                          aria-checked={topPEnabled}
+                          disabled={editing.thinkingEnabled}
+                          onClick={() => patchCurrentTuning({ topPEnabled: !topPEnabled })}
+                        >
+                          <span className="sampling-switch-track" aria-hidden="true" />
+                          <span>{topPEnabled ? '已发送' : '不发送'}</span>
+                        </button>
+                      </div>
+                      <input
+                        aria-label="Top P"
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        disabled={editing.thinkingEnabled || !topPEnabled}
+                        value={currentTuning?.topP ?? 1}
+                        onChange={(event) =>
+                          patchCurrentTuning({ topP: Number(event.target.value) })
+                        }
+                      />
+                      <small>关闭后请求不附带 top_p 参数</small>
+                    </div>
+                  </div>
                   <label className="field">
                     <span>最大输出 Token（0=自动，最多 32768）</span>
                     <input
@@ -1134,32 +1123,14 @@ function SettingsPage(): React.JSX.Element {
                       step={256}
                       value={editing.modelTunings[editing.selectedModel]?.maxOutputTokens ?? 0}
                       onChange={(event) =>
-                        patchProvider(editing.id, {
-                          modelTunings: {
-                            ...editing.modelTunings,
-                            [editing.selectedModel]: {
-                              batchSize:
-                                editing.modelTunings[editing.selectedModel]?.batchSize ?? 40,
-                              concurrency:
-                                editing.modelTunings[editing.selectedModel]?.concurrency ?? 3,
-                              requestTimeoutSeconds:
-                                editing.modelTunings[editing.selectedModel]
-                                  ?.requestTimeoutSeconds ?? 300,
-                              temperature:
-                                editing.modelTunings[editing.selectedModel]?.temperature ?? 0.2,
-                              topP: editing.modelTunings[editing.selectedModel]?.topP ?? 1,
-                              maxOutputTokens: Number(event.target.value)
-                            }
-                          }
-                        })
+                        patchCurrentTuning({ maxOutputTokens: Number(event.target.value) })
                       }
                     />
                   </label>
                 </div>
                 <small className="muted">
-                  仅作用于当前模型；不同模型会独立保存。温度越低结果越稳定，命名建议保持 0–0.4；
-                  思考模式下平台不接受温度与 Top P，因此会暂时禁用。最大输出 Token 设为 0
-                  时按批量自动计算。
+                  仅作用于当前模型；不同模型会独立保存。关闭开关可兼容不接受采样参数的网关；思考模式下会暂时禁用采样控制。最大输出
+                  Token 设为 0 时按批量自动计算。
                 </small>
               </div>
             )}

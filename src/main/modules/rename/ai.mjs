@@ -23,6 +23,9 @@ const clampInteger = (value, min, max, fallback) => {
 // 慢模型经常在首 token 前排队，单次请求最长等待 300s；仍保留取消与重试。
 const AI_REQUEST_TIMEOUT_MS = 300_000
 export const MAX_AI_PROMPT_LENGTH = 8000
+export const MAX_AI_FILES_PER_REQUEST = 1000
+export const MAX_AI_FILE_FIELD_LENGTH = 255
+export const MAX_AI_BATCH_PROMPT_LENGTH = 24_000
 
 /**
  * OpenAI 兼容端点：baseUrl + /chat/completions。
@@ -320,6 +323,17 @@ function responseDataToResult(data) {
   const anthropic = data?.content
   const toolCall =
     choice?.delta?.tool_calls ?? message.tool_calls ?? message.function_call ?? data?.tool_use
+  const finishReason =
+    choice?.finish_reason ??
+    data?.stop_reason ??
+    data?.candidates?.[0]?.finishReason ??
+    data?.incomplete_details?.reason
+  const incompleteReason =
+    data?.status === 'incomplete' || data?.status === 'failed' || data?.status === 'cancelled'
+      ? (data?.incomplete_details?.reason ?? data.status)
+      : ['length', 'MAX_TOKENS', 'max_output_tokens', 'max_tokens'].includes(finishReason)
+        ? finishReason
+        : undefined
   return {
     content:
       contentToText(choiceContent) ||
@@ -327,11 +341,8 @@ function responseDataToResult(data) {
       responsesOutputToText(responsesOutput) ||
       contentToText(gemini) ||
       contentToText(anthropic),
-    finishReason:
-      choice?.finish_reason ??
-      data?.stop_reason ??
-      data?.candidates?.[0]?.finishReason ??
-      data?.incomplete_details?.reason,
+    finishReason,
+    incompleteReason,
     hasToolCall: Boolean(toolCall),
     // DeepSeek 思考模式会把 CoT 放在此字段；它不是最终名称，不能参与解析，仅用于诊断。
     hasReasoningContent: Boolean(choice?.delta?.reasoning_content ?? message.reasoning_content)
@@ -342,8 +353,10 @@ const incompleteOutputError = (result) => {
   if (result?.hasToolCall) {
     return new Error('AI 尝试调用工具而非直接输出名称，请关闭模型工具调用后重试')
   }
-  if (['length', 'MAX_TOKENS', 'max_output_tokens', 'max_tokens'].includes(result?.finishReason)) {
-    return new Error('AI 输出被截断（达到输出 token 上限）；请提高输出 token 预算后重试')
+  if (result?.incompleteReason) {
+    return new Error(
+      'AI 输出被截断或不完整（达到输出 token 上限或请求未完成）；请提高输出 token 预算后重试'
+    )
   }
   if (result?.hasReasoningContent) {
     return new Error('AI 仅返回了思考过程，未生成最终名称；请关闭思考模式后重试')
@@ -359,7 +372,7 @@ export async function readAiResponseContent(response) {
   // 响应流只能消费一次；统一读取 text 后解析，空响应直接给出明确错误。
   if (typeof response.text !== 'function') {
     const result = responseDataToResult(await response.json())
-    if (!result.content) throw incompleteOutputError(result)
+    if (result.incompleteReason || !result.content) throw incompleteOutputError(result)
     return result.content
   }
   const raw = await response.text()
@@ -367,7 +380,7 @@ export async function readAiResponseContent(response) {
   if (!trimmed) throw new Error('AI 返回为空')
   if (!trimmed.startsWith('data:')) {
     const result = responseDataToResult(JSON.parse(trimmed))
-    if (!result.content) throw incompleteOutputError(result)
+    if (result.incompleteReason || !result.content) throw incompleteOutputError(result)
     return result.content
   }
   const parts = []
@@ -385,7 +398,7 @@ export async function readAiResponseContent(response) {
     }
   }
   const content = parts.join('')
-  if (!content) throw incompleteOutputError(lastResult)
+  if (lastResult?.incompleteReason || !content) throw incompleteOutputError(lastResult)
   return content
 }
 
@@ -437,6 +450,16 @@ const endpointUrl = (baseUrl, suffix) => {
   return cleaned.endsWith(suffix) ? cleaned : `${cleaned}${suffix}`
 }
 
+/** 请求地址与缓存身份必须共用同一套协议规则，避免切换端点后误命中旧结果。 */
+const requestUrlForProtocol = (apiProtocol, baseUrl, model) => {
+  if (apiProtocol === 'anthropic-messages') return endpointUrl(baseUrl, '/messages')
+  if (apiProtocol === 'gemini-generate-content') {
+    return `${endpointUrl(baseUrl, '')}/models/${encodeURIComponent(model)}:generateContent`
+  }
+  if (apiProtocol === 'openai-responses') return endpointUrl(baseUrl, '/responses')
+  return chatCompletionsUrl(baseUrl)
+}
+
 /** 为不同供应商协议构造请求；OpenRouter 专用归因头不再污染其它网关。 */
 export function buildAiRequest({
   apiProtocol,
@@ -446,6 +469,8 @@ export function buildAiRequest({
   messages,
   temperature,
   topP,
+  temperatureEnabled = true,
+  topPEnabled = true,
   maxOutputTokens,
   thinkingEnabled,
   omitSampling = false
@@ -455,9 +480,16 @@ export function buildAiRequest({
     .filter((message) => message.role !== 'system')
     .map((message) => message.content)
     .join('\n\n')
+  const sampling =
+    thinkingEnabled || omitSampling
+      ? {}
+      : {
+          ...(temperatureEnabled ? { temperature } : {}),
+          ...(topPEnabled ? { topP } : {})
+        }
   if (apiProtocol === 'anthropic-messages') {
     return {
-      url: endpointUrl(baseUrl, '/messages'),
+      url: requestUrlForProtocol(apiProtocol, baseUrl, model),
       headers: {
         'x-api-key': token,
         'anthropic-version': '2023-06-01',
@@ -468,25 +500,29 @@ export function buildAiRequest({
         system,
         messages: [{ role: 'user', content: user }],
         max_tokens: maxOutputTokens,
-        temperature,
-        top_p: topP
+        ...(Object.hasOwn(sampling, 'temperature') ? { temperature } : {}),
+        ...(Object.hasOwn(sampling, 'topP') ? { top_p: topP } : {})
       }
     }
   }
   if (apiProtocol === 'gemini-generate-content') {
     return {
-      url: `${endpointUrl(baseUrl, '')}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(token)}`,
+      url: `${requestUrlForProtocol(apiProtocol, baseUrl, model)}?key=${encodeURIComponent(token)}`,
       headers: { 'Content-Type': 'application/json' },
       body: {
         systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: 'user', parts: [{ text: user }] }],
-        generationConfig: { temperature, topP, maxOutputTokens }
+        generationConfig: {
+          ...(Object.hasOwn(sampling, 'temperature') ? { temperature } : {}),
+          ...(Object.hasOwn(sampling, 'topP') ? { topP } : {}),
+          maxOutputTokens
+        }
       }
     }
   }
   if (apiProtocol === 'openai-responses') {
     return {
-      url: endpointUrl(baseUrl, '/responses'),
+      url: requestUrlForProtocol(apiProtocol, baseUrl, model),
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -502,7 +538,7 @@ export function buildAiRequest({
     }
   }
   return {
-    url: chatCompletionsUrl(baseUrl),
+    url: requestUrlForProtocol(apiProtocol, baseUrl, model),
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -516,8 +552,9 @@ export function buildAiRequest({
     body: {
       model,
       messages,
-      // DeepSeek 思考模式不支持 temperature；其它模型按用户调优参数发送。
-      ...(thinkingEnabled || omitSampling ? {} : { temperature, top_p: topP }),
+      // 思考模式不支持采样参数；其它模型只发送用户启用的参数。
+      ...(Object.hasOwn(sampling, 'temperature') ? { temperature } : {}),
+      ...(Object.hasOwn(sampling, 'topP') ? { top_p: topP } : {}),
       max_tokens: maxOutputTokens,
       // 各家兼容网关对未知字段的容忍度不同，默认关闭时完全不发送 thinking。
       ...(thinkingEnabled === true ? { thinking: { type: 'enabled' } } : {}),
@@ -527,8 +564,9 @@ export function buildAiRequest({
 }
 
 const cacheKeyOf = (baseUrl, model, template, protocol, thinkingEnabled, tuning, file) =>
-  `${protocol}|${protocol === 'openai-responses' ? endpointUrl(baseUrl, '/responses') : chatCompletionsUrl(baseUrl)}|${model}|${template}|thinking:${thinkingEnabled === true}|` +
-  `temperature:${tuning.temperature}|topP:${tuning.topP}|maxTokens:${tuning.maxOutputTokens}|` +
+  `${protocol}|${requestUrlForProtocol(protocol, baseUrl, model)}|${model}|${template}|thinking:${thinkingEnabled === true}|` +
+  `temperature:${tuning.temperatureEnabled !== false ? tuning.temperature : 'off'}|` +
+  `topP:${tuning.topPEnabled !== false ? tuning.topP : 'off'}|maxTokens:${tuning.maxOutputTokens}|` +
   `${file.parentFolder}|${file.fileName}`
 
 export function clearAiCache() {
@@ -537,14 +575,17 @@ export function clearAiCache() {
 
 /**
  * 对单一模型发送一个极小的端到端请求，用于验证 URL、Token、模型 ID 和响应解析是否可用。
- * 不接入会话缓存，也不使用用户的批量命名模板，避免测试污染正式命名结果。
+ * 不接入会话缓存，也不使用用户的批量命名模板；测试固定关闭思考模式，避免推理 token 耗尽输出预算。
  */
 export async function testAiConnection({
   baseUrl,
   token,
   model,
   apiProtocol = 'openai-chat',
-  thinkingEnabled,
+  temperature = 0.2,
+  topP = 1,
+  temperatureEnabled = true,
+  topPEnabled = true,
   requestTimeoutMs = 30_000,
   fetchImpl = fetch
 }) {
@@ -568,13 +609,17 @@ export async function testAiConnection({
     token,
     model,
     messages,
-    temperature: 0,
-    topP: 1,
-    // Responses/Codex 模型可能先消耗推理 token；32 会导致没有最终文本，保持与单文件命名相同的最低预算。
-    maxOutputTokens: apiProtocol === 'openai-responses' ? maxTokensForAiNames(1) : 32,
-    // 连通性测试遵循当前模型的开关，确保能验证用户实际会使用的请求参数。
-    thinkingEnabled,
-    omitSampling: thinkingEnabled === true
+    temperature,
+    topP,
+    temperatureEnabled,
+    topPEnabled,
+    // 连接测试虽只要求极短回复，但 DeepSeek 等兼容模型可能在生成前消耗推理 token。
+    // 32 token 会导致最终文本尚未开始就以 length 结束；保留足够余量以稳定获得最终回复。
+    maxOutputTokens: apiProtocol === 'openai-responses' ? maxTokensForAiNames(1) : 512,
+    // 连通性测试只校验端点、鉴权、模型 ID 与响应解析，不应因为用户日常命名启用了
+    // 思考模式而消耗输出预算并误报失败。实际批量命名仍完整遵循该模型的思考设置。
+    thinkingEnabled: undefined,
+    omitSampling: false
   })
   const startedAt = performance.now()
   const response = await fetchWithRetry(
@@ -617,6 +662,8 @@ export async function requestAiNames({
   requestTimeoutMs = AI_REQUEST_TIMEOUT_MS,
   temperature = 0.2,
   topP = 1,
+  temperatureEnabled = true,
+  topPEnabled = true,
   maxOutputTokens = 0,
   files,
   fetchImpl = fetch,
@@ -638,6 +685,31 @@ export async function requestAiNames({
     throw new Error(`命名要求过长，请控制在 ${MAX_AI_PROMPT_LENGTH} 个字符以内`)
   }
   if (!Array.isArray(files) || files.length === 0) return []
+  if (files.length > MAX_AI_FILES_PER_REQUEST) {
+    throw new Error(`单次 AI 命名最多支持 ${MAX_AI_FILES_PER_REQUEST} 个文件，请分批选择`)
+  }
+  for (const [index, file] of files.entries()) {
+    if (
+      !file ||
+      typeof file !== 'object' ||
+      typeof file.parentFolder !== 'string' ||
+      typeof file.fileName !== 'string'
+    ) {
+      throw new Error(`第 ${index + 1} 个 AI 文件信息无效`)
+    }
+    if (
+      file.parentFolder.length > MAX_AI_FILE_FIELD_LENGTH ||
+      file.fileName.length > MAX_AI_FILE_FIELD_LENGTH
+    ) {
+      throw new Error(
+        `第 ${index + 1} 个文件名或目录名过长（最多 ${MAX_AI_FILE_FIELD_LENGTH} 个字符）`
+      )
+    }
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x1f]/.test(file.parentFolder) || /[\x00-\x1f]/.test(file.fileName)) {
+      throw new Error(`第 ${index + 1} 个文件信息包含控制字符`)
+    }
+  }
 
   const safeBatchSize = clampInteger(batchSize, 1, 100, AI_BATCH_SIZE)
   const safeBatchConcurrency = clampInteger(batchConcurrency, 1, 10, AI_BATCH_CONCURRENCY)
@@ -646,13 +718,17 @@ export async function requestAiNames({
     ? Math.min(2, Math.max(0, Number(temperature)))
     : 0.2
   const safeTopP = Number.isFinite(Number(topP)) ? Math.min(1, Math.max(0, Number(topP))) : 1
+  const safeTemperatureEnabled = temperatureEnabled !== false
+  const safeTopPEnabled = topPEnabled !== false
   const safeMaxOutputTokens = clampInteger(maxOutputTokens, 0, 32768, 0)
   const entries = files.map((file, index) => ({ file, index }))
   const result = new Array(files.length)
   const pending = []
   for (const entry of entries) {
     const tuning = {
+      temperatureEnabled: safeTemperatureEnabled,
       temperature: safeTemperature,
+      topPEnabled: safeTopPEnabled,
       topP: safeTopP,
       maxOutputTokens: safeMaxOutputTokens
     }
@@ -702,12 +778,19 @@ export async function requestAiNames({
     rateLimitUntil = Math.max(rateLimitUntil, Date.now() + retryMs)
     successfulBatches = 0
   }
+  // 仅当整个任务成功时才提交本次产生的缓存，取消或失败不会留下不可见的半批旧结果。
+  const stagedCache = new Map()
   const requestChunk = async (chunk, { recovery = false } = {}) => {
     const messages = buildAiMessages(
       template,
       chunk.map((entry) => entry.file),
       { recovery }
     )
+    if (messages[1].content.length > MAX_AI_BATCH_PROMPT_LENGTH) {
+      throw new Error(
+        `AI 批次提示词过长（最多 ${MAX_AI_BATCH_PROMPT_LENGTH} 个字符），请减少每批文件数`
+      )
+    }
     const request = buildAiRequest({
       apiProtocol,
       baseUrl,
@@ -716,6 +799,8 @@ export async function requestAiNames({
       messages,
       temperature: safeTemperature,
       topP: safeTopP,
+      temperatureEnabled: safeTemperatureEnabled,
+      topPEnabled: safeTopPEnabled,
       maxOutputTokens: maxTokensForAiNames(chunk.length, safeMaxOutputTokens),
       thinkingEnabled: recovery ? undefined : thinkingEnabled,
       // 恢复请求不带思考扩展；原先开启时继续省略模型可能拒绝的采样参数。
@@ -754,11 +839,13 @@ export async function requestAiNames({
       const entry = chunk[index]
       result[entry.index] = name
       const tuning = {
+        temperatureEnabled: safeTemperatureEnabled,
         temperature: safeTemperature,
+        topPEnabled: safeTopPEnabled,
         topP: safeTopP,
         maxOutputTokens: safeMaxOutputTokens
       }
-      aiCache.set(
+      stagedCache.set(
         cacheKeyOf(baseUrl, model, template, apiProtocol, thinkingEnabled, tuning, entry.file),
         name
       )
@@ -774,7 +861,9 @@ export async function requestAiNames({
           try {
             const recovery =
               attempt > 0 &&
-              /AI 返回为空|仅返回了思考过程|输出 token 上限/.test(errorMessage(lastError))
+              /AI 返回为空|仅返回了思考过程|输出 token 上限|AI 输出被截断|AI 输出不完整/.test(
+                errorMessage(lastError)
+              )
             await requestChunk(chunk, { recovery })
             lastError = undefined
             break
@@ -802,6 +891,7 @@ export async function requestAiNames({
     worker()
   )
   await Promise.all(workers)
+  for (const [key, name] of stagedCache) aiCache.set(key, name)
   return result
 }
 

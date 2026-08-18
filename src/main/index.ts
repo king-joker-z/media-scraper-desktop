@@ -780,6 +780,10 @@ function registerIpcHandlers(): void {
       model,
       apiProtocol: provider.apiProtocol,
       thinkingEnabled: provider.thinkingEnabled ? true : undefined,
+      temperature: tuning?.temperature,
+      topP: tuning?.topP,
+      temperatureEnabled: tuning?.temperatureEnabled,
+      topPEnabled: tuning?.topPEnabled,
       requestTimeoutMs: tuning?.requestTimeoutSeconds
         ? Math.min(tuning.requestTimeoutSeconds * 1000, 60_000)
         : undefined
@@ -811,6 +815,8 @@ function registerIpcHandlers(): void {
             : undefined,
           temperature: modelTuning?.temperature,
           topP: modelTuning?.topP,
+          temperatureEnabled: modelTuning?.temperatureEnabled,
+          topPEnabled: modelTuning?.topPEnabled,
           maxOutputTokens: modelTuning?.maxOutputTokens,
           // 默认关闭时不发送扩展字段；用户主动开启才透传，避免兼容网关因未知参数报错。
           thinkingEnabled: provider.thinkingEnabled ? true : undefined,

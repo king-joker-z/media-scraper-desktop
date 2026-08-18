@@ -397,6 +397,160 @@ test('requestAiNames maps response names in order and targets baseUrl', async ()
   assert.equal(calledUrl, 'https://api.deepseek.com/chat/completions')
 })
 
+test('requestAiNames rejects malformed or oversized file input before fetching', async () => {
+  let calls = 0
+  const base = {
+    baseUrl: 'https://x',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    fetchImpl: async () => {
+      calls += 1
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '["名称"]' } }] }) }
+    }
+  }
+  await assert.rejects(
+    requestAiNames({ ...base, files: [{ parentFolder: null, fileName: 'a' }] }),
+    /文件信息无效/
+  )
+  await assert.rejects(
+    requestAiNames({ ...base, files: [{ parentFolder: 'p', fileName: 'a'.repeat(256) }] }),
+    /文件名或目录名过长/
+  )
+  await assert.rejects(
+    requestAiNames({ ...base, files: [{ parentFolder: 'p\u0000', fileName: 'a' }] }),
+    /控制字符/
+  )
+  await assert.rejects(
+    requestAiNames({
+      ...base,
+      files: Array.from({ length: 1001 }, (_, index) => ({
+        parentFolder: 'p',
+        fileName: `f${index}`
+      }))
+    }),
+    /最多支持 1000 个文件/
+  )
+  assert.equal(calls, 0)
+})
+
+test('requestAiNames rejects an oversized generated batch prompt before fetching', async () => {
+  let calls = 0
+  await assert.rejects(
+    requestAiNames({
+      baseUrl: 'https://x',
+      token: 'sk',
+      model: 'm',
+      template: '',
+      batchSize: 100,
+      files: Array.from({ length: 100 }, (_, index) => ({
+        parentFolder: `目录${index}`,
+        fileName: 'a'.repeat(255)
+      })),
+      fetchImpl: async () => {
+        calls += 1
+        return { ok: true, json: async () => ({ choices: [{ message: { content: '[]' } }] }) }
+      }
+    }),
+    /批次提示词过长/
+  )
+  assert.equal(calls, 0)
+})
+
+test('incomplete responses with partial text are rejected instead of being cached', async () => {
+  clearAiCache()
+  const base = {
+    baseUrl: 'https://api.example.com/v1',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    apiProtocol: 'openai-responses',
+    files: [{ parentFolder: 'p', fileName: 'a' }]
+  }
+  await assert.rejects(
+    requestAiNames({
+      ...base,
+      fetchImpl: async () => ({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            status: 'incomplete',
+            incomplete_details: { reason: 'max_output_tokens' },
+            output: [{ type: 'message', content: [{ type: 'output_text', text: '["半截名称"]' }] }]
+          })
+      })
+    }),
+    /输出被截断或不完整/
+  )
+  let calls = 0
+  const names = await requestAiNames({
+    ...base,
+    fetchImpl: async () => {
+      calls += 1
+      return { ok: true, json: async () => ({ output_text: '["完整名称"]' }) }
+    }
+  })
+  assert.equal(calls, 1)
+  assert.deepEqual(names, ['完整名称'])
+})
+
+test('cancelled multi-batch request does not commit partial results to cache', async () => {
+  clearAiCache()
+  const controller = new AbortController()
+  const files = [
+    { parentFolder: 'first', fileName: 'a' },
+    { parentFolder: 'second', fileName: 'b' }
+  ]
+  let firstCall = true
+  const pending = requestAiNames({
+    baseUrl: 'https://x',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    files,
+    batchSize: 1,
+    batchConcurrency: 1,
+    signal: controller.signal,
+    fetchImpl: async (_url, init) => {
+      if (firstCall) {
+        firstCall = false
+        return {
+          ok: true,
+          json: async () => ({ choices: [{ message: { content: '["first"]' } }] })
+        }
+      }
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener(
+          'abort',
+          () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+          { once: true }
+        )
+        setTimeout(() => controller.abort(), 0)
+      })
+    }
+  })
+  await assert.rejects(pending, /已取消 AI 命名/)
+
+  let retryCalls = 0
+  await requestAiNames({
+    baseUrl: 'https://x',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    files,
+    batchSize: 1,
+    batchConcurrency: 1,
+    fetchImpl: async () => {
+      retryCalls += 1
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '["重试名称"]' } }] })
+      }
+    }
+  })
+  assert.equal(retryCalls, 2)
+})
+
 test('requestAiNames requires token, validates prompt length and validates count', async () => {
   await assert.rejects(
     requestAiNames({
@@ -584,6 +738,64 @@ test('requestAiNames parses SSE response and disables stream requests', async ()
   assert.equal(body.max_tokens, 448)
 })
 
+test('response protocol cache identity follows the actual request endpoint', async () => {
+  clearAiCache()
+  let calls = 0
+  const options = {
+    baseUrl: 'https://api.example.com/v1/responses',
+    token: 'sk',
+    model: 'm',
+    template: '',
+    apiProtocol: 'openai-responses',
+    files: [{ parentFolder: 'p', fileName: 'a' }],
+    fetchImpl: async (url) => {
+      calls += 1
+      assert.equal(url, 'https://api.example.com/v1/responses')
+      return { ok: true, json: async () => ({ output_text: '["名称"]' }) }
+    }
+  }
+  await requestAiNames(options)
+  await requestAiNames(options)
+  assert.equal(calls, 1)
+})
+
+test('buildAiRequest omits independently disabled sampling parameters', () => {
+  const common = {
+    apiProtocol: 'openai-chat',
+    baseUrl: 'https://api.example.com/v1',
+    token: 'secret',
+    model: 'model-a',
+    messages: [{ role: 'user', content: '文件列表' }],
+    temperature: 0.2,
+    topP: 0.9,
+    maxOutputTokens: 1024
+  }
+  const withoutTemperature = buildAiRequest({ ...common, temperatureEnabled: false })
+  assert.equal(withoutTemperature.body.temperature, undefined)
+  assert.equal(withoutTemperature.body.top_p, 0.9)
+
+  const withoutTopP = buildAiRequest({ ...common, topPEnabled: false })
+  assert.equal(withoutTopP.body.temperature, 0.2)
+  assert.equal(withoutTopP.body.top_p, undefined)
+
+  const withoutSampling = buildAiRequest({
+    ...common,
+    apiProtocol: 'anthropic-messages',
+    temperatureEnabled: false,
+    topPEnabled: false
+  })
+  assert.equal(withoutSampling.body.temperature, undefined)
+  assert.equal(withoutSampling.body.top_p, undefined)
+
+  const thinking = buildAiRequest({
+    ...common,
+    apiProtocol: 'gemini-generate-content',
+    thinkingEnabled: true
+  })
+  assert.equal(thinking.body.generationConfig.temperature, undefined)
+  assert.equal(thinking.body.generationConfig.topP, undefined)
+})
+
 test('buildAiRequest adapts authentication, endpoint and payload to native provider protocols', () => {
   const messages = [
     { role: 'system', content: '规则' },
@@ -669,9 +881,10 @@ test('testAiConnection tests exactly one model without using name cache or batch
   assert.equal(requests.length, 1)
   assert.equal(requests[0].url, 'https://api.example.com/v1/chat/completions')
   assert.equal(requests[0].body.model, 'single-model')
-  assert.deepEqual(requests[0].body.thinking, { type: 'enabled' })
-  assert.equal(requests[0].body.temperature, undefined)
-  assert.equal(requests[0].body.max_tokens, 32)
+  // 连通性测试固定关闭思考模式，避免推理 token 先耗尽极小的测试输出预算。
+  assert.equal(requests[0].body.thinking, undefined)
+  assert.equal(requests[0].body.temperature, 0.2)
+  assert.equal(requests[0].body.max_tokens, 512)
 
   const responsesRequests = []
   await testAiConnection({
@@ -700,6 +913,53 @@ test('testAiConnection tests exactly one model without using name cache or batch
   })
   assert.equal(result.preview, '连接成功')
   assert.ok(result.latencyMs >= 0)
+})
+
+test('testAiConnection uses the configured sampling values, omits disabled parameters and disables thinking', async () => {
+  const requests = []
+  await testAiConnection({
+    baseUrl: 'https://api.example.com/v1',
+    token: 'test-token',
+    model: 'configured-model',
+    temperature: 1.3,
+    topP: 0.65,
+    fetchImpl: async (_url, init) => {
+      requests.push(JSON.parse(init.body))
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '连接成功' } }] }) }
+    }
+  })
+  assert.equal(requests[0].model, 'configured-model')
+  assert.equal(requests[0].temperature, 1.3)
+  assert.equal(requests[0].top_p, 0.65)
+
+  await testAiConnection({
+    baseUrl: 'https://api.example.com/v1',
+    token: 'test-token',
+    model: 'configured-model',
+    temperatureEnabled: false,
+    topPEnabled: false,
+    fetchImpl: async (_url, init) => {
+      requests.push(JSON.parse(init.body))
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '连接成功' } }] }) }
+    }
+  })
+  assert.equal(requests[1].temperature, undefined)
+  assert.equal(requests[1].top_p, undefined)
+
+  await testAiConnection({
+    baseUrl: 'https://api.deepseek.com',
+    token: 'test-token',
+    model: 'deepseek-v4-flash',
+    thinkingEnabled: true,
+    fetchImpl: async (_url, init) => {
+      requests.push(JSON.parse(init.body))
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '连接成功' } }] }) }
+    }
+  })
+  assert.equal(requests[2].thinking, undefined)
+  assert.equal(requests[2].max_tokens, 512)
+  assert.equal(requests[2].temperature, 0.2)
+  assert.equal(requests[2].top_p, 1)
 })
 
 test('testAiConnection validates required connection fields and surfaces HTTP errors', async () => {

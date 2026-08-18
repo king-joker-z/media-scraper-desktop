@@ -347,7 +347,9 @@ test('AI 模型请求参数按模型保存并限制安全范围', () => {
     batchSize: 12,
     concurrency: 2,
     requestTimeoutSeconds: 120,
+    temperatureEnabled: true,
     temperature: 0.2,
+    topPEnabled: true,
     topP: 1,
     maxOutputTokens: 0
   })
@@ -355,11 +357,33 @@ test('AI 模型请求参数按模型保存并限制安全范围', () => {
     batchSize: 100,
     concurrency: 1,
     requestTimeoutSeconds: 900,
+    temperatureEnabled: true,
     temperature: 0.2,
+    topPEnabled: true,
     topP: 1,
     maxOutputTokens: 0
   })
   assert.equal(provider.modelTunings.removed, undefined)
+})
+
+test('AI 模型采样参数开关默认启用且可持久化关闭状态', () => {
+  const settings = normalizeSettings({
+    aiProviders: [
+      {
+        id: 'deepseek',
+        models: ['model-a'],
+        selectedModel: 'model-a',
+        modelTunings: {
+          'model-a': { temperatureEnabled: false, topPEnabled: false }
+        }
+      }
+    ]
+  })
+  const tuning = settings.aiProviders[0].modelTunings['model-a']
+  assert.equal(tuning.temperatureEnabled, false)
+  assert.equal(tuning.topPEnabled, false)
+  assert.equal(tuning.temperature, 0.2)
+  assert.equal(tuning.topP, 1)
 })
 
 test('AI 平台协议与模型采样参数会归一化并保留 OpenAI 兼容预设能力', () => {
@@ -392,7 +416,9 @@ test('AI 平台协议与模型采样参数会归一化并保留 OpenAI 兼容预
     batchSize: 4,
     concurrency: 2,
     requestTimeoutSeconds: 90,
+    temperatureEnabled: true,
     temperature: 2,
+    topPEnabled: true,
     topP: 0,
     maxOutputTokens: 32768
   })

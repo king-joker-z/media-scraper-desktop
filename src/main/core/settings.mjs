@@ -277,7 +277,10 @@ function normalizeProvider(raw, preset) {
             batchSize: normalizeAiBatchSize(tuning?.batchSize),
             concurrency: normalizeAiBatchConcurrency(tuning?.concurrency),
             requestTimeoutSeconds: normalizeAiRequestTimeoutSeconds(tuning?.requestTimeoutSeconds),
+            // 保持历史配置兼容：此前没有开关时默认始终发送两个采样参数。
+            temperatureEnabled: tuning?.temperatureEnabled !== false,
             temperature: normalizeAiTemperature(tuning?.temperature),
+            topPEnabled: tuning?.topPEnabled !== false,
             topP: normalizeAiTopP(tuning?.topP),
             maxOutputTokens: normalizeAiMaxOutputTokens(tuning?.maxOutputTokens)
           }

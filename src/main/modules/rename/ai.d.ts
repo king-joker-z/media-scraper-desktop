@@ -3,6 +3,9 @@ declare module './ai.mjs' {
 
   export const AI_BATCH_SIZE: number
   export const MAX_AI_PROMPT_LENGTH: number
+  export const MAX_AI_FILES_PER_REQUEST: number
+  export const MAX_AI_FILE_FIELD_LENGTH: number
+  export const MAX_AI_BATCH_PROMPT_LENGTH: number
   export function retryAfterMs(response: { headers?: { get(name: string): string | null } }): number
   export function maxTokensForAiNames(itemCount: number, configuredMaxTokens?: number): number
   export function buildAiRequest(options: {
@@ -14,6 +17,8 @@ declare module './ai.mjs' {
     messages: { role: string; content: string }[]
     temperature: number
     topP: number
+    temperatureEnabled?: boolean
+    topPEnabled?: boolean
     maxOutputTokens: number
     thinkingEnabled?: boolean
     omitSampling?: boolean
@@ -47,7 +52,8 @@ declare module './ai.mjs' {
     token: string
     model: string
     /** API 协议，默认 OpenAI Chat Completions。 */
-    apiProtocol?: 'openai-chat' | 'anthropic-messages' | 'gemini-generate-content'
+    apiProtocol?:
+      'openai-chat' | 'openai-responses' | 'anthropic-messages' | 'gemini-generate-content'
     template: string
     /** 仅支持的平台传递思考模式开关；未传时不附加平台扩展参数。 */
     thinkingEnabled?: boolean
@@ -61,6 +67,10 @@ declare module './ai.mjs' {
     temperature?: number
     /** 核采样（0–1），默认 1。 */
     topP?: number
+    /** 是否发送 temperature，默认 true。 */
+    temperatureEnabled?: boolean
+    /** 是否发送 top_p，默认 true。 */
+    topPEnabled?: boolean
     /** 最大输出 token（0–32768）；0 为随批大小自动计算。 */
     maxOutputTokens?: number
     files: AiFileInput[]
@@ -80,8 +90,17 @@ declare module './ai.mjs' {
     baseUrl: string
     token: string
     model: string
-    apiProtocol?: 'openai-chat' | 'anthropic-messages' | 'gemini-generate-content'
+    apiProtocol?:
+      'openai-chat' | 'openai-responses' | 'anthropic-messages' | 'gemini-generate-content'
     thinkingEnabled?: boolean
+    /** 采样温度（0–2），默认 0.2。 */
+    temperature?: number
+    /** 核采样（0–1），默认 1。 */
+    topP?: number
+    /** 是否发送 temperature，默认 true。 */
+    temperatureEnabled?: boolean
+    /** 是否发送 top_p，默认 true。 */
+    topPEnabled?: boolean
     requestTimeoutMs?: number
     fetchImpl?: typeof fetch
   }): Promise<{ latencyMs: number; preview: string }>
