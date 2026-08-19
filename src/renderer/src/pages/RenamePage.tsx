@@ -67,6 +67,7 @@ function RenamePage({
   const [customRule, setCustomRule] = useState({ pattern: '', replacement: '', flags: 'g' })
   const [useCustom, setUseCustom] = useState(false)
   const [aiNamesMap, setAiNamesMap] = useState<Record<string, string> | null>(null)
+  const [selectedAiVideos, setSelectedAiVideos] = useState<Set<string>>(() => new Set())
   const [aiLoading, setAiLoading] = useState(false)
   const [regenerating, setRegenerating] = useState<string | null>(null)
   const [probes, setProbes] = useState<Record<string, ProbeContainerItem>>({})
@@ -105,6 +106,7 @@ function RenamePage({
     setError('')
     setReport(null)
     setAiNamesMap(null)
+    setSelectedAiVideos(new Set())
     setEdits({})
     setProbes({})
     try {
@@ -226,8 +228,44 @@ function RenamePage({
           sorted.map((v, index) => [v.relativePath, names[index] ?? stemOfName(v.name)])
         )
       )
+      setSelectedAiVideos(new Set())
     } catch (err) {
       // 主进程已按 HTTP 状态返回对应处理建议；503 等服务端故障不应误导为本地 Token/模型配置问题。
+      setError(`AI 命名失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  /** 重新生成勾选的视频（仅 AI 模式）：单次请求，其他预览结果保持不变 */
+  const regenerateSelected = async (): Promise<void> => {
+    const selectedVideos = videos.filter((video) => selectedAiVideos.has(video.relativePath))
+    if (selectedVideos.length === 0) return
+
+    setAiLoading(true)
+    setError('')
+    try {
+      const names = await window.api.requestAiNames(
+        selectedVideos.map((video) => ({
+          parentFolder: parentFolderOf(video.relativePath),
+          fileName: stripSeqPrefix(stemOfName(video.name))
+        })),
+        true
+      )
+      if (names.length !== selectedVideos.length || names.some((name) => !name)) {
+        throw new Error('AI 返回的名称数量不完整')
+      }
+      setAiNamesMap((prev) => ({
+        ...prev,
+        ...Object.fromEntries(
+          selectedVideos.map((video, index) => [
+            video.relativePath,
+            names[index] ?? stemOfName(video.name)
+          ])
+        )
+      }))
+      setSelectedAiVideos(new Set())
+    } catch (err) {
       setError(`AI 命名失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setAiLoading(false)
@@ -250,6 +288,11 @@ function RenamePage({
       )
       if (names.length === 0 || !names[0]) throw new Error('AI 返回空结果')
       setAiNamesMap((prev) => ({ ...prev, [video.relativePath]: names[0] }))
+      setSelectedAiVideos((prev) => {
+        const next = new Set(prev)
+        next.delete(video.relativePath)
+        return next
+      })
     } catch (err) {
       setError(`AI 命名失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -427,7 +470,7 @@ function RenamePage({
                 {activeAi?.modelTunings[activeAi.selectedModel]?.concurrency ?? 3}
                 并发请求，单请求超时
                 {activeAi?.modelTunings[activeAi.selectedModel]?.requestTimeoutSeconds ?? 300} 秒，
-                每个名称独立生成互不影响。普通“重新生成”优先复用已有结果；“全部重新生成”和单条“重新生成”才会再次请求模型。
+                每个名称独立生成互不影响。普通“重新生成”优先复用已有结果；勾选表格中的多个视频可仅重新生成选中项，“全部重新生成”和单条“重新生成”则会再次请求模型。
                 返回后自动叠加序号前缀：
               </p>
               <SeqControls seq={seq} onChange={setSeq} />
@@ -438,6 +481,16 @@ function RenamePage({
                 >
                   {aiLoading ? 'AI 生成中…' : aiNamesMap ? '重新生成' : '生成 AI 命名'}
                 </button>
+                {aiNamesMap && selectedAiVideos.size > 0 && (
+                  <button
+                    className="secondary"
+                    title="仅为已勾选的视频重新请求 AI，其他预览名称保持不变"
+                    onClick={() => void regenerateSelected()}
+                    disabled={aiLoading || executing}
+                  >
+                    重新生成选中项（{selectedAiVideos.size}）
+                  </button>
+                )}
                 {aiNamesMap && (
                   <button
                     className="secondary"
@@ -475,7 +528,30 @@ function RenamePage({
 
           {pairs.length > 0 && (
             <section className="rename-table">
-              <div className="rename-row rename-head">
+              <div
+                className={`rename-row rename-head ${mode === 'ai' && aiNamesMap ? 'rename-ai-mode' : ''}`}
+              >
+                {mode === 'ai' && aiNamesMap && (
+                  <span className="rename-select">
+                    <input
+                      type="checkbox"
+                      aria-label="选择全部视频"
+                      title={
+                        selectedAiVideos.size === videos.length
+                          ? '取消选择全部视频'
+                          : '选择全部视频'
+                      }
+                      checked={selectedAiVideos.size === videos.length}
+                      onChange={(event) =>
+                        setSelectedAiVideos(
+                          event.target.checked
+                            ? new Set(videos.map((video) => video.relativePath))
+                            : new Set()
+                        )
+                      }
+                    />
+                  </span>
+                )}
                 <span>原文件名</span>
                 <span>新文件名（可编辑）</span>
                 <span>状态</span>
@@ -485,7 +561,27 @@ function RenamePage({
                 const probe = probes[pair.videoRel]
                 const rowError = errors[pair.videoRel]
                 return (
-                  <div key={pair.videoRel} className={`rename-row ${rowError ? 'invalid' : ''}`}>
+                  <div
+                    key={pair.videoRel}
+                    className={`rename-row ${mode === 'ai' && aiNamesMap ? 'rename-ai-mode' : ''} ${rowError ? 'invalid' : ''}`}
+                  >
+                    {mode === 'ai' && aiNamesMap && video && (
+                      <span className="rename-select">
+                        <input
+                          type="checkbox"
+                          aria-label={`选择 ${video.name}`}
+                          checked={selectedAiVideos.has(video.relativePath)}
+                          onChange={(event) =>
+                            setSelectedAiVideos((prev) => {
+                              const next = new Set(prev)
+                              if (event.target.checked) next.add(video.relativePath)
+                              else next.delete(video.relativePath)
+                              return next
+                            })
+                          }
+                        />
+                      </span>
+                    )}
                     <span className="rename-old" title={pair.videoRel}>
                       {video?.name}
                       {pair.posterRel && <small>+ poster 同步</small>}

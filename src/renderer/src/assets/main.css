@@ -2216,6 +2216,19 @@ input[type='checkbox']:disabled {
 .rename-row > span {
   min-width: 0;
 }
+.rename-row.rename-ai-mode {
+  grid-template-columns: 28px minmax(180px, 1.2fr) minmax(240px, 1.4fr) minmax(132px, 0.9fr);
+}
+.rename-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rename-select input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
 .rename-row.rename-head {
   color: var(--label-tertiary);
   font-size: 11px;
@@ -5654,6 +5667,16 @@ body {
 
   .rename-row.rename-head {
     display: none;
+  }
+
+  .rename-row.rename-ai-mode {
+    grid-template-columns: 28px 1fr;
+  }
+
+  .rename-select {
+    grid-row: 1 / -1;
+    align-self: start;
+    padding-top: 2px;
   }
 
   .rename-old::before,
