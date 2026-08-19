@@ -4,6 +4,7 @@ import type {
   PosterVideoItem,
   ProbeContainerItem,
   RenamePairInput,
+  RenamePreflightItem,
   RenameReport
 } from '../../../shared/types'
 import {
@@ -13,11 +14,13 @@ import {
   sortVideos,
   stemOfName,
   stripSeqPrefix,
-  validateStems,
+  validateRenameTargets,
   withSequencePrefix
 } from '../../../shared/rename-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import RenameComparisonEditor from '../components/RenameComparisonEditor'
+import { buildRenameComparisonRows, type RenameRuleStep } from '../components/rename-comparison'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 type Mode = 'seq' | 'regex' | 'ai' | 'ext'
@@ -71,6 +74,7 @@ function RenamePage({
   const [aiLoading, setAiLoading] = useState(false)
   const [regenerating, setRegenerating] = useState<string | null>(null)
   const [probes, setProbes] = useState<Record<string, ProbeContainerItem>>({})
+  const [preflight, setPreflight] = useState<Record<string, RenamePreflightItem>>({})
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [executing, setExecuting] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -109,6 +113,7 @@ function RenamePage({
     setSelectedAiVideos(new Set())
     setEdits({})
     setProbes({})
+    setPreflight({})
     try {
       setVideos(await window.api.listPosterVideos(workspace))
       setLoaded(true)
@@ -192,7 +197,143 @@ function RenamePage({
       })),
     [computedPairs, edits]
   )
-  const errors = useMemo(() => validateStems(pairs.filter((p) => !p.newExt)), [pairs])
+  const errors = useMemo(
+    () =>
+      validateRenameTargets(pairs, (pair) => {
+        const video = videoByRel.get(pair.videoRel)
+        const extension = pair.newExt ?? extOfName(video?.name ?? '')
+        const videoDirectory = pair.videoRel.replace(/[\\/][^\\/]+$/, '')
+        const targets = [`${videoDirectory}/${pair.newStem}${extension}`]
+        if (pair.posterRel && !pair.newExt) {
+          const posterDirectory = pair.posterRel.replace(/[\\/][^\\/]+$/, '')
+          targets.push(`${posterDirectory}/${pair.newStem}-poster.jpg`)
+        }
+        return targets
+      }),
+    [pairs, videoByRel]
+  )
+  const computedPairByVideo = useMemo(
+    () => new Map(computedPairs.map((pair) => [pair.videoRel, pair])),
+    [computedPairs]
+  )
+  const ruleStepsByVideo = useMemo((): Record<string, RenameRuleStep[]> => {
+    const result: Record<string, RenameRuleStep[]> = {}
+    const regexRules = [
+      ...activeRules.map((index) => templates[index]).filter(Boolean),
+      ...(useCustom && customRule.pattern ? [customRule] : [])
+    ]
+    for (const video of videos) {
+      const originalStem = stemOfName(video.name)
+      if (mode === 'regex') {
+        let current = originalStem
+        result[video.relativePath] = regexRules.map((rule, index) => {
+          const after = applyRegexRules(current, [rule])
+          const step = { label: `规则 ${index + 1}`, before: current, after }
+          current = after
+          return step
+        })
+      } else if (mode === 'ai') {
+        const aiStem = stripSeqPrefix(aiNamesMap?.[video.relativePath] ?? originalStem)
+        result[video.relativePath] = [
+          { label: 'AI 命名', before: originalStem, after: aiStem },
+          {
+            label: '序号前缀',
+            before: aiStem,
+            after: computedPairByVideo.get(video.relativePath)?.newStem ?? aiStem
+          }
+        ]
+      } else if (mode === 'seq') {
+        result[video.relativePath] = [
+          {
+            label: '序号前缀',
+            before: originalStem,
+            after: computedPairByVideo.get(video.relativePath)?.newStem ?? originalStem
+          }
+        ]
+      } else {
+        result[video.relativePath] = [
+          { label: '扩展名调整', before: extOfName(video.name), after: '.mp4' }
+        ]
+      }
+    }
+    return result
+  }, [activeRules, aiNamesMap, computedPairByVideo, customRule, mode, templates, useCustom, videos])
+  const probeErrors = useMemo(
+    () =>
+      Object.fromEntries(
+        pairs
+          .filter((pair) => pair.newExt && probes[pair.videoRel]?.error)
+          .map((pair) => [pair.videoRel, probes[pair.videoRel].error!])
+      ),
+    [pairs, probes]
+  )
+  const extensionRisks = useMemo(
+    () =>
+      new Set(
+        pairs
+          .filter(
+            (pair) =>
+              pair.newExt &&
+              probes[pair.videoRel] &&
+              !probes[pair.videoRel].isMp4 &&
+              !probes[pair.videoRel].error
+          )
+          .map((pair) => pair.videoRel)
+      ),
+    [pairs, probes]
+  )
+  useEffect(() => {
+    let disposed = false
+    if (!workspace || pairs.length === 0) {
+      return () => {
+        disposed = true
+      }
+    }
+    window.api
+      .preflightRename(workspace, pairs)
+      .then((items) => {
+        if (!disposed) setPreflight(Object.fromEntries(items.map((item) => [item.videoRel, item])))
+      })
+      .catch(() => {
+        if (!disposed) setPreflight({})
+      })
+    return () => {
+      disposed = true
+    }
+  }, [pairs, workspace])
+  const comparisonRows = useMemo(
+    () =>
+      buildRenameComparisonRows({
+        sources: videos.map((video) => ({
+          relativePath: video.relativePath,
+          name: video.name,
+          posterRelativePath: video.posterRelativePath,
+          posterPath: video.posterPath,
+          size: video.size
+        })),
+        computedPairs,
+        pairs,
+        edits,
+        errors,
+        mode,
+        ruleStepsByVideo,
+        extensionRisks,
+        probeErrors,
+        preflight
+      }),
+    [
+      computedPairs,
+      edits,
+      errors,
+      extensionRisks,
+      mode,
+      pairs,
+      preflight,
+      probeErrors,
+      ruleStepsByVideo,
+      videos
+    ]
+  )
   const changedPairs = useMemo(
     () =>
       pairs.filter((pair) => {
@@ -264,6 +405,12 @@ function RenamePage({
           ])
         )
       }))
+      // 用户明确请求重新生成时，采用新建议并清除旧手动覆写，避免界面看似成功但目标名不变。
+      setEdits((prev) => {
+        const next = { ...prev }
+        selectedVideos.forEach((video) => delete next[video.relativePath])
+        return next
+      })
       setSelectedAiVideos(new Set())
     } catch (err) {
       setError(`AI 命名失败：${err instanceof Error ? err.message : String(err)}`)
@@ -288,6 +435,11 @@ function RenamePage({
       )
       if (names.length === 0 || !names[0]) throw new Error('AI 返回空结果')
       setAiNamesMap((prev) => ({ ...prev, [video.relativePath]: names[0] }))
+      setEdits((prev) => {
+        const next = { ...prev }
+        delete next[video.relativePath]
+        return next
+      })
       setSelectedAiVideos((prev) => {
         const next = new Set(prev)
         next.delete(video.relativePath)
@@ -331,7 +483,7 @@ function RenamePage({
   }
 
   return (
-    <div className="page">
+    <div className="page rename-page">
       <header className="page-header">
         <div>
           <p className="eyebrow">模块三 · 批量重命名</p>
@@ -527,102 +679,27 @@ function RenamePage({
           )}
 
           {pairs.length > 0 && (
-            <section className="rename-table">
-              <div
-                className={`rename-row rename-head ${mode === 'ai' && aiNamesMap ? 'rename-ai-mode' : ''}`}
-              >
-                {mode === 'ai' && aiNamesMap && (
-                  <span className="rename-select">
-                    <input
-                      type="checkbox"
-                      aria-label="选择全部视频"
-                      title={
-                        selectedAiVideos.size === videos.length
-                          ? '取消选择全部视频'
-                          : '选择全部视频'
-                      }
-                      checked={selectedAiVideos.size === videos.length}
-                      onChange={(event) =>
-                        setSelectedAiVideos(
-                          event.target.checked
-                            ? new Set(videos.map((video) => video.relativePath))
-                            : new Set()
-                        )
-                      }
-                    />
-                  </span>
-                )}
-                <span>原文件名</span>
-                <span>新文件名（可编辑）</span>
-                <span>状态</span>
-              </div>
-              {pairs.map((pair) => {
-                const video = videoByRel.get(pair.videoRel)
-                const probe = probes[pair.videoRel]
-                const rowError = errors[pair.videoRel]
-                return (
-                  <div
-                    key={pair.videoRel}
-                    className={`rename-row ${mode === 'ai' && aiNamesMap ? 'rename-ai-mode' : ''} ${rowError ? 'invalid' : ''}`}
-                  >
-                    {mode === 'ai' && aiNamesMap && video && (
-                      <span className="rename-select">
-                        <input
-                          type="checkbox"
-                          aria-label={`选择 ${video.name}`}
-                          checked={selectedAiVideos.has(video.relativePath)}
-                          onChange={(event) =>
-                            setSelectedAiVideos((prev) => {
-                              const next = new Set(prev)
-                              if (event.target.checked) next.add(video.relativePath)
-                              else next.delete(video.relativePath)
-                              return next
-                            })
-                          }
-                        />
-                      </span>
-                    )}
-                    <span className="rename-old" title={pair.videoRel}>
-                      {video?.name}
-                      {pair.posterRel && <small>+ poster 同步</small>}
-                    </span>
-                    <span className="rename-new">
-                      <input
-                        value={pair.newStem}
-                        disabled={!!pair.newExt}
-                        onChange={(event) =>
-                          setEdits((prev) => ({ ...prev, [pair.videoRel]: event.target.value }))
-                        }
-                      />
-                      <small>{pair.newExt ?? extOfName(video?.name ?? '')}</small>
-                    </span>
-                    <span className="rename-status">
-                      {rowError ? (
-                        <b className="danger-text">{rowError}</b>
-                      ) : pair.newExt && probe ? (
-                        probe.isMp4 ? (
-                          <b className="ok-text">容器 {probe.container}</b>
-                        ) : (
-                          <b className="danger-text">非 MP4 容器</b>
-                        )
-                      ) : (
-                        <span className="muted">就绪</span>
-                      )}
-                      {mode === 'ai' && aiNamesMap && video && (
-                        <button
-                          className="rename-regenerate"
-                          title="只重新生成这一条"
-                          disabled={aiLoading || executing || regenerating === video.relativePath}
-                          onClick={() => void regenerateOne(video)}
-                        >
-                          {regenerating === video.relativePath ? '生成中…' : '重新生成'}
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                )
-              })}
-            </section>
+            <RenameComparisonEditor
+              rows={comparisonRows}
+              probes={probes}
+              mode={mode}
+              selectedAiVideos={selectedAiVideos}
+              onSelectedAiVideosChange={setSelectedAiVideos}
+              onChange={(videoRel, value) => setEdits((prev) => ({ ...prev, [videoRel]: value }))}
+              onReset={(videoRel) =>
+                setEdits((prev) => {
+                  const next = { ...prev }
+                  delete next[videoRel]
+                  return next
+                })
+              }
+              onRegenerate={(videoRel) => {
+                const video = videoByRel.get(videoRel)
+                if (video) void regenerateOne(video)
+              }}
+              regenerating={regenerating}
+              busy={aiLoading || executing}
+            />
           )}
         </>
       )}

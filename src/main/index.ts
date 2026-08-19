@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, Notification, protocol } from 'electron'
-import { extname, join } from 'path'
+import { basename, dirname, extname, join } from 'path'
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { tmpdir } from 'os'
@@ -31,6 +31,7 @@ import {
   fileSize,
   isDirectory,
   listDirNames,
+  pathExists,
   permanentDelete,
   recoverStagedOutputs,
   readBinaryFile,
@@ -64,6 +65,7 @@ import type {
   PosterPicks,
   PosterVideoItem,
   RenamePairInput,
+  RenamePreflightItem,
   ScanPlan,
   StorageCategory,
   StorageStats,
@@ -162,6 +164,69 @@ const registerComicRootForRead = (root: string): string => {
 }
 const requireRelPath = (root: string, relativePath: string): string =>
   resolveInsideRoot(root, relativePath)
+
+/**
+ * 只读预检：将视频与关联 poster 展开为真实目标路径，区分批内重复、
+ * 本批会释放的交换目标以及外部占用。执行阶段仍以 fs-ops 的安全改名为最终准则。
+ */
+const buildRenamePreflight = async (
+  root: string,
+  pairs: RenamePairInput[]
+): Promise<RenamePreflightItem[]> => {
+  const sourcePaths = new Set<string>()
+  const targets = new Map<string, string[]>()
+  const items = pairs.map((pair) => {
+    const videoTargetRel = join(
+      dirname(pair.videoRel),
+      `${pair.newStem}${pair.newExt ?? extname(pair.videoRel)}`
+    )
+    const posterTargetRel =
+      pair.posterRel && !pair.newExt
+        ? join(dirname(pair.posterRel), `${pair.newStem}-poster.jpg`)
+        : null
+    const sourceVideo = requireRelPath(root, pair.videoRel)
+    sourcePaths.add(sourceVideo)
+    if (pair.posterRel) sourcePaths.add(requireRelPath(root, pair.posterRel))
+    const targetVideo = requireRelPath(root, videoTargetRel)
+    const targetPoster = posterTargetRel ? requireRelPath(root, posterTargetRel) : null
+    for (const target of [targetVideo, targetPoster]) {
+      if (!target) continue
+      const key = target.normalize('NFC').toLocaleLowerCase('en-US')
+      const owners = targets.get(key) ?? []
+      owners.push(pair.videoRel)
+      targets.set(key, owners)
+    }
+    return { pair, videoTargetRel, posterTargetRel, targetVideo, targetPoster }
+  })
+
+  return Promise.all(
+    items.map(async (item) => {
+      const targetPaths = [item.targetVideo, item.targetPoster].filter(Boolean) as string[]
+      const externalCollisions = await Promise.all(
+        targetPaths.map(async (target) => {
+          if (sourcePaths.has(target) || !(await pathExists(target))) return null
+          return target
+        })
+      )
+      const duplicate = targetPaths.some((target) => {
+        const owners = targets.get(target.normalize('NFC').toLocaleLowerCase('en-US')) ?? []
+        return owners.length > 1
+      })
+      return {
+        videoRel: item.pair.videoRel,
+        targetRel: item.videoTargetRel,
+        posterTargetRel: item.posterTargetRel,
+        batchDuplicate: duplicate,
+        externalCollisions: externalCollisions
+          .filter((target): target is string => Boolean(target))
+          .map((target) => {
+            const relative = target.slice(root.length).replace(/^[\\/]+/, '')
+            return relative || basename(target)
+          })
+      }
+    })
+  )
+}
 /** 漫画模型限定工作区一级目录，拒绝章节等嵌套路径。 */
 const requireComicDir = (root: string, relDir: string): string => {
   if (relDir === '.' || relDir === '..') throw new Error('漫画目录必须是工作区一级文件夹')
@@ -268,6 +333,8 @@ const emitTask = (
 
 // TaskCenter 型互斥槽：同一模块同时只允许一个执行任务
 const taskSlots = new Map<string, string>()
+/** 任务 ID 到取消入口的映射；仅暴露白名单任务，防止 renderer 直接操作任意主进程任务。 */
+const taskCancels = new Map<string, () => void>()
 // AI 命名是网络任务，不经过 TaskCenter worker；单独保存 controller 以响应同一个“取消重命名”入口。
 const aiTaskControllers = new Map<string, AbortController>()
 
@@ -280,9 +347,11 @@ async function runExclusive<T>(
   if (taskSlots.has(slot)) throw new Error(`已有${label}任务在执行中`)
   const taskId = newTaskId(slot)
   taskSlots.set(slot, taskId)
+  registerTaskCancel(taskId, () => cancelSlot(slot))
   try {
     return await fn(taskId)
   } finally {
+    taskCancels.delete(taskId)
     taskSlots.delete(slot)
   }
 }
@@ -302,16 +371,30 @@ async function runExclusiveAbort<T>(
 ): Promise<T> {
   if (abortSlots.has(slot)) throw new Error(`已有${label}任务在执行中`)
   const controller = new AbortController()
+  const taskId = newTaskId(slot)
   abortSlots.set(slot, controller)
+  registerTaskCancel(taskId, () => abortSlot(slot))
   try {
-    return await fn(controller.signal, newTaskId(slot))
+    return await fn(controller.signal, taskId)
   } finally {
+    taskCancels.delete(taskId)
     abortSlots.delete(slot)
   }
 }
 
 const abortSlot = (slot: string): void => {
   abortSlots.get(slot)?.abort()
+}
+
+const registerTaskCancel = (taskId: string, cancel: () => void): void => {
+  taskCancels.set(taskId, cancel)
+}
+
+const cancelTask = (taskId: string): boolean => {
+  const cancel = taskCancels.get(taskId)
+  if (!cancel) return false
+  cancel()
+  return true
 }
 
 /**
@@ -857,6 +940,14 @@ function registerIpcHandlers(): void {
       }
     })
   )
+  ipcMain.handle('rename:preflight', async (_event, root: string, pairs: RenamePairInput[]) => {
+    const safeRoot = requireVideoRoot(root)
+    pairs.forEach((pair) => {
+      requireRelPath(safeRoot, pair.videoRel)
+      if (pair.posterRel) requireRelPath(safeRoot, pair.posterRel)
+    })
+    return buildRenamePreflight(safeRoot, pairs)
+  })
   ipcMain.handle('rename:execute', async (_event, root: string, pairs: RenamePairInput[]) =>
     runExclusive('rename', '重命名', async (taskId) => {
       const safeRoot = requireVideoRoot(root)
@@ -966,8 +1057,19 @@ function registerIpcHandlers(): void {
             throw new Error('合并输出文件必须使用 .mp4 扩展名')
           }
           items.forEach((item) => requireFileInRoots(item.path, [safeRoot], '合并源文件'))
-          const emit = (type: TaskEvent['type'], percent: number, stage: string): void =>
-            emitTask(taskId, '视频合并', { type, total: 100, completed: percent, current: stage })
+          const emit = (
+            type: TaskEvent['type'],
+            percent: number,
+            stage: string,
+            encoder?: TaskEvent['encoder']
+          ): void =>
+            emitTask(taskId, '视频合并', {
+              type,
+              total: 100,
+              completed: percent,
+              current: stage,
+              encoder
+            })
           emit('start', 0, '准备合并')
           const settings = await settingsStore.get()
           const result = await mergeVideos({
@@ -986,12 +1088,33 @@ function registerIpcHandlers(): void {
                 : settings.mergeTempLocation === 'custom' && settings.mergeTempCustomPath
                   ? settings.mergeTempCustomPath
                   : join(safeRoot, '.msd-merge-temp'),
-            onProgress: (percent, stage) => emit('progress', percent, stage)
+            onProgress: (percent, stage) =>
+              emit(
+                'progress',
+                percent,
+                stage,
+                stage.includes('回退 CPU')
+                  ? 'fallback'
+                  : stage.includes('NVIDIA')
+                    ? 'nvenc'
+                    : stage.includes('CPU')
+                      ? 'cpu'
+                      : undefined
+              )
           })
+          const finalEncoder: TaskEvent['encoder'] = result.nvencFallbackReason
+            ? 'fallback'
+            : result.videoEncoder === 'nvenc'
+              ? 'nvenc'
+              : result.videoEncoder === 'cpu'
+                ? 'cpu'
+                : result.videoEncoder === 'copy'
+                  ? 'copy'
+                  : undefined
           if (result.cancelled) {
-            emit('cancelled', 100, result.verifyNote)
+            emit('cancelled', 100, result.verifyNote, finalEncoder)
           } else if (result.verified) {
-            emit('done', 100, result.verifyNote)
+            emit('done', 100, result.verifyNote, finalEncoder)
           } else {
             const diagnostic = {
               root: safeRoot,
@@ -1025,6 +1148,7 @@ function registerIpcHandlers(): void {
         const message = error instanceof Error ? error.message : String(error)
         // 运行前校验、配置读取等异常发生在 mergeVideos 之外，也必须结束已创建的进度任务。
         if (progressTaskId) {
+          taskCancels.delete(progressTaskId)
           emitTask(progressTaskId, '视频合并', {
             type: 'failed',
             total: 100,
@@ -1076,6 +1200,7 @@ function registerIpcHandlers(): void {
     return report
   })
   ipcMain.handle('merge:cancel', async () => abortSlot('merge'))
+  ipcMain.handle('tasks:cancel', async (_event, taskId: string) => cancelTask(taskId))
 
   // ---------- 视频去重 ----------
   ipcMain.handle('dedupe:scan', async (_event, root: string, includeSimilar = true) => {

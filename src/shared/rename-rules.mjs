@@ -97,13 +97,12 @@ export function applyRegexRules(stem, rules) {
 }
 
 /**
- * 校验新词干（冻结稿 §5：非法字符、空名、超长、大小写冲突、批内重名）。
+ * 校验新词干的单项合法性。批内唯一性由 validateRenameTargets 依据完整目标路径处理。
  * @param {Array<{videoRel: string, newStem: string}>} pairs
  * @returns {Record<string, string>} videoRel -> 错误信息（无错误则为空对象）
  */
-export function validateStems(pairs) {
+function validateStemValues(pairs) {
   const errors = {}
-  const seen = new Map()
   for (const pair of pairs) {
     const stem = pair.newStem ?? ''
     if (!stem.trim()) {
@@ -122,16 +121,43 @@ export function validateStems(pairs) {
       errors[pair.videoRel] = '名称末尾不能是点号或空格（Windows 会自动截断）'
       continue
     }
-    if (stem.length > MAX_STEM_LENGTH) {
+    if (stem.length > MAX_STEM_LENGTH)
       errors[pair.videoRel] = `名称超长（>${MAX_STEM_LENGTH} 字符）`
-      continue
+  }
+  return errors
+}
+
+/** 保持旧调用方语义：按词干检查批内重名。重命名执行与新 UI 应使用 validateRenameTargets。 */
+export function validateStems(pairs) {
+  const errors = validateStemValues(pairs)
+  const seen = new Map()
+  for (const pair of pairs) {
+    if (errors[pair.videoRel]) continue
+    const key = String(pair.newStem).normalize('NFC').toLocaleLowerCase('en-US')
+    if (seen.has(key)) errors[pair.videoRel] = `与「${seen.get(key)}」重名（大小写不敏感）`
+    else seen.set(key, pair.videoRel)
+  }
+  return errors
+}
+
+/**
+ * 校验完整目标名（目录 + 文件名）是否在批内重复。调用方提供 targetKey，避免共享规则依赖 Node path。
+ * 不同扩展名或不同目录允许使用相同词干；同一完整目标才是实际冲突。
+ */
+export function validateRenameTargets(pairs, getTargetKey) {
+  const errors = validateStemValues(pairs)
+  const seen = new Map()
+  for (const pair of pairs) {
+    if (errors[pair.videoRel]) continue
+    const targetKeys = getTargetKey(pair)
+    for (const targetKey of Array.isArray(targetKeys) ? targetKeys : [targetKeys]) {
+      const key = String(targetKey).normalize('NFC').toLocaleLowerCase('en-US')
+      if (seen.has(key)) {
+        errors[pair.videoRel] = `与「${seen.get(key)}」指向同一目标文件`
+        break
+      }
+      seen.set(key, pair.videoRel)
     }
-    const key = stem.toLowerCase()
-    if (seen.has(key)) {
-      errors[pair.videoRel] = `与「${seen.get(key)}」重名（大小写不敏感）`
-      continue
-    }
-    seen.set(key, pair.videoRel)
   }
   return errors
 }

@@ -454,6 +454,11 @@ h2 {
   z-index: 2;
   height: 100%;
   overflow-y: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.page-host::-webkit-scrollbar {
+  display: none;
 }
 .page-host.page-hidden {
   display: none;
@@ -2447,6 +2452,624 @@ input[type='checkbox']:disabled {
 }
 .video-card {
   contain-intrinsic-size: auto 210px;
+}
+
+/* ---------- 合并时间线拼贴台 ---------- */
+.merge-studio {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+}
+.merge-studio-toolbar,
+.merge-timeline-head,
+.merge-output-strip,
+.merge-studio-content {
+  display: flex;
+  gap: 14px;
+}
+.merge-studio-toolbar,
+.merge-timeline-head {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.merge-studio h2,
+.merge-timeline-head h2,
+.merge-inspector h3 {
+  margin: 0;
+}
+.merge-studio-toolbar p,
+.merge-timeline-head p {
+  max-width: 72ch;
+  margin: 5px 0 0;
+  line-height: 1.55;
+}
+.merge-view-toggle {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  background: var(--fill-quaternary);
+}
+.merge-view-toggle button {
+  min-height: 28px;
+  padding: 3px 10px;
+  border-color: transparent;
+  box-shadow: none;
+}
+.merge-view-toggle button.secondary {
+  background: transparent;
+}
+.merge-view-toggle button.active {
+  color: #fff;
+  background: var(--accent);
+}
+.merge-studio-content {
+  height: clamp(420px, 58vh, 620px);
+  align-items: stretch;
+  min-width: 0;
+  min-height: 0;
+}
+.merge-studio-content > [data-panel] {
+  min-width: 0;
+  min-height: 0;
+}
+.merge-studio-main {
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding-right: 7px;
+}
+/* 列表不经过可调整面板，滚动容器就是片段编排本身。 */
+.merge-list-shell {
+  height: clamp(420px, 58vh, 620px);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 8px;
+  overscroll-behavior: contain;
+}
+.merge-list-shell .merge-list {
+  display: grid;
+  min-width: 0;
+  margin-top: 0;
+  overflow: visible;
+}
+.merge-list-shell .merge-row {
+  min-width: 0;
+}
+.merge-list-shell .merge-info {
+  min-width: 0;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 横竖分别合并是两个产物计划，必须分为两套独立轨道/列表。 */
+.merge-separate-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.merge-separate-group {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fill-quaternary) 38%, var(--bg-card));
+}
+.merge-separate-group.landscape {
+  border-top: 3px solid color-mix(in srgb, var(--accent) 72%, var(--separator));
+}
+.merge-separate-group.portrait {
+  border-top: 3px solid color-mix(in srgb, var(--warning) 70%, var(--separator));
+}
+.merge-separate-group > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.merge-separate-group h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.merge-separate-group header p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.merge-separate-count {
+  flex: 0 0 auto;
+  color: var(--label-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* 列表行包含缩略图、名称、参数和操作，半宽双栏会压缩信息密度。
+   分别输出在列表模式改为上下两组，每组占满工作台宽度并各自纵向滚动。 */
+.merge-separate-groups.list {
+  grid-template-columns: minmax(0, 1fr);
+}
+.merge-separate-groups.list .merge-list-shell {
+  height: clamp(280px, 38vh, 420px);
+}
+.merge-separate-groups.list .merge-row {
+  width: 100%;
+}
+.merge-separate-groups.list .merge-name {
+  flex: 1 1 180px;
+  max-width: none;
+}
+.merge-separate-groups.list .merge-info {
+  flex: 0 1 auto;
+  max-width: 48%;
+}
+.merge-separate-groups.timeline .merge-timeline-workbench {
+  gap: 8px;
+}
+.merge-separate-groups.timeline .merge-timeline-head h2 {
+  font-size: 14px;
+}
+.merge-separate-groups.timeline .merge-timeline-head p {
+  display: none;
+}
+.merge-separate-groups.timeline .merge-timeline-scroll {
+  min-height: 156px;
+}
+.merge-separate-groups.timeline .merge-timeline-track {
+  height: 134px;
+}
+@media (max-width: 980px) {
+  .merge-separate-groups {
+    grid-template-columns: 1fr;
+  }
+  .merge-separate-groups.list .merge-list-shell {
+    height: min(340px, 44vh);
+  }
+}
+.merge-inspector {
+  height: 100%;
+  overflow: auto;
+}
+.merge-studio-resize {
+  position: relative;
+  flex: 0 0 14px;
+  cursor: col-resize;
+}
+.merge-studio-resize::after {
+  position: absolute;
+  top: 26px;
+  bottom: 26px;
+  left: 6px;
+  width: 2px;
+  border-radius: 99px;
+  background: var(--separator);
+  content: '';
+}
+.merge-studio-resize:hover::after,
+.merge-studio-resize:focus-visible::after {
+  background: var(--accent);
+}
+.merge-timeline-workbench {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.merge-timeline-total {
+  display: grid;
+  flex: 0 0 auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.merge-timeline-total b {
+  font-size: 18px;
+}
+.merge-timeline-total span {
+  color: var(--label-secondary);
+  font-size: 11px;
+}
+.merge-timeline-scroll {
+  min-height: 188px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 8px 2px 12px;
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  background:
+    linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--fill-quaternary) 62%, transparent) 1px,
+        transparent 1px
+      )
+      0 0 / 72px 100%,
+    var(--fill-quaternary);
+}
+.merge-timeline-track {
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+  width: max-content;
+  min-width: 100%;
+  height: 166px;
+  padding: 0 8px;
+}
+.merge-timeline-track.dense {
+  height: 84px;
+  gap: 2px;
+}
+.merge-timeline-track.dense .merge-timeline-clip {
+  min-width: 36px;
+  max-width: 96px;
+  border-radius: 4px;
+}
+.merge-timeline-track.dense .merge-timeline-overlay small,
+.merge-timeline-track.dense .merge-timeline-name,
+.merge-timeline-track.dense .merge-timeline-meta {
+  display: none;
+}
+.merge-timeline-track.dense .merge-timeline-drag,
+.merge-timeline-track.dense .merge-timeline-exclude {
+  opacity: 0;
+  pointer-events: none;
+}
+.merge-timeline-track.dense .merge-timeline-clip:hover .merge-timeline-drag,
+.merge-timeline-track.dense .merge-timeline-clip:hover .merge-timeline-exclude,
+.merge-timeline-track.dense .merge-timeline-clip:focus-within .merge-timeline-drag,
+.merge-timeline-track.dense .merge-timeline-clip:focus-within .merge-timeline-exclude {
+  opacity: 1;
+  pointer-events: auto;
+}
+.merge-timeline-track.dense .merge-timeline-overlay {
+  justify-content: flex-start;
+}
+.merge-timeline-track.dense .merge-timeline-overlay b {
+  width: 17px;
+  height: 17px;
+  font-size: 9px;
+}
+.merge-timeline-track.dense .merge-timeline-clip {
+  content-visibility: auto;
+  contain-intrinsic-size: 84px 64px;
+}
+.merge-timeline-clip {
+  position: relative;
+  min-width: 86px;
+  max-width: 360px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--separator) 82%, var(--accent));
+  border-radius: 9px;
+  background: var(--bg-card);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--label-primary) 8%, transparent);
+}
+.merge-timeline-clip.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.merge-timeline-clip.dragging {
+  z-index: 2;
+  opacity: 0.7;
+  box-shadow: var(--shadow-pop);
+}
+.merge-timeline-clip.excluded {
+  flex: 0 0 72px;
+  min-width: 72px;
+  max-width: 72px;
+  opacity: 0.62;
+  filter: grayscale(0.8);
+}
+.merge-timeline-clip-main {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  color: var(--label-primary);
+  text-align: left;
+  background: var(--fill-tertiary);
+  box-shadow: none;
+}
+.merge-timeline-clip-main:hover:not(:disabled) {
+  background: var(--fill-tertiary);
+  box-shadow: none;
+}
+.merge-timeline-frame {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--label-primary) 10%, var(--fill-tertiary));
+}
+.merge-timeline-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.merge-timeline-clip.portrait .merge-timeline-frame img {
+  width: auto;
+  max-width: 72%;
+  object-fit: contain;
+  background: #101828;
+}
+.merge-timeline-overlay {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  left: 6px;
+  display: flex;
+  justify-content: space-between;
+  color: #fff;
+  font-size: 10px;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 70%);
+}
+.merge-timeline-overlay b {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 56%);
+}
+.merge-timeline-overlay small {
+  align-self: center;
+  font-variant-numeric: tabular-nums;
+}
+.merge-timeline-name,
+.merge-timeline-meta {
+  position: absolute;
+  right: 7px;
+  left: 7px;
+  overflow: hidden;
+  color: #fff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 80%);
+}
+.merge-timeline-name {
+  bottom: 23px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.merge-timeline-meta {
+  bottom: 7px;
+  font-size: 10px;
+}
+.merge-timeline-drag,
+.merge-timeline-exclude {
+  position: absolute;
+  z-index: 1;
+  bottom: 5px;
+  min-height: 24px;
+  padding: 2px 6px;
+  border-color: rgb(255 255 255 / 42%);
+  border-radius: 6px;
+  color: #fff;
+  background: rgb(0 0 0 / 58%);
+  box-shadow: none;
+  font-size: 11px;
+}
+.merge-timeline-drag {
+  right: 5px;
+  cursor: grab;
+}
+.merge-timeline-exclude {
+  left: 5px;
+}
+.merge-timeline-drag:hover:not(:disabled),
+.merge-timeline-exclude:hover:not(:disabled) {
+  background: rgb(0 0 0 / 78%);
+  box-shadow: none;
+}
+.merge-timeline-excluded-rail {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px dashed var(--separator);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fill-quaternary) 64%, transparent);
+}
+.merge-timeline-excluded-title {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  color: var(--label-secondary);
+  font-size: 11px;
+}
+.merge-timeline-excluded-title b {
+  color: var(--label-primary);
+}
+.merge-timeline-excluded-items {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+}
+.merge-timeline-excluded-items .merge-timeline-clip {
+  height: 76px;
+}
+.merge-output-strip {
+  flex-wrap: wrap;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--fill-quaternary));
+  color: var(--label-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.merge-output-strip span {
+  display: inline-flex;
+  gap: 5px;
+}
+.merge-output-strip b {
+  color: var(--label-primary);
+}
+.merge-output-warning {
+  color: var(--warning);
+}
+.merge-inspector {
+  width: min(250px, 30%);
+  min-width: 210px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fill-quaternary) 52%, var(--bg-card));
+}
+.merge-inspector .eyebrow {
+  margin: 0;
+}
+.merge-inspector h3 {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-inspector-preview {
+  display: grid;
+  min-height: 126px;
+  max-height: 158px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #101828;
+}
+.merge-inspector-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.merge-inspector-preview.portrait img {
+  width: auto;
+  max-width: 76%;
+  object-fit: contain;
+}
+.merge-inspector-preview span {
+  color: #fff;
+  font-size: 12px;
+}
+.merge-inspector dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.merge-inspector dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+}
+.merge-inspector dt {
+  color: var(--label-tertiary);
+}
+.merge-inspector dd {
+  max-width: 68%;
+  margin: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-inspector .actions {
+  gap: 6px;
+}
+.merge-inspector .actions button {
+  min-height: 29px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+@media (max-width: 920px) {
+  .merge-list-shell {
+    height: min(620px, 68vh);
+  }
+  .merge-studio-content.timeline-view {
+    height: min(620px, 68vh);
+    display: block !important;
+  }
+  .merge-studio-content.timeline-view > [data-panel]:first-child {
+    height: 100% !important;
+  }
+  .merge-studio-resize {
+    display: none;
+  }
+  .merge-studio-main {
+    padding-right: 0;
+  }
+  .merge-inspector {
+    width: 100%;
+    min-width: 0;
+    margin-top: 12px;
+  }
+  .merge-inspector-preview {
+    max-width: 280px;
+  }
+}
+@media (max-width: 640px) {
+  .merge-studio {
+    padding: 12px;
+  }
+  .merge-studio-toolbar,
+  .merge-timeline-head {
+    display: grid;
+  }
+  .merge-view-toggle {
+    width: fit-content;
+  }
+  .merge-list-shell {
+    height: min(520px, 62vh);
+  }
+  .merge-studio-content.timeline-view {
+    height: min(520px, 62vh);
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .merge-studio-content.timeline-view > [data-panel] {
+    flex: none !important;
+    width: 100% !important;
+  }
+  .merge-studio-content.timeline-view > [data-panel]:first-child {
+    height: 100% !important;
+  }
+  .merge-studio-content.timeline-view > [data-panel]:last-child {
+    display: none;
+  }
+  .merge-timeline-scroll {
+    min-height: 154px;
+  }
+  .merge-timeline-track {
+    height: 132px;
+  }
+  .merge-timeline-track.dense {
+    height: 70px;
+  }
+  .merge-timeline-name {
+    display: none;
+  }
+  .merge-timeline-meta {
+    bottom: 6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .merge-timeline-clip,
+  .merge-timeline-drag,
+  .merge-timeline-exclude {
+    transition: none !important;
+  }
 }
 
 /* ---------- 去重 / 媒体库 ---------- */

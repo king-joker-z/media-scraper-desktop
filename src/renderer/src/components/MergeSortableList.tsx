@@ -1,4 +1,11 @@
-import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent
+} from '@dnd-kit/core'
 import {
   SortableContext,
   arrayMove,
@@ -28,11 +35,14 @@ function MergeSortableList({
   onReorder: (next: MergeVideoItem[]) => void
   onPlay: (item: MergeVideoItem) => void
 }): React.JSX.Element {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const handleDragEnd = (event: DragEndEvent): void => {
     const { active, over } = event
-    if (!over || active.id === over.id) return
+    if (!over) return
+    if (active.id === over.id) return
     const from = items.findIndex((item) => item.relativePath === active.id)
     const to = items.findIndex((item) => item.relativePath === over.id)
+    if (from < 0 || to < 0) return
     onReorder(arrayMove(items, from, to))
   }
 
@@ -50,7 +60,7 @@ function MergeSortableList({
   }, [items, excluded])
 
   return (
-    <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+    <DndContext collisionDetection={closestCenter} sensors={sensors} onDragEnd={handleDragEnd}>
       <SortableContext
         items={items.map((i) => i.relativePath)}
         strategy={verticalListSortingStrategy}
@@ -95,13 +105,26 @@ function SortableRow({
       className={`merge-row ${isDragging ? 'dragging' : ''} ${excluded ? 'excluded' : ''}`}
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >
-      <span className="merge-drag" {...attributes} {...listeners}>
+      <button
+        type="button"
+        className="merge-drag"
+        aria-label={`拖动排序：${item.name}`}
+        title="拖动排序"
+        {...attributes}
+        {...listeners}
+      >
         ⠿
-      </span>
+      </button>
       <span className="merge-order">{order ?? '—'}</span>
       <span className="merge-thumb">
         {item.posterPath ? (
-          <img src={mediaUrl(item.posterPath)} alt="" loading="lazy" />
+          <img
+            src={mediaUrl(item.posterPath)}
+            alt=""
+            width={media?.width ?? 160}
+            height={media?.height ?? 90}
+            loading="lazy"
+          />
         ) : (
           <span className="video-thumb-empty" aria-label="暂无封面" />
         )}

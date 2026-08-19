@@ -1,0 +1,519 @@
+/* ---------- 任务动态岛与队列 ---------- */
+.task-island-host {
+  position: fixed;
+  right: 22px;
+  bottom: 84px;
+  z-index: 60;
+  width: min(300px, calc(100vw - 44px));
+}
+.task-island,
+.task-island-detail {
+  border: 1px solid var(--separator);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-pop);
+}
+.task-island {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: var(--label-primary);
+  text-align: left;
+}
+.task-island:hover {
+  background: color-mix(in srgb, var(--bg-card) 92%, var(--accent));
+}
+.task-island:focus-visible,
+.task-island-actions button:focus-visible,
+.task-filter:focus-visible,
+.task-clear:focus-visible,
+.task-close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.task-island-state {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-weight: 800;
+}
+.task-island-success .task-island-state {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+.task-island-failed .task-island-state {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+.task-island-cancelled .task-island-state {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+.task-island-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: task-island-pulse 1.4s ease-in-out infinite;
+}
+@keyframes task-island-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+}
+.task-island-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  flex: 1;
+}
+.task-island-copy b,
+.task-island-copy small,
+.task-island-detail p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-island-copy b {
+  font-size: 12px;
+}
+.task-island-copy small {
+  color: var(--label-secondary);
+  font-size: 11px;
+}
+.task-island-count {
+  min-width: 24px;
+  color: var(--label-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.task-island-detail {
+  display: grid;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: var(--radius-card);
+}
+.task-island-detail-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.task-island-detail-head strong,
+.task-failed-count {
+  color: var(--danger);
+  font-weight: 650;
+}
+.task-island-detail p {
+  margin: 0;
+  color: var(--label-tertiary);
+  font-size: 11px;
+}
+.task-island-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.task-island-actions button {
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+.progress-bar.success {
+  background: var(--success);
+}
+.progress-bar.cancelled {
+  background: var(--warning);
+}
+.progress-bar.failed {
+  background: var(--danger);
+}
+.progress-bar.indeterminate {
+  width: 38%;
+  animation: task-indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes task-indeterminate {
+  50% {
+    transform: translateX(165%);
+  }
+}
+.task-panel {
+  max-height: min(560px, calc(100vh - 140px));
+}
+.task-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.task-close {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--label-secondary);
+  font-size: 18px;
+}
+.task-close:hover {
+  color: var(--label-primary);
+  background: var(--fill-quaternary);
+}
+.task-group {
+  padding: 8px 0;
+}
+.task-group + .task-group {
+  border-top: 1px solid var(--separator);
+}
+.task-group h2 {
+  margin: 0;
+  padding: 0 14px 6px;
+  color: var(--label-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+}
+.task-row {
+  width: 100%;
+  grid-template-columns: 28px minmax(0, 1fr);
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--label-primary);
+  text-align: left;
+}
+.task-row-body {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.task-row-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.task-row-topline b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.task-row .task-label {
+  display: block;
+  font-size: 11px;
+}
+.task-row-actions,
+.task-row-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.task-row-actions {
+  justify-content: space-between;
+}
+.task-elapsed {
+  color: var(--label-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.task-cancel-details {
+  color: var(--warning);
+  font-size: 10px;
+}
+.task-cancel-details summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.task-cancel-details span {
+  display: block;
+  margin-top: 3px;
+  color: var(--label-tertiary);
+  line-height: 1.4;
+}
+:root .task-center .task-cancel {
+  min-height: 24px;
+  padding: 0 7px;
+  font-size: 10px;
+}
+:root .task-center .task-cancel {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--separator));
+  color: var(--danger);
+}
+:root .task-center .task-cancel:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-card));
+  color: var(--danger);
+}
+:root .task-center .task-encoder {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--fill-quaternary);
+  color: var(--label-secondary);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1;
+}
+:root .task-center .task-encoder.nvenc {
+  background: color-mix(in srgb, var(--success) 13%, var(--bg-card));
+  color: var(--success);
+}
+:root .task-center .task-encoder.fallback {
+  background: color-mix(in srgb, var(--warning) 15%, var(--bg-card));
+  color: var(--warning);
+}
+.task-error-details {
+  color: var(--danger);
+  font-size: 11px;
+}
+.task-error-details summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.task-error-details pre {
+  max-height: 120px;
+  margin: 6px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--label-secondary);
+  font: inherit;
+}
+.task-row.success .task-event-icon {
+  color: var(--success);
+}
+.task-row.failed .task-event-icon {
+  color: var(--danger);
+}
+.task-row.cancelled .task-event-icon {
+  color: var(--warning);
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-island-pulse,
+  .progress-bar.indeterminate {
+    animation: none;
+  }
+  .task-island,
+  .progress-bar {
+    transition: none;
+  }
+}
+/* 队列与站内各主题隔离：主题可以改变语气，但不应让通用浮层继承粗框、硬阴影或按钮位移。 */
+:root .task-center {
+  /* 队列以任务岛为锚点向上展开，始终为状态胶囊预留空间，不覆盖它。 */
+  right: 22px;
+  bottom: 144px;
+  z-index: 70;
+}
+:root .task-center .task-panel {
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(480px, calc(100vh - 206px));
+  border: 1px solid color-mix(in srgb, var(--separator) 90%, var(--accent));
+  border-radius: 14px;
+  background: var(--bg-card);
+  box-shadow: 0 18px 44px color-mix(in srgb, var(--label-primary) 16%, transparent);
+}
+:root .task-center .task-panel-header {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--separator);
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg-card));
+}
+:root .task-center .task-panel-actions {
+  min-width: 0;
+  gap: 7px;
+}
+:root .task-center .task-panel button,
+:root .task-center .task-filter {
+  min-height: 30px;
+  margin: 0;
+  border: 1px solid var(--separator);
+  border-radius: 7px;
+  background: var(--bg-card);
+  box-shadow: none;
+  color: var(--label-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  transform: none;
+}
+:root .task-center .task-panel button:hover:not(:disabled),
+:root .task-center .task-filter:hover {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--separator));
+  background: var(--accent-soft);
+  color: var(--accent);
+  transform: none;
+}
+:root .task-center .task-panel button:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+:root .task-center .task-filter {
+  width: 106px;
+  padding: 0 8px;
+}
+:root .task-center .task-clear {
+  padding: 0 9px;
+  white-space: nowrap;
+}
+:root .task-center .task-close {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  color: var(--label-secondary);
+  font-size: 18px;
+}
+:root .task-center .task-list {
+  gap: 0;
+  min-height: 0;
+  padding: 6px;
+  background: var(--bg-card);
+}
+:root .task-center .task-list:has(.task-empty-state) {
+  padding: 0;
+}
+:root .task-center .task-empty-state {
+  min-height: 128px;
+  justify-items: center;
+  align-content: center;
+  gap: 5px;
+  padding: 20px 24px;
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+}
+:root .task-center .task-empty-state::before {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 11%, var(--bg-card));
+  color: var(--accent);
+  content: '✓';
+  font-size: 15px;
+  font-weight: 700;
+}
+:root .task-center .task-empty-state b {
+  font-size: 12px;
+  font-weight: 680;
+}
+:root .task-center .task-empty-state span {
+  max-width: 31ch;
+  color: var(--label-tertiary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+:root .task-center .task-group {
+  padding: 6px 0;
+}
+:root .task-center .task-group + .task-group {
+  border-top: 1px solid var(--separator);
+}
+:root .task-center .task-group h2 {
+  padding: 2px 8px 6px;
+  color: var(--label-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+}
+:root .task-center .task-row {
+  min-height: 54px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+}
+:root .task-center .task-row + .task-row {
+  margin-top: 2px;
+}
+:root .task-center .task-row:hover {
+  border-color: color-mix(in srgb, var(--separator) 82%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+:root .task-center .task-event-icon {
+  border-radius: 7px;
+  background: var(--fill-quaternary);
+}
+:root .task-center .task-row.success .task-event-icon {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 13%, var(--bg-card));
+}
+:root .task-center .task-row.failed .task-event-icon {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 13%, var(--bg-card));
+}
+:root .task-center .task-row.cancelled .task-event-icon {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 13%, var(--bg-card));
+}
+:root .task-center .task-row-topline b {
+  font-size: 12px;
+  font-weight: 680;
+}
+:root .task-center .task-count {
+  flex: 0 0 auto;
+  max-width: 104px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 5px;
+  background: var(--fill-quaternary);
+}
+:root .task-center .task-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 放在队列通用按钮规则之后，保证取消操作始终保留危险语义色。 */
+:root .task-center .task-panel .task-cancel {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--separator));
+  color: var(--danger);
+}
+:root .task-center .task-panel .task-cancel:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-card));
+  color: var(--danger);
+}
+@media (max-width: 600px) {
+  .task-island-host {
+    right: 12px;
+    bottom: 72px;
+    width: calc(100vw - 24px);
+  }
+  :root .task-center {
+    right: 12px;
+    bottom: 132px;
+  }
+  :root .task-center .task-panel {
+    width: min(320px, calc(100vw - 24px));
+    max-height: min(440px, calc(100vh - 190px));
+  }
+  :root .task-center .task-panel-header {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  :root .task-center .task-panel-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  :root .task-center .task-filter {
+    width: 100%;
+  }
+}

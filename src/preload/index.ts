@@ -24,6 +24,7 @@ import type {
   PosterVideoItem,
   ProbeContainerItem,
   RenamePairInput,
+  RenamePreflightItem,
   RenameReport,
   ScanPlan,
   StorageCategory,
@@ -80,6 +81,8 @@ const api = {
     ipcRenderer.invoke('rename:ai', files, forceRefresh),
   testAiConnection: (providerId: string, model: string) =>
     ipcRenderer.invoke('rename:ai:test-connection', providerId, model),
+  preflightRename: (root: string, pairs: RenamePairInput[]): Promise<RenamePreflightItem[]> =>
+    ipcRenderer.invoke('rename:preflight', root, pairs),
   executeRename: (root: string, pairs: RenamePairInput[]): Promise<RenameReport> =>
     ipcRenderer.invoke('rename:execute', root, pairs),
   cancelRename: (): Promise<void> => ipcRenderer.invoke('rename:cancel'),
@@ -176,6 +179,7 @@ const api = {
   revealOpLog: (file: string): Promise<void> => ipcRenderer.invoke('op-logs:reveal', file),
   /** 一键撤销（F2）：按日志反向恢复重命名/NFO 归档 */
   undoOpLog: (file: string): Promise<UndoReport> => ipcRenderer.invoke('op-logs:undo', file),
+  cancelTask: (taskId: string): Promise<boolean> => ipcRenderer.invoke('tasks:cancel', taskId),
   onTaskEvent: (callback: (event: TaskEvent) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, payload: TaskEvent): void => callback(payload)
     ipcRenderer.on('tasks:event', listener)

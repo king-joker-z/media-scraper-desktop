@@ -1,4 +1,6 @@
 import './assets/main.css'
+import './assets/task-island.css'
+import './assets/rename-comparison.css'
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'

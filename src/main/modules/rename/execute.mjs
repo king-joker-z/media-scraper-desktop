@@ -11,7 +11,7 @@ import { collectFailures, finishReport } from '../../core/task-report.mjs'
 import {
   ILLEGAL_NAME_RE,
   TRAILING_DOT_SPACE_RE,
-  validateStems,
+  validateRenameTargets,
   WINDOWS_RESERVED_NAME_RE
 } from '../../../shared/rename-rules.mjs'
 
@@ -37,7 +37,14 @@ export async function executeRename(
   { taskCenter, taskId, concurrency = 5, journalPath }
 ) {
   const startedAt = Date.now()
-  const errors = validateStems(pairs)
+  const errors = validateRenameTargets(pairs, (pair) => {
+    const videoExt = pair.newExt ?? extname(pair.videoRel)
+    const targets = [join(dirname(pair.videoRel), `${pair.newStem}${videoExt}`)]
+    if (pair.posterRel && !pair.newExt) {
+      targets.push(join(dirname(pair.posterRel), `${pair.newStem}-poster.jpg`))
+    }
+    return targets
+  })
   for (const pair of pairs) {
     if (pair.newExt) {
       const extensionError = validateTargetExtension(pair.newExt)

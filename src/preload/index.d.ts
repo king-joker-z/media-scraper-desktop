@@ -24,6 +24,7 @@ import type {
   PosterVideoItem,
   ProbeContainerItem,
   RenamePairInput,
+  RenamePreflightItem,
   RenameReport,
   ScanPlan,
   StorageCategory,
@@ -70,6 +71,7 @@ declare global {
       requestAiNames: (files: AiFileInput[], forceRefresh?: boolean) => Promise<string[]>
       /** 对当前设置中指定的平台和单一模型执行最小请求连通性测试。 */
       testAiConnection: (providerId: string, model: string) => Promise<AiConnectionTestResult>
+      preflightRename: (root: string, pairs: RenamePairInput[]) => Promise<RenamePreflightItem[]>
       executeRename: (root: string, pairs: RenamePairInput[]) => Promise<RenameReport>
       cancelRename: () => Promise<void>
       createNfoPlan: (root: string) => Promise<NfoPlan>
@@ -160,6 +162,8 @@ declare global {
       >
       revealOpLog: (file: string) => Promise<void>
       undoOpLog: (file: string) => Promise<UndoReport>
+      /** 请求取消仍在执行且允许取消的任务；返回 false 表示该任务已结束或不可取消。 */
+      cancelTask: (taskId: string) => Promise<boolean>
       onTaskEvent: (callback: (event: TaskEvent) => void) => () => void
     }
   }

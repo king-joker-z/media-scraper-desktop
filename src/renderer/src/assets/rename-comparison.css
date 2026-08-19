@@ -1,0 +1,401 @@
+/* 批量重命名对照编辑器：高密度审阅面板，颜色全部承接现有主题 token。 */
+.rename-page {
+  padding-bottom: 24px;
+}
+
+.rename-comparison {
+  position: relative;
+  margin-top: 20px;
+  max-width: 100%;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.rename-comparison-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--separator);
+  background: color-mix(in srgb, var(--fill-quaternary) 48%, transparent);
+}
+
+.rename-filter-list {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.rename-filter {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--label-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.rename-filter:hover,
+.rename-filter.active {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--separator));
+  background: color-mix(in srgb, var(--accent) 11%, var(--bg-card));
+  color: var(--accent);
+}
+
+.rename-search {
+  display: flex;
+  flex: 0 1 260px;
+  align-items: center;
+  gap: 6px;
+  min-width: 170px;
+  padding: 3px 8px;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.rename-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.rename-search input:focus {
+  outline: 0;
+}
+
+.rename-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.rename-search kbd {
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  color: var(--label-tertiary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.rename-relationship-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--warning) 32%, var(--separator));
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+.rename-relationship-notice strong {
+  color: var(--warning);
+}
+
+.rename-editor-grid {
+  min-width: 790px;
+}
+
+.rename-editor-head,
+.rename-editor-row {
+  display: grid;
+  grid-template-columns:
+    minmax(130px, 1.05fr) minmax(140px, 1fr) minmax(150px, 1.15fr) minmax(92px, 0.75fr)
+    minmax(82px, auto);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+}
+
+.rename-editor-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--separator);
+  background: var(--bg-card);
+  color: var(--label-tertiary);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.rename-editor-head > span {
+  white-space: nowrap;
+}
+
+.rename-editor-scroll {
+  max-height: min(56vh, 680px);
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.rename-editor-row {
+  min-height: 58px;
+  border-bottom: 1px solid color-mix(in srgb, var(--separator) 72%, transparent);
+  font-size: 12px;
+  outline: 0;
+  transition: background 160ms ease;
+}
+
+.rename-editor-row:hover,
+.rename-editor-row.selected,
+.rename-editor-row:focus-visible {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.rename-editor-row:focus-visible {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.rename-editor-row.invalid {
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+
+.rename-editor-head:has(.rename-editor-select),
+.rename-editor-row:has(.rename-editor-select) {
+  grid-template-columns:
+    24px minmax(130px, 1.05fr) minmax(140px, 1fr) minmax(150px, 1.15fr)
+    minmax(92px, 0.75fr) minmax(82px, auto);
+}
+
+.rename-editor-select {
+  display: grid;
+  place-items: center;
+}
+
+.rename-editor-select input {
+  width: 16px;
+  height: 16px;
+}
+
+.rename-editor-original,
+.rename-editor-target,
+.rename-editor-status,
+.rename-editor-actions,
+.rename-editor-steps {
+  min-width: 0;
+}
+
+.rename-editor-original {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rename-editor-target {
+  display: block;
+}
+
+.rename-editor-original b,
+.rename-editor-target button,
+.rename-editor-target input {
+  color: var(--label-primary);
+  font-size: 12px;
+  text-align: left;
+}
+
+.rename-editor-original b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rename-editor-original small,
+.rename-editor-target small,
+.rename-editor-original em,
+.rename-editor-target em {
+  overflow: hidden;
+  color: var(--label-tertiary);
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rename-editor-original em,
+.rename-editor-target em {
+  color: var(--accent);
+}
+
+.rename-editor-steps {
+  display: grid;
+  gap: 4px;
+}
+
+.rename-editor-steps span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.rename-editor-steps b {
+  flex: 0 0 auto;
+  color: var(--label-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.rename-editor-steps code {
+  overflow: hidden;
+  color: var(--label-secondary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rename-editor-target button {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.rename-editor-target button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--separator));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.rename-editor-target input {
+  width: 100%;
+  padding: 5px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.rename-editor-status b {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--success);
+  font-size: 11px;
+}
+
+.rename-editor-status.extension b,
+.rename-editor-status.probe b,
+.rename-editor-status.windows b {
+  color: var(--warning);
+}
+
+.rename-editor-status.conflict b,
+.rename-editor-status.external b,
+.rename-editor-row.invalid .rename-editor-status b {
+  color: var(--danger);
+}
+
+.rename-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.rename-editor-actions button {
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--separator));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  box-shadow: none;
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.rename-editor-empty {
+  margin: 0;
+  padding: 28px;
+  color: var(--label-tertiary);
+  text-align: center;
+}
+
+.rename-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--separator);
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+.rename-pagination button {
+  min-height: 28px;
+  padding: 3px 9px;
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+  background: var(--bg-card);
+  box-shadow: none;
+  color: var(--label-primary);
+  font-size: 11px;
+}
+
+.rename-editor-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--separator);
+  background: color-mix(in srgb, var(--fill-quaternary) 35%, transparent);
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+.rename-editor-summary b {
+  color: var(--label-primary);
+}
+
+.rename-editor-summary .danger,
+.rename-editor-summary .danger b {
+  color: var(--danger);
+}
+
+.rename-editor-summary .warning,
+.rename-editor-summary .warning b {
+  color: var(--warning);
+}
+
+.rename-editor-select-all {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
+  color: var(--label-secondary);
+}
+@media (max-width: 900px) {
+  .rename-comparison {
+    overflow: auto;
+  }
+
+  .rename-comparison-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rename-search {
+    flex-basis: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rename-editor-row {
+    transition: none;
+  }
+}

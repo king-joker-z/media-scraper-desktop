@@ -7,6 +7,7 @@ import {
   padSeq,
   sortVideos,
   stripSeqPrefix,
+  validateRenameTargets,
   validateStems,
   withSequencePrefix
 } from '../src/shared/rename-rules.mjs'
@@ -141,6 +142,35 @@ test('validateStems catches illegal, empty, long and duplicate names', () => {
   assert.ok(errors['d.mp4'].includes('超长'))
   assert.ok(errors['e.mp4'].includes('重名'))
   assert.equal(errors['f.mp4'], undefined)
+})
+
+test('validateRenameTargets distinguishes full target paths and extensions', () => {
+  const extensionCollision = validateRenameTargets(
+    [
+      { videoRel: 'a.mkv', newStem: '节目', newExt: '.mp4' },
+      { videoRel: '节目.mp4', newStem: '节目' }
+    ],
+    (pair) => `${pair.videoRel.replace(/[^\\/]+$/, '')}${pair.newStem}${pair.newExt ?? '.mp4'}`
+  )
+  assert.ok(extensionCollision['节目.mp4'].includes('同一目标'))
+
+  const safeSwap = validateRenameTargets(
+    [
+      { videoRel: 'A.mkv', newStem: 'B', newExt: '.mp4' },
+      { videoRel: 'B.mp4', newStem: 'A', newExt: '.mkv' }
+    ],
+    (pair) => `${pair.videoRel.replace(/[^\\/]+$/, '')}${pair.newStem}${pair.newExt}`
+  )
+  assert.deepEqual(safeSwap, {})
+
+  const differentDirectories = validateRenameTargets(
+    [
+      { videoRel: '甲/A.mp4', newStem: '节目' },
+      { videoRel: '乙/B.mp4', newStem: '节目' }
+    ],
+    (pair) => `${pair.videoRel.replace(/[^\\/]+$/, '')}${pair.newStem}.mp4`
+  )
+  assert.deepEqual(differentDirectories, {})
 })
 
 test('validateStems rejects Windows reserved names, trailing dot/space and control chars', () => {

@@ -10,7 +10,8 @@ import PosterPage from './pages/PosterPage'
 import RenamePage from './pages/RenamePage'
 import SettingsPage from './pages/SettingsPage'
 import TaskCenter from './components/TaskCenter'
-import TaskProgress from './components/TaskProgress'
+import TaskIsland from './components/TaskIsland'
+import { useTaskFeed } from './components/useTaskFeed'
 import ErrorBanner from './components/ErrorBanner'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
@@ -147,6 +148,7 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }): React.JSX
 }
 
 function App(): React.JSX.Element {
+  const taskFeed = useTaskFeed()
   // null = 显示模块选择页（首次启动 / 主动返回）
   const [module, setModule] = useState<AppModule | null>(null)
   const [page, setPage] = useState<PageKey>('clean')
@@ -162,7 +164,6 @@ function App(): React.JSX.Element {
 
   const workspace = module ? workspaces[module] : ''
   const moduleRecents = module ? recents[module] : []
-
   // 启动初始化：应用主题、恢复上次模块与双工作区（media:// 白名单同步注册）、
   // 请求系统通知权限、清理过期播放进度缓存
   useEffect(() => {
@@ -578,8 +579,8 @@ function App(): React.JSX.Element {
           <div className="drop-hint">松开以设为{module === 'video' ? '' : '漫画'}工作区</div>
         </div>
       )}
-      <TaskProgress />
-      <TaskCenter />
+      <TaskIsland feed={taskFeed} />
+      <TaskCenter feed={taskFeed} />
       {pendingNavigation && (
         <ConfirmDialog
           title="还有封面未保存"

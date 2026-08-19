@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
+import { Group, Panel, Separator, type Layout } from 'react-resizable-panels'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MergeMode, MergeResult, MergeVideoItem } from '../../../shared/types'
 import {
   checkCompatibility,
@@ -10,8 +11,10 @@ import {
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
 import MergeSortableList from '../components/MergeSortableList'
+import MergeTimeline, { MergeViewToggle } from '../components/MergeTimeline'
 import VideoModal from '../components/VideoModal'
-import { formatBytes } from '../utils/format'
+import { formatBytes, formatDuration } from '../utils/format'
+import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 const MODE_TABS: { key: MergeMode; label: string }[] = [
@@ -20,6 +23,23 @@ const MODE_TABS: { key: MergeMode; label: string }[] = [
   { key: 'portrait', label: '竖屏合并' },
   { key: 'separate', label: '横竖分别合并' }
 ]
+
+function loadStudioLayout(): Layout {
+  try {
+    const saved = JSON.parse(localStorage.getItem('msd-merge-studio-layout') ?? '')
+    if (
+      typeof saved?.timeline === 'number' &&
+      typeof saved?.inspector === 'number' &&
+      saved.timeline >= 45 &&
+      saved.inspector >= 20
+    ) {
+      return { timeline: saved.timeline, inspector: saved.inspector }
+    }
+  } catch {
+    // 本地布局记录损坏时使用默认比例。
+  }
+  return { timeline: 70, inspector: 30 }
+}
 
 function MergePage({
   active,
@@ -52,8 +72,26 @@ function MergePage({
   const [deleteNote, setDeleteNote] = useState('')
   const [error, setError] = useState('')
   const [playing, setPlaying] = useState<MergeVideoItem | null>(null)
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'list' | 'timeline'>('timeline')
+  const [studioLayout] = useState<Layout>(loadStudioLayout)
   const [gpuChecking, setGpuChecking] = useState(false)
   const [gpuStatus, setGpuStatus] = useState('')
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 760px)')
+    const restoreViewMode = (): void => {
+      const saved = localStorage.getItem('msd-merge-view-mode')
+      setViewMode(mediaQuery.matches ? 'list' : saved === 'list' ? 'list' : 'timeline')
+    }
+    restoreViewMode()
+    mediaQuery.addEventListener('change', restoreViewMode)
+    return () => mediaQuery.removeEventListener('change', restoreViewMode)
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('msd-merge-view-mode', viewMode)
+  }, [viewMode])
   // 删除确认必须绑定产生合并结果的工作区，避免用户切换目录后误删同名相对路径。
   const deleteWorkspaceRef = useRef<string | null>(null)
 
@@ -70,6 +108,7 @@ function MergePage({
       setLoaded(true)
       setOrder([])
       setExcluded(new Set())
+      setSelectedPath(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -117,6 +156,23 @@ function MergePage({
     [rows, excluded]
   )
   const compatibility = useMemo(() => checkCompatibility(items), [items])
+  const separateGroupPlans = useMemo(
+    () =>
+      (['landscape', 'portrait'] as const).map((orientation) => {
+        const groupRows = rows.filter((item) => item.media?.orientation === orientation)
+        const groupItems = groupRows.filter((item) => !excluded.has(item.relativePath))
+        const groupCompatibility = checkCompatibility(groupItems)
+        return {
+          orientation,
+          label: orientation === 'landscape' ? '横屏输出' : '竖屏输出',
+          rows: groupRows,
+          items: groupItems,
+          compatibility: groupCompatibility,
+          estimatedBytes: estimateOutputBytes(groupItems, groupCompatibility.compatible)
+        }
+      }),
+    [rows, excluded]
+  )
   const workspaceName = workspace.split(/[\\/]/).filter(Boolean).pop() ?? 'workspace'
   const outputName = mergeOutputName(workspaceName, mode === 'separate' ? 'all' : mode)
   const estimated = useMemo(
@@ -130,6 +186,10 @@ function MergePage({
   const notEnoughSpace = freeBytes > 0 && estimated > freeBytes
   const unreadableItems = useMemo(() => items.filter((item) => !item.media), [items])
   const cannotMerge = unreadableItems.length > 0
+  const selectedItem = useMemo(
+    () => rows.find((item) => item.relativePath === selectedPath) ?? null,
+    [rows, selectedPath]
+  )
 
   /** 全合并时切换方向优先级；rows 会保留各方向内的当前排序。 */
   const groupOrientations = (first: 'landscape' | 'portrait'): void => {
@@ -253,6 +313,19 @@ function MergePage({
       else next.add(rel)
       return next
     })
+  }
+
+  /** 横竖分别合并时，仅改变当前方向组的相对顺序，不打乱另一组。 */
+  const reorderSeparateGroup = (
+    orientation: 'landscape' | 'portrait',
+    nextGroup: MergeVideoItem[]
+  ): void => {
+    let index = 0
+    const nextOrder = rows.map((item) =>
+      item.media?.orientation === orientation ? nextGroup[index++] : item
+    )
+    setOrder(nextOrder.map((item) => item.relativePath))
+    setSortBy(null)
   }
 
   return (
@@ -446,21 +519,183 @@ function MergePage({
               <p className="muted">{unreadableItems.map((item) => item.name).join('、')}</p>
             </section>
           )}
-          <p className="muted">
-            拖动 ⠿
-            随时调整拼接顺序；全合并会始终按上方横竖顺序分组。选择名称或大小排序后仍可拖拽，拖拽结果即成为新的手动顺序。点右侧「参与」可将单个视频置灰排除，再点恢复。当前参与{' '}
-            {items.length} 段。
-          </p>
-          <MergeSortableList
-            items={rows}
-            excluded={excluded}
-            onToggleExclude={toggleExclude}
-            onReorder={(next) => {
-              setOrder(next.map((item) => item.relativePath))
-              setSortBy(null)
-            }}
-            onPlay={setPlaying}
-          />
+          <section className="merge-studio">
+            <div className="merge-studio-toolbar">
+              <div>
+                <h2>片段编排</h2>
+                <p className="muted">
+                  时间线按真实时长拼贴。横屏使用宽幅画格，竖屏使用居中竖幅画格；方向只影响画面呈现，不改变排序和时长。
+                </p>
+              </div>
+              <MergeViewToggle value={viewMode} onChange={setViewMode} />
+            </div>
+            {mode === 'separate' ? (
+              <div className={`merge-separate-groups ${viewMode}`}>
+                {separateGroupPlans.map((plan) => (
+                  <section
+                    key={plan.orientation}
+                    className={`merge-separate-group ${plan.orientation}`}
+                  >
+                    <header>
+                      <div>
+                        <h3>{plan.label}</h3>
+                        <p className="muted">
+                          输出：{mergeOutputName(workspaceName, plan.orientation)} ·{' '}
+                          {plan.items.length} 段 ·{' '}
+                          {plan.compatibility.compatible ? '兼容直拼' : '将统一转码'}
+                        </p>
+                      </div>
+                      <span className="merge-separate-count">
+                        {formatDuration(
+                          plan.items.reduce((sum, item) => sum + (item.media?.durationMs ?? 0), 0)
+                        )}
+                      </span>
+                    </header>
+                    {viewMode === 'list' ? (
+                      <div className="merge-list-shell" aria-label={`${plan.label}可排序片段列表`}>
+                        <MergeSortableList
+                          items={plan.rows}
+                          excluded={excluded}
+                          onToggleExclude={toggleExclude}
+                          onReorder={(next) => reorderSeparateGroup(plan.orientation, next)}
+                          onPlay={setPlaying}
+                        />
+                      </div>
+                    ) : (
+                      <MergeTimeline
+                        items={plan.rows}
+                        excluded={excluded}
+                        selectedPath={selectedPath}
+                        compatibility={plan.compatibility}
+                        estimatedBytes={plan.estimatedBytes}
+                        freeBytes={freeBytes}
+                        onSelect={(item) => setSelectedPath(item.relativePath)}
+                        onPreview={setPlaying}
+                        onToggleExclude={toggleExclude}
+                        onReorder={(next) => reorderSeparateGroup(plan.orientation, next)}
+                      />
+                    )}
+                  </section>
+                ))}
+              </div>
+            ) : viewMode === 'list' ? (
+              <div className="merge-list-shell" aria-label="可排序合并片段列表">
+                <MergeSortableList
+                  items={rows}
+                  excluded={excluded}
+                  onToggleExclude={toggleExclude}
+                  onReorder={(next) => {
+                    setOrder(next.map((item) => item.relativePath))
+                    setSortBy(null)
+                  }}
+                  onPlay={setPlaying}
+                />
+              </div>
+            ) : (
+              <Group
+                className="merge-studio-content timeline-view"
+                defaultLayout={studioLayout}
+                id="merge-studio"
+                orientation="horizontal"
+                onLayoutChanged={(layout, meta) => {
+                  if (!meta.isUserInteraction) return
+                  localStorage.setItem('msd-merge-studio-layout', JSON.stringify(layout))
+                }}
+              >
+                <Panel id="timeline" minSize="45%">
+                  <div className="merge-studio-main">
+                    <MergeTimeline
+                      items={rows}
+                      excluded={excluded}
+                      selectedPath={selectedPath}
+                      compatibility={compatibility}
+                      estimatedBytes={estimated}
+                      freeBytes={freeBytes}
+                      onSelect={(item) => setSelectedPath(item.relativePath)}
+                      onPreview={setPlaying}
+                      onToggleExclude={toggleExclude}
+                      onReorder={(next) => {
+                        setOrder(next.map((item) => item.relativePath))
+                        setSortBy(null)
+                      }}
+                    />
+                  </div>
+                </Panel>
+                <Separator className="merge-studio-resize" />
+                <Panel id="inspector" minSize="20%">
+                  <aside className="merge-inspector" aria-live="polite">
+                    <p className="eyebrow">片段检查器</p>
+                    {selectedItem ? (
+                      <>
+                        <div
+                          className={`merge-inspector-preview ${selectedItem.media?.orientation ?? 'landscape'}`}
+                        >
+                          {selectedItem.posterPath ? (
+                            <img src={mediaUrl(selectedItem.posterPath)} alt="" />
+                          ) : (
+                            <span>暂无封面</span>
+                          )}
+                        </div>
+                        <h3 title={selectedItem.relativePath}>{selectedItem.name}</h3>
+                        {selectedItem.media ? (
+                          <dl>
+                            <div>
+                              <dt>方向</dt>
+                              <dd>
+                                {selectedItem.media.orientation === 'portrait' ? '竖屏' : '横屏'}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>规格</dt>
+                              <dd>
+                                {selectedItem.media.width}×{selectedItem.media.height} ·{' '}
+                                {selectedItem.media.fps.toFixed(0)} fps
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>编码</dt>
+                              <dd>
+                                {selectedItem.media.videoCodec ?? '未知'} /{' '}
+                                {selectedItem.media.audioCodec ?? '无音轨'}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>时长</dt>
+                              <dd>{(selectedItem.media.durationMs / 1000).toFixed(1)} 秒</dd>
+                            </div>
+                          </dl>
+                        ) : (
+                          <>
+                            <p className="danger-text">媒体信息读取失败，已阻止执行合并。</p>
+                            <button
+                              className="secondary"
+                              onClick={scan}
+                              disabled={loading || merging}
+                            >
+                              {loading ? '刷新探测中…' : '刷新媒体探测'}
+                            </button>
+                          </>
+                        )}
+                        <div className="actions">
+                          <button className="secondary" onClick={() => setPlaying(selectedItem)}>
+                            预览
+                          </button>
+                          <button
+                            className="secondary"
+                            onClick={() => toggleExclude(selectedItem.relativePath)}
+                          >
+                            {excluded.has(selectedItem.relativePath) ? '恢复参与' : '排除片段'}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="muted">选择一个片段，查看方向、编码参数并打开预览。</p>
+                    )}
+                  </aside>
+                </Panel>
+              </Group>
+            )}
+          </section>
         </>
       )}
 

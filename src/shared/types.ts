@@ -321,6 +321,18 @@ export interface RenamePairInput {
   newExt?: string
 }
 
+export interface RenamePreflightItem {
+  videoRel: string
+  /** 预览中的目标视频相对路径 */
+  targetRel: string
+  /** 关联 poster 的目标相对路径（无关联封面时为空） */
+  posterTargetRel: string | null
+  /** 同批多个源文件指向同一完整目标 */
+  batchDuplicate: boolean
+  /** 目标被非本批源文件占用，执行时将由 fs-ops 自动追加 (n) */
+  externalCollisions: string[]
+}
+
 export interface RenameReport {
   taskId: string
   cancelled: boolean
@@ -411,6 +423,8 @@ export interface TaskEvent {
   failed: number
   /** 当前处理项的可读描述 */
   current?: string
+  /** 可选的实际编码状态，仅由合并流程在已知时上报。 */
+  encoder?: 'copy' | 'cpu' | 'nvenc' | 'fallback'
   error?: string
   at: number
 }
