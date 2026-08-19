@@ -213,7 +213,7 @@ test('buildTranscodeArgs uses high-quality NVENC settings when requested', () =>
   assert.ok(args.some((arg) => arg.startsWith('scale=3840:2160')))
 })
 
-test('buildTranscodeArgs uses named CUDA filter options for bundled GPU builds', () => {
+test('buildTranscodeArgs builds a CUDA scale and overlay pipeline without pad_cuda', () => {
   const args = buildTranscodeArgs(
     'in.mkv',
     { width: 1920, height: 1080, fps: 30, pixFmt: 'yuv420p' },
@@ -222,11 +222,16 @@ test('buildTranscodeArgs uses named CUDA filter options for bundled GPU builds',
   )
   assert.deepEqual(args.slice(0, 4), ['-v', 'error', '-hwaccel', 'cuda'])
   assert.ok(args.includes('-hwaccel_output_format'))
-  assert.ok(
-    args.includes(
-      'scale_cuda=w=1920:h=1080:force_original_aspect_ratio=decrease,pad_cuda=w=1920:h=1080:x=(ow-iw)/2:y=(oh-ih)/2:color=black'
-    )
-  )
+  assert.ok(args.includes('-filter_complex'))
+  const filterGraph = args[args.indexOf('-filter_complex') + 1]
+  assert.match(filterGraph, /scale_cuda=w=1920:h=1080/)
+  assert.match(filterGraph, /overlay_cuda=/)
+  assert.match(filterGraph, /color=c=black:s=1920x1080/)
+  assert.doesNotMatch(filterGraph, /pad_cuda/)
+  assert.deepEqual(args.slice(args.lastIndexOf('-map'), args.lastIndexOf('-map') + 2), [
+    '-map',
+    '[out]'
+  ])
 })
 
 test('verifyMergeOutput validates duration and streams', () => {

@@ -324,7 +324,7 @@ test('mergeVideos falls back to NVENC + CPU filters when the CUDA pipeline probe
       probeNvenc: async () => ({ available: true }),
       probeCudaPipeline: async () => {
         cudaProbeCount += 1
-        return { available: false, reason: "Unknown filter 'pad_cuda'" }
+        return { available: false, reason: "No such filter: 'overlay_cuda'" }
       },
       diskFree: async () => Number.MAX_SAFE_INTEGER,
       runFfmpegImpl: async (ffmpegPath, args) => {

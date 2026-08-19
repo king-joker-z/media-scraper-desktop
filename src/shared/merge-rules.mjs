@@ -201,8 +201,10 @@ export function buildTranscodeArgs(
 ) {
   const useNvenc = encoder === 'nvenc' || encoder === 'cuda-nvenc'
   const useCudaPipeline = encoder === 'cuda-nvenc'
+  // FFmpeg 不提供 pad_cuda。完整 CUDA 路径以 GPU 端黑色画布 + overlay_cuda 替代补边，
+  // 让缩放、画布合成和送入 NVENC 的视频帧始终留在 GPU 内存中。
   const videoFilter = useCudaPipeline
-    ? `scale_cuda=w=${target.width}:h=${target.height}:force_original_aspect_ratio=decrease,pad_cuda=w=${target.width}:h=${target.height}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`
+    ? `color=c=black:s=${target.width}x${target.height},format=nv12,hwupload_cuda[canvas];[0:v]scale_cuda=w=${target.width}:h=${target.height}:format=nv12:force_original_aspect_ratio=decrease[scaled];[canvas][scaled]overlay_cuda=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2[out]`
     : `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`
   const videoArgs = useNvenc
     ? [
@@ -228,14 +230,12 @@ export function buildTranscodeArgs(
     '-i',
     inputPath,
     ...(hasAudio ? [] : ['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo']),
-    '-map',
-    '0:v:0',
+    ...(useCudaPipeline ? [] : ['-map', '0:v:0']),
     '-map',
     hasAudio ? '0:a:0' : '1:a:0',
-    '-vf',
-    // 已包含 pad_cuda 的内置 FFmpeg 使用具名参数；缺少该滤镜或运行失败时主进程按段降级。
+    useCudaPipeline ? '-filter_complex' : '-vf',
     videoFilter,
-    ...(useCudaPipeline ? ['-aspect', `${target.width}:${target.height}`] : []),
+    ...(useCudaPipeline ? ['-map', '[out]', '-aspect', `${target.width}:${target.height}`] : []),
     '-r',
     String(target.fps),
     '-pix_fmt',

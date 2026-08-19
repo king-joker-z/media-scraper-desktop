@@ -44,7 +44,8 @@ export async function probeNvencCapability(ffmpegPath, { run = runPooled } = {})
 }
 
 /**
- * 验证完整 CUDA 视频路径：GPU 上传、CUDA 缩放/补边与 NVENC 编码。
+ * 验证完整 CUDA 视频路径：GPU 上传、CUDA 缩放、CUDA 画布合成与 NVENC 编码。
+ * FFmpeg 并没有 pad_cuda；使用 overlay_cuda 把缩放后的画面放入 GPU 端的黑色画布。
  * 它是可选加速路径；任何失败都必须回落至稳定的 CPU 滤镜 + NVENC 路径。
  */
 export async function probeCudaPipelineCapability(ffmpegPath, { run = runPooled } = {}) {
@@ -59,7 +60,7 @@ export async function probeCudaPipelineCapability(ffmpegPath, { run = runPooled 
       '-frames:v',
       '1',
       '-filter_complex',
-      '[0:v]format=nv12,hwupload_cuda,scale_cuda=w=320:h=240,pad_cuda=w=320:h=240:x=0:y=0[v]',
+      '[0:v]format=nv12,hwupload_cuda,scale_cuda=w=320:h=240:format=nv12:force_original_aspect_ratio=decrease[scaled];color=c=black:s=320x240,format=nv12,hwupload_cuda[canvas];[canvas][scaled]overlay_cuda=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2[v]',
       '-map',
       '[v]',
       '-c:v',
@@ -75,7 +76,7 @@ export async function probeCudaPipelineCapability(ffmpegPath, { run = runPooled 
     const detail = String(error?.stderrTail || error?.message || '').slice(-500)
     return {
       available: false,
-      reason: detail || 'CUDA 上传、缩放、补边或 NVENC 初始化失败'
+      reason: detail || 'CUDA 上传、缩放、画布合成或 NVENC 初始化失败'
     }
   }
 }
