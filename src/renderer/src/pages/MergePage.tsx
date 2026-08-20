@@ -100,6 +100,9 @@ function MergePage({
     setLoading(true)
     setError('')
     setResult(null)
+    // 页面常驻挂载，工作区切换后仍会复用该组件；必须同时清理批量结果，
+    // 否则 mode tab 会持续命中 orientationBatchResults 的禁用条件。
+    setOrientationBatchResults([])
     setDeleteNote('')
     try {
       const data = await window.api.scanMergeVideos(workspace)
