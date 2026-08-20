@@ -31,6 +31,7 @@
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-popover": "^1.1.23",
     "@radix-ui/react-tooltip": "^1.2.16",
+    "@tanstack/react-table": "^9.1.2",
     "@types/yauzl": "^2.10.3",
     "electron-updater": "^6.8.9",
     "fflate": "^0.8.3",
@@ -40,7 +41,9 @@
     "pdf-lib": "^1.17.1",
     "react-colorful": "^5.8.0",
     "react-resizable-panels": "^4.12.3",
+    "react-zoom-pan-pinch": "^4.0.4",
     "sharp": "^0.35.3",
+    "sonner": "^2.0.8",
     "yauzl": "^3.4.0",
     "yazl": "^3.3.1"
   },

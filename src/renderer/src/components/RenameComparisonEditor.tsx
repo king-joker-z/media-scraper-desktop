@@ -1,4 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  columnResizingFeature,
+  columnSizingFeature,
+  createColumnHelper,
+  createSortedRowModel,
+  rowSortingFeature,
+  tableFeatures as createTableFeatures,
+  useTable,
+  type SortingState
+} from '@tanstack/react-table'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProbeContainerItem } from '../../../shared/types'
 import {
   analyzeRenameRelationships,
@@ -17,6 +27,15 @@ const FILTERS: { key: RenameFilter; label: string }[] = [
   { key: 'manual', label: '手动覆写' },
   { key: 'ai', label: 'AI 结果' }
 ]
+
+const renameTableFeatures = createTableFeatures({
+  rowSortingFeature,
+  sortedRowModel: createSortedRowModel(),
+  columnSizingFeature,
+  columnResizingFeature
+})
+
+const columnHelper = createColumnHelper<typeof renameTableFeatures, RenameComparisonRow>()
 
 function statusText(row: RenameComparisonRow, probe?: ProbeContainerItem): string {
   if (row.error) return row.error
@@ -71,6 +90,7 @@ export default function RenameComparisonEditor({
   const [editingRel, setEditingRel] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [page, setPage] = useState(0)
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'riskRank', desc: false }])
   const pageSize = 200
   const searchRef = useRef<HTMLInputElement>(null)
   const editorInputRef = useRef<HTMLInputElement>(null)
@@ -87,7 +107,6 @@ export default function RenameComparisonEditor({
       }
       if (event.key === 'Escape' && editingRel) {
         event.preventDefault()
-        event.stopPropagation()
         setEditingRel(null)
         setDraft('')
       }
@@ -107,9 +126,6 @@ export default function RenameComparisonEditor({
           row.videoRel.toLocaleLowerCase().includes(normalized))
     )
   }, [filter, query, rows])
-  const pageCount = Math.max(1, Math.ceil(visibleRows.length / pageSize))
-  const currentPage = Math.min(page, pageCount - 1)
-  const pagedRows = visibleRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
   const rowByVideo = useMemo(() => new Map(rows.map((row) => [row.videoRel, row])), [rows])
   const relationships = useMemo(() => analyzeRenameRelationships(rows), [rows])
   const visibleAiRows = useMemo(() => visibleRows.filter((row) => row.ai), [visibleRows])
@@ -123,33 +139,217 @@ export default function RenameComparisonEditor({
       changedCount: rows.filter((row) => row.changed).length,
       conflictCount: rows.filter((row) => row.risk === 'conflict').length,
       extensionRiskCount: rows.filter((row) => row.risk === 'extension').length,
-      selectedAiCount: rows.filter((row) => selectedAiVideos.has(row.videoRel)).length,
-      allAiSelected: rows.length > 0 && rows.every((row) => selectedAiVideos.has(row.videoRel)),
       posterCount: rows.filter((row) => row.source.posterRelativePath && row.changed).length
     }),
-    [rows, selectedAiVideos]
+    [rows]
   )
 
-  const beginEdit = (row: RenameComparisonRow): void => {
-    if (row.targetExtension !== row.originalExtension || busy) return
-    setEditingRel(row.videoRel)
-    setDraft(row.targetStem)
-  }
-  const commitEdit = (row: RenameComparisonRow): void => {
-    if (draft !== row.computedStem) onChange(row.videoRel, draft)
-    else if (row.manual) onReset(row.videoRel)
-    setEditingRel(null)
-  }
-  const moveSelection = (direction: number): void => {
-    const current = pagedRows.findIndex(
-      (row) => row.videoRel === document.activeElement?.getAttribute('data-video-rel')
-    )
-    const next = pagedRows[Math.max(0, Math.min(pagedRows.length - 1, current + direction))]
-    if (next)
-      document
-        .querySelector<HTMLElement>(`[data-video-rel="${CSS.escape(next.videoRel)}"]`)
-        ?.focus()
-  }
+  const beginEdit = useCallback(
+    (row: RenameComparisonRow): void => {
+      if (row.targetExtension !== row.originalExtension || busy) return
+      setEditingRel(row.videoRel)
+      setDraft(row.targetStem)
+    },
+    [busy]
+  )
+  const commitEdit = useCallback(
+    (row: RenameComparisonRow): void => {
+      if (draft !== row.computedStem) onChange(row.videoRel, draft)
+      else if (row.manual) onReset(row.videoRel)
+      setEditingRel(null)
+    },
+    [draft, onChange, onReset]
+  )
+
+  const columns = useMemo(
+    () => [
+      ...(mode === 'ai'
+        ? [
+            columnHelper.display({
+              id: 'select',
+              header: '选择',
+              size: 66,
+              minSize: 66,
+              maxSize: 66,
+              cell: ({ row }) => {
+                const value = row.original
+                return (
+                  <input
+                    type="checkbox"
+                    aria-label={`选择 ${value.source.name}`}
+                    checked={selectedAiVideos.has(value.videoRel)}
+                    onChange={(event) => {
+                      const next = new Set(selectedAiVideos)
+                      if (event.target.checked) next.add(value.videoRel)
+                      else next.delete(value.videoRel)
+                      onSelectedAiVideosChange(next)
+                    }}
+                  />
+                )
+              }
+            })
+          ]
+        : []),
+      columnHelper.accessor((row) => row.source.name, {
+        id: 'original',
+        header: '原文件',
+        size: 280,
+        minSize: 180,
+        cell: ({ row }) => {
+          const value = row.original
+          return (
+            <span className="rename-editor-original" title={value.videoRel}>
+              <b>{value.source.name}</b>
+              <small>{value.videoRel}</small>
+              {value.source.posterRelativePath && <em>关联 poster 会同步改名</em>}
+            </span>
+          )
+        }
+      }),
+      columnHelper.accessor((row) => row.ruleSteps, {
+        id: 'steps',
+        header: '规则轨迹',
+        size: 300,
+        minSize: 180,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span className="rename-editor-steps">
+            {row.original.ruleSteps.slice(0, 2).map((step, index) => (
+              <span key={`${step.label}-${index}`} title={`${step.before} → ${step.after}`}>
+                <b>{step.label}</b>
+                <code>
+                  {step.before} → {step.after}
+                </code>
+              </span>
+            ))}
+          </span>
+        )
+      }),
+      columnHelper.accessor((row) => row.targetName, {
+        id: 'target',
+        header: '目标文件',
+        size: 280,
+        minSize: 180,
+        cell: ({ row }) => {
+          const value = row.original
+          const isEditing = editingRel === value.videoRel
+          return (
+            <span className="rename-editor-target" onDoubleClick={() => beginEdit(value)}>
+              {isEditing ? (
+                <input
+                  ref={editorInputRef}
+                  value={draft}
+                  aria-label={`编辑 ${value.source.name} 的目标词干`}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onBlur={() => commitEdit(value)}
+                  onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing) return
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      commitEdit(value)
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      setEditingRel(null)
+                      setDraft('')
+                    }
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  disabled={value.targetExtension !== value.originalExtension || busy}
+                  onClick={() => beginEdit(value)}
+                  title="点击编辑目标名称"
+                >
+                  {value.targetName}
+                </button>
+              )}
+              {value.manual && <em>已手动覆写</em>}
+            </span>
+          )
+        }
+      }),
+      columnHelper.accessor((row) => row.risk, {
+        id: 'riskRank',
+        header: '状态',
+        size: 240,
+        minSize: 160,
+        sortFn: (left, right) => {
+          const rank = { conflict: 0, probe: 1, extension: 2, external: 3, none: 4 }
+          return rank[left.original.risk] - rank[right.original.risk]
+        },
+        cell: ({ row }) => (
+          <span className={`rename-editor-status ${row.original.risk}`}>
+            <b>{statusText(row.original, probes[row.original.videoRel])}</b>
+          </span>
+        )
+      }),
+      columnHelper.display({
+        id: 'actions',
+        header: '操作',
+        size: 116,
+        minSize: 104,
+        maxSize: 140,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const value = row.original
+          return (
+            <span className="rename-editor-actions">
+              {value.manual && (
+                <button type="button" onClick={() => onReset(value.videoRel)} disabled={busy}>
+                  恢复计算值
+                </button>
+              )}
+              {value.ai && (
+                <button
+                  type="button"
+                  onClick={() => onRegenerate(value.videoRel)}
+                  disabled={busy || regenerating === value.videoRel}
+                >
+                  {regenerating === value.videoRel ? '生成中…' : '重新生成'}
+                </button>
+              )}
+            </span>
+          )
+        }
+      })
+    ],
+    [
+      beginEdit,
+      busy,
+      commitEdit,
+      draft,
+      editingRel,
+      mode,
+      onRegenerate,
+      onReset,
+      onSelectedAiVideosChange,
+      probes,
+      regenerating,
+      selectedAiVideos
+    ]
+  ) as never
+
+  const table = useTable(
+    {
+      features: renameTableFeatures,
+      data: visibleRows,
+      columns,
+      getRowId: (row) => row.videoRel,
+      state: { sorting },
+      onSortingChange: setSorting,
+      enableMultiSort: true,
+      enableSortingRemoval: false,
+      columnResizeMode: 'onChange',
+      columnResizeDirection: 'ltr'
+    },
+    (state) => ({ sorting: state.sorting, columnSizing: state.columnSizing })
+  )
+  const sortedRows = table.getRowModel().rows
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize))
+  const currentPage = Math.min(page, pageCount - 1)
+  const pagedRows = sortedRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
 
   return (
     <section className="rename-comparison" aria-label="重命名前后对照编辑器">
@@ -196,137 +396,76 @@ export default function RenameComparisonEditor({
         </div>
       )}
 
-      <div className="rename-editor-grid" role="grid" aria-label="文件名对照表">
-        <div className="rename-editor-head" role="row">
-          {mode === 'ai' && <span role="columnheader" className="rename-editor-select" />}
-          <span role="columnheader">原文件</span>
-          <span role="columnheader">规则轨迹</span>
-          <span role="columnheader">目标文件</span>
-          <span role="columnheader">状态</span>
-          <span role="columnheader">操作</span>
-        </div>
-        <div className="rename-editor-scroll">
-          {pagedRows.map((row) => {
-            const isEditing = editingRel === row.videoRel
-            return (
-              <div
-                key={row.videoRel}
-                className={`rename-editor-row ${row.error ? 'invalid' : ''}`}
-                role="row"
-                tabIndex={0}
-                data-video-rel={row.videoRel}
-                onKeyDown={(event) => {
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    moveSelection(1)
-                  }
-                  if (event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    moveSelection(-1)
-                  }
-                  if (event.key === 'Enter' && !isEditing) beginEdit(row)
-                }}
-              >
-                {mode === 'ai' && (
-                  <span
-                    className="rename-editor-select"
-                    role="gridcell"
-                    onClick={(event) => event.stopPropagation()}
+      <div className="rename-table-wrap">
+        <table className="rename-data-table" aria-label="文件名对照表">
+          <thead>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => {
+                  const canSort = header.column.getCanSort()
+                  const sorted = header.column.getIsSorted()
+                  return (
+                    <th
+                      key={header.id}
+                      style={{ width: `${(header.getSize() / table.getTotalSize()) * 100}%` }}
+                    >
+                      {header.isPlaceholder ? null : (
+                        <div className="rename-table-header-cell">
+                          <button
+                            type="button"
+                            className="rename-table-sort"
+                            disabled={!canSort}
+                            onClick={header.column.getToggleSortingHandler()}
+                            aria-label={
+                              canSort
+                                ? `按${String(header.column.columnDef.header)}排序`
+                                : undefined
+                            }
+                          >
+                            <table.FlexRender header={header} />
+                            {canSort && (
+                              <span aria-hidden="true">
+                                {sorted === 'asc' ? '↑' : sorted === 'desc' ? '↓' : '↕'}
+                              </span>
+                            )}
+                          </button>
+                          {header.column.getCanResize() && (
+                            <button
+                              type="button"
+                              className="rename-table-resize"
+                              aria-label={`调整${String(header.column.columnDef.header)}列宽`}
+                              onMouseDown={header.getResizeHandler()}
+                              onTouchStart={header.getResizeHandler()}
+                              onClick={(event) => event.stopPropagation()}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </th>
+                  )
+                })}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {pagedRows.map((row) => (
+              <tr key={row.id} className={row.original.error ? 'invalid' : ''}>
+                {row.getAllCells().map((cell) => (
+                  <td
+                    key={cell.id}
+                    style={{ width: `${(cell.column.getSize() / table.getTotalSize()) * 100}%` }}
                   >
-                    <input
-                      type="checkbox"
-                      aria-label={`选择 ${row.source.name}`}
-                      checked={selectedAiVideos.has(row.videoRel)}
-                      onChange={(event) => {
-                        const next = new Set(selectedAiVideos)
-                        if (event.target.checked) next.add(row.videoRel)
-                        else next.delete(row.videoRel)
-                        onSelectedAiVideosChange(next)
-                      }}
-                    />
-                  </span>
-                )}
-                <span className="rename-editor-original" role="gridcell" title={row.videoRel}>
-                  <b>{row.source.name}</b>
-                  <small>{row.videoRel}</small>
-                  {row.source.posterRelativePath && <em>关联 poster 会同步改名</em>}
-                </span>
-                <span className="rename-editor-steps" role="gridcell">
-                  {row.ruleSteps.slice(0, 2).map((step, index) => (
-                    <span key={`${step.label}-${index}`} title={`${step.before} → ${step.after}`}>
-                      <b>{step.label}</b>
-                      <code>
-                        {step.before} → {step.after}
-                      </code>
-                    </span>
-                  ))}
-                </span>
-                <span
-                  className="rename-editor-target"
-                  role="gridcell"
-                  onDoubleClick={() => beginEdit(row)}
-                >
-                  {isEditing ? (
-                    <input
-                      ref={editorInputRef}
-                      value={draft}
-                      aria-label={`编辑 ${row.source.name} 的目标词干`}
-                      onChange={(event) => setDraft(event.target.value)}
-                      onBlur={() => commitEdit(row)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault()
-                          commitEdit(row)
-                        }
-                        if (event.key === 'Escape') {
-                          setEditingRel(null)
-                          setDraft('')
-                        }
-                      }}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={row.targetExtension !== row.originalExtension || busy}
-                      onClick={() => beginEdit(row)}
-                      title="点击编辑目标名称"
-                    >
-                      {row.targetName}
-                    </button>
-                  )}
-                  {row.manual && <em>已手动覆写</em>}
-                </span>
-                <span className={`rename-editor-status ${row.risk}`} role="gridcell">
-                  <b>{statusText(row, probes[row.videoRel])}</b>
-                </span>
-                <span
-                  className="rename-editor-actions"
-                  role="gridcell"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {row.manual && (
-                    <button type="button" onClick={() => onReset(row.videoRel)} disabled={busy}>
-                      恢复计算值
-                    </button>
-                  )}
-                  {row.ai && (
-                    <button
-                      type="button"
-                      onClick={() => onRegenerate(row.videoRel)}
-                      disabled={busy || regenerating === row.videoRel}
-                    >
-                      {regenerating === row.videoRel ? '生成中…' : '重新生成'}
-                    </button>
-                  )}
-                </span>
-              </div>
-            )
-          })}
-          {visibleRows.length === 0 && <p className="rename-editor-empty">没有匹配的预览项。</p>}
-        </div>
+                    <table.FlexRender cell={cell} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {sortedRows.length === 0 && <p className="rename-editor-empty">没有匹配的预览项。</p>}
       </div>
 
-      {visibleRows.length > pageSize && (
+      {sortedRows.length > pageSize && (
         <nav className="rename-pagination" aria-label="重命名预览分页">
           <button
             type="button"

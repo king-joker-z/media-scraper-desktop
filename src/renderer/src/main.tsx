@@ -1,4 +1,5 @@
 import './assets/main.css'
+import './assets/component-enhancements.css'
 import './assets/task-island.css'
 import './assets/rename-comparison.css'
 

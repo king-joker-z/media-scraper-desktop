@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import type {
   AppSettings,
   PosterVideoItem,
@@ -474,7 +475,16 @@ function RenamePage({
     try {
       const result = await window.api.executeRename(workspace, changedPairs)
       setReport(result)
-      if (!result.cancelled) await refresh()
+      if (!result.cancelled) {
+        toast.success('重命名已完成', {
+          description: `成功 ${result.renamedCount} 项${result.failed.length ? `，失败 ${result.failed.length} 项` : ''}`
+        })
+        await refresh()
+      } else {
+        toast.warning('重命名已取消', {
+          description: '已完成的项目已保留，可在操作时间线查看记录。'
+        })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

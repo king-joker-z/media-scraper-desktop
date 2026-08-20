@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import type { CandidateFrameScore, PosterVideoItem } from '../../../shared/types'
 import ConfirmDialog from './ConfirmDialog'
+import ImageInspectorDialog from './ImageInspectorDialog'
 import PosterContactSheet from './PosterContactSheet'
 import { mediaUrl } from '../utils/media'
 
@@ -34,6 +36,7 @@ function PosterDetail({
   const [capturingCurrent, setCapturingCurrent] = useState(false)
   const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [inspectedFrame, setInspectedFrame] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -120,6 +123,7 @@ function PosterDetail({
         oldPosterPath: video.posterPath
       })
       onSaved(result.saved)
+      toast.success('封面已保存', { description: video.name })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -226,7 +230,19 @@ function PosterDetail({
           onTogglePlayback={togglePlayback}
           onSave={() => (video.posterPath ? setConfirming(true) : void save())}
           onClose={close}
+          onInspect={setInspectedFrame}
         />
+        {inspectedFrame && (
+          <ImageInspectorDialog
+            open
+            src={`${mediaUrl(inspectedFrame)}?v=${version}`}
+            title="封面细节检查"
+            alt={`${video.name} 的候选封面大图`}
+            onOpenChange={(open) => {
+              if (!open) setInspectedFrame(null)
+            }}
+          />
+        )}
         {confirming && (
           <ConfirmDialog
             title="替换现有封面"

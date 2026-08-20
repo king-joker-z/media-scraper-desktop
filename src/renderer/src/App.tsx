@@ -9,6 +9,7 @@ import NfoPage from './pages/NfoPage'
 import PosterPage from './pages/PosterPage'
 import RenamePage from './pages/RenamePage'
 import SettingsPage from './pages/SettingsPage'
+import AppToaster from './components/AppToaster'
 import TaskCenter from './components/TaskCenter'
 import TaskIsland from './components/TaskIsland'
 import { useTaskFeed } from './components/useTaskFeed'
@@ -581,6 +582,7 @@ function App(): React.JSX.Element {
       )}
       <TaskIsland feed={taskFeed} />
       <TaskCenter feed={taskFeed} />
+      <AppToaster />
       {pendingNavigation && (
         <ConfirmDialog
           title="还有封面未保存"

@@ -1,3 +1,4 @@
+import * as Tooltip from '@radix-ui/react-tooltip'
 import { useMemo, useRef, useState } from 'react'
 import type { CandidateFrameScore } from '../../../shared/types'
 import HoverImagePreview from './HoverImagePreview'
@@ -29,7 +30,8 @@ function PosterContactSheet({
   onSeek,
   onTogglePlayback,
   onSave,
-  onClose
+  onClose,
+  onInspect
 }: {
   frames: ContactFrame[]
   selection: string | null
@@ -39,6 +41,7 @@ function PosterContactSheet({
   onTogglePlayback: () => void
   onSave: () => void
   onClose: () => void
+  onInspect: (frame: string) => void
 }): React.JSX.Element {
   const [sortMode, setSortMode] = useState<SortMode>('recommended')
   const [collapseSimilar, setCollapseSimilar] = useState(true)
@@ -247,6 +250,7 @@ function PosterContactSheet({
                 aria-label={`${labelFor(frame)}${typeof timestamp === 'number' ? `，时间 ${formatDuration(timestamp)}` : ''}${groupSize > 1 ? `，相似组共 ${groupSize} 帧` : ''}${similarityLabel}`}
                 onFocus={() => setActivePath(frame.path)}
                 onClick={() => void activate(frame)}
+                onDoubleClick={() => onInspect(frame.path)}
               >
                 <HoverImagePreview
                   src={`${mediaUrl(frame.path)}?v=${version}`}
@@ -258,7 +262,19 @@ function PosterContactSheet({
                 </HoverImagePreview>
                 <span className="contact-frame-topline">
                   {typeof timestamp === 'number' && <span>{formatDuration(timestamp)}</span>}
-                  {groupSize > 1 && <span>相似 {groupSize}</span>}
+                  {groupSize > 1 && (
+                    <Tooltip.Root>
+                      <Tooltip.Trigger asChild>
+                        <span>相似 {groupSize}</span>
+                      </Tooltip.Trigger>
+                      <Tooltip.Portal>
+                        <Tooltip.Content className="app-tooltip" sideOffset={6}>
+                          当前候选与 {groupSize - 1} 张相近帧归为一组
+                          <Tooltip.Arrow className="app-tooltip-arrow" />
+                        </Tooltip.Content>
+                      </Tooltip.Portal>
+                    </Tooltip.Root>
+                  )}
                   {!collapseSimilar && groupSize > 1 && typeof similarityDistance === 'number' && (
                     <span>差异 {similarityDistance}/64</span>
                   )}
@@ -271,7 +287,8 @@ function PosterContactSheet({
         </div>
       )}
       <p className="contact-sheet-help">
-        悬停完整预览 · 方向键浏览 · Enter 选择 · Space 播放/暂停 · S 保存 · Escape 关闭
+        悬停完整预览 · 双击细节检查 · 方向键浏览 · Enter 选择 · Space 播放/暂停 · S 保存 · Escape
+        关闭
       </p>
     </section>
   )

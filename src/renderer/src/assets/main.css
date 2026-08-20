@@ -5008,19 +5008,6 @@ h2 {
   background: var(--workspace-header-surface);
   box-shadow: 0 10px 24px var(--workspace-header-shadow);
 }
-/* 设置页采用普通文档流标题，避免短分组页面在滚动原点触发 sticky 状态切换。 */
-.workspace-with-background .settings-page > .page-header {
-  position: static;
-  width: auto;
-  margin: 0 0 28px;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-.workspace-with-background .settings-page > .page-header::after {
-  display: none;
-}
 .workspace-with-background .page-header::after {
   position: absolute;
   right: 0;
