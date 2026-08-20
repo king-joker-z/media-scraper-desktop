@@ -1,0 +1,276 @@
+/* ---------- 媒体制作台：跨页面结构令牌与共享组件 ---------- */
+:root {
+  --surface-base: var(--bg-window);
+  --surface-raised: var(--bg-card);
+  --surface-overlay: color-mix(in srgb, var(--bg-card) 94%, transparent);
+  --fill-hover: color-mix(in srgb, var(--accent) 8%, var(--fill-quaternary));
+  --fill-active: color-mix(in srgb, var(--accent) 15%, var(--fill-quaternary));
+  --fill-selected: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
+  --border-subtle: color-mix(in srgb, var(--separator) 72%, transparent);
+  --border-strong: color-mix(in srgb, var(--accent) 48%, var(--separator));
+  --media-stage: color-mix(in srgb, var(--label-primary) 9%, var(--bg-window));
+  --media-scrim: linear-gradient(180deg, transparent 35%, rgb(0 0 0 / 72%));
+  --timeline-track: color-mix(in srgb, var(--accent) 12%, var(--fill-quaternary));
+  --status-running: #1677ff;
+  --status-success: var(--success);
+  --status-warning: var(--warning);
+  --status-danger: var(--danger);
+}
+
+:root[data-theme='dark'] {
+  --surface-overlay: color-mix(in srgb, var(--bg-card) 84%, transparent);
+  --media-stage: color-mix(in srgb, #000 36%, var(--bg-window));
+}
+
+.workbench-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.workbench-header-copy {
+  min-width: 0;
+}
+
+.workbench-header-actions {
+  flex-wrap: wrap;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 25px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  border-radius: 999px;
+  color: var(--label-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+}
+
+.status-badge-mark {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-badge-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.status-running {
+  color: var(--status-running);
+}
+.status-success {
+  color: var(--status-success);
+}
+.status-warning {
+  color: var(--status-warning);
+}
+.status-danger {
+  color: var(--status-danger);
+}
+
+.workbench-inspector {
+  min-width: 0;
+  height: 100%;
+  padding: 18px;
+  overflow: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+.workbench-inspector > .eyebrow {
+  margin-bottom: 4px;
+}
+
+.workbench-inspector h2 {
+  margin-bottom: 16px;
+}
+
+.workbench-inspector-content {
+  min-width: 0;
+}
+
+.workbench-empty {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  max-width: 620px;
+  min-height: 210px;
+  padding: 28px;
+  border-style: dashed;
+  background: linear-gradient(135deg, var(--fill-selected), transparent 55%), var(--surface-raised);
+}
+
+.workbench-empty-mark {
+  width: 42px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--accent);
+  box-shadow:
+    0 8px 0 var(--accent-soft),
+    0 16px 0 color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.workbench-empty h2,
+.workbench-empty p {
+  margin: 0;
+}
+
+.workbench-empty p {
+  max-width: 52ch;
+  color: var(--label-secondary);
+  line-height: 1.6;
+}
+
+.workbench-empty-action {
+  margin-top: 8px;
+}
+
+.workbench-overview {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(120px, 0.7fr));
+  margin-bottom: 18px;
+  overflow: hidden;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+.workbench-overview > div {
+  min-width: 0;
+  padding: 14px 16px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.workbench-overview > div:first-child {
+  border-left: 0;
+}
+
+.workbench-overview span,
+.workbench-overview small {
+  display: block;
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+.workbench-overview strong {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--label-primary);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-overview .status-badge {
+  margin-top: 7px;
+}
+
+.workbench-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 10px;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.workbench-toolbar > :first-child {
+  min-width: 180px;
+  flex: 1;
+}
+
+.workbench-toolbar .mode-tabs {
+  margin: 0;
+}
+
+.workbench-selection-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 20px auto 0;
+  padding: 10px 12px 10px 16px;
+  color: var(--label-primary);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.workbench-selection-bar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 侧栏会占去约 220-256px。中等窗口下不再强行重排面板库的内部尺寸，
+   仅隐藏检查器并让时间线独占工作区，避免 Panel 内联尺寸把轨道压缩到不可见。 */
+@media (max-width: 1400px) and (min-width: 641px) {
+  .merge-studio-content.timeline-view {
+    display: block !important;
+    height: min(620px, 68vh);
+  }
+
+  .merge-studio-content.timeline-view > [data-panel]:first-child {
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .merge-studio-content.timeline-view > [data-panel]:last-child,
+  .merge-studio-content.timeline-view > .merge-studio-resize {
+    display: none !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .workbench-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbench-overview > div:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .workbench-overview > div:nth-child(n + 3) {
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .workbench-toolbar,
+  .workbench-selection-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workbench-selection-bar,
+  .workbench-overview,
+  .workbench-toolbar {
+    background: var(--surface-raised);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

@@ -5,6 +5,9 @@ import ErrorBanner from '../components/ErrorBanner'
 import HoverImagePreview from '../components/HoverImagePreview'
 import PosterDetail from '../components/PosterDetail'
 import VirtualGrid from '../components/VirtualGrid'
+import StatusBadge from '../components/StatusBadge'
+import WorkbenchEmptyState from '../components/WorkbenchEmptyState'
+import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
@@ -182,54 +185,71 @@ function PosterPage({
 
   return (
     <div className="page poster-page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">模块四 · 封面管理</p>
-          <h1>Poster 封面</h1>
-          <p className="muted">
-            每个视频生成 5 张低清候选，确认时才复截高清封面；纯黑、纯白和近乎纯色背景会划为不推荐，
-            且不会自动选中。
-          </p>
-        </div>
-        <div className="actions page-actions">
-          <button className="secondary" onClick={onChooseWorkspace} disabled={capturing || saving}>
-            选择工作区
-          </button>
-          <button
-            className="secondary"
-            onClick={refresh}
-            disabled={!workspace || loading || capturing || saving}
-          >
-            {loading ? '扫描中…' : '刷新列表'}
-          </button>
-          {workspace && (
-            <>
-              <button
-                className="secondary"
-                disabled={capturing || saving || captureTargets.length === 0}
-                onClick={captureAll}
-              >
-                {capturing ? '截帧中…' : `生成候选帧（${captureTargets.length}）`}
-              </button>
-              <button
-                disabled={pending.length === 0 || saving || capturing}
-                onClick={() => setConfirmingBatch(true)}
-              >
-                {saving ? '保存中…' : `确认封面（${pending.length}）`}
-              </button>
-              {(capturing || saving) && (
-                <button className="secondary" onClick={() => window.api.cancelPosterCapture()}>
-                  取消
+      <WorkbenchHeader
+        eyebrow="视频工坊 / 视觉选择"
+        title="封面接触表"
+        description="生成候选帧、比较画面质量并确认封面。低清候选仅供选择，保存时才复截高清封面。"
+        actions={
+          <>
+            <button
+              className="secondary"
+              onClick={onChooseWorkspace}
+              disabled={capturing || saving}
+            >
+              选择工作区
+            </button>
+            <button
+              className="secondary"
+              onClick={refresh}
+              disabled={!workspace || loading || capturing || saving}
+            >
+              {loading ? '扫描中…' : '刷新列表'}
+            </button>
+            {workspace && (
+              <>
+                <button
+                  className="secondary"
+                  disabled={capturing || saving || captureTargets.length === 0}
+                  onClick={captureAll}
+                >
+                  {capturing ? '截帧中…' : `生成候选帧（${captureTargets.length}）`}
                 </button>
-              )}
-            </>
-          )}
-        </div>
-      </header>
+                <button
+                  disabled={pending.length === 0 || saving || capturing}
+                  onClick={() => setConfirmingBatch(true)}
+                >
+                  {saving ? '保存中…' : `确认封面（${pending.length}）`}
+                </button>
+                {(capturing || saving) && (
+                  <button className="secondary" onClick={() => window.api.cancelPosterCapture()}>
+                    取消
+                  </button>
+                )}
+              </>
+            )}
+          </>
+        }
+      />
 
-      <section className="path-card">
-        <span>当前工作区</span>
-        <strong>{workspace || '尚未选择目录'}</strong>
+      <section className="workbench-overview" aria-label="封面工作区概览">
+        <div>
+          <span>当前工作区</span>
+          <strong title={workspace || undefined}>{workspace || '尚未选择目录'}</strong>
+        </div>
+        <div>
+          <span>视频素材</span>
+          <strong>{loaded ? videos.length : '等待扫描'}</strong>
+        </div>
+        <div>
+          <span>候选待生成</span>
+          <strong>{loaded ? withoutCandidates.length : '—'}</strong>
+        </div>
+        <div>
+          <span>当前确认</span>
+          <StatusBadge tone={pending.length > 0 ? 'warning' : 'success'}>
+            {pending.length > 0 ? `${pending.length} 个待保存` : '已同步'}
+          </StatusBadge>
+        </div>
       </section>
 
       {workspace && (
@@ -274,22 +294,27 @@ function PosterPage({
       {notice && <section className="notice-banner">{notice}</section>}
 
       {!workspace && (
-        <section className="empty">
-          <h2>选择工作区后开始</h2>
-          <p>扫描工作区内的视频并管理每个视频的封面图。</p>
-        </section>
+        <WorkbenchEmptyState
+          title="选择工作区后开始"
+          description="扫描本地视频并为每个素材生成、比较和保存封面图。"
+        />
       )}
       {workspace && !loaded && !loading && (
-        <section className="empty">
-          <h2>准备扫描</h2>
-          <p>点击「刷新列表」扫描工作区视频。</p>
-        </section>
+        <WorkbenchEmptyState
+          title="准备扫描封面素材"
+          description="先读取当前工作区的视频，再按需要生成候选帧。"
+          action={
+            <button onClick={refresh} disabled={loading}>
+              刷新列表
+            </button>
+          }
+        />
       )}
       {loaded && videos.length === 0 && (
-        <section className="empty">
-          <h2>没有发现视频</h2>
-          <p>当前工作区内没有可识别的视频文件。</p>
-        </section>
+        <WorkbenchEmptyState
+          title="没有发现视频"
+          description="当前工作区内没有可识别的视频文件，请选择其他工作区或检查目录内容。"
+        />
       )}
 
       {videos.length > 0 && (

@@ -13,6 +13,10 @@ import ErrorBanner from '../components/ErrorBanner'
 import MergeSortableList from '../components/MergeSortableList'
 import MergeTimeline, { MergeViewToggle } from '../components/MergeTimeline'
 import VideoModal from '../components/VideoModal'
+import InspectorPanel from '../components/InspectorPanel'
+import StatusBadge from '../components/StatusBadge'
+import WorkbenchEmptyState from '../components/WorkbenchEmptyState'
+import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes, formatDuration } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
@@ -333,61 +337,83 @@ function MergePage({
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">模块二 · 视频合并</p>
-          <h1>视频物理合并</h1>
-          <p className="muted">兼容素材无重编码秒级拼接；不兼容自动转码统一参数后合并。</p>
-        </div>
-        <div className="actions">
-          <button className="secondary" onClick={checkGpu} disabled={gpuChecking || merging}>
-            {gpuChecking ? '检测 GPU 中…' : '检测 GPU 加速'}
-          </button>
-          <button
-            className="secondary"
-            onClick={onChooseWorkspace}
-            disabled={merging || confirmingDelete}
-          >
-            选择工作区
-          </button>
-          <button className="secondary" onClick={scan} disabled={!workspace || loading || merging}>
-            {loading ? '读取中…' : '扫描视频'}
-          </button>
-          {mode !== 'separate' &&
-            items.length >= 2 &&
-            !result &&
-            orientationBatchResults.length === 0 && (
+      <WorkbenchHeader
+        eyebrow="视频工坊 / 合并编排"
+        title="视频合并工作台"
+        description="在时间线中确认片段顺序与输出规格。兼容素材直接拼接，不兼容素材统一转码。"
+        actions={
+          <>
+            <button className="secondary" onClick={checkGpu} disabled={gpuChecking || merging}>
+              {gpuChecking ? '检测 GPU 中…' : '检测 GPU 加速'}
+            </button>
+            <button
+              className="secondary"
+              onClick={onChooseWorkspace}
+              disabled={merging || confirmingDelete}
+            >
+              选择工作区
+            </button>
+            <button
+              className="secondary"
+              onClick={scan}
+              disabled={!workspace || loading || merging}
+            >
+              {loading ? '读取中…' : '扫描视频'}
+            </button>
+            {mode !== 'separate' &&
+              items.length >= 2 &&
+              !result &&
+              orientationBatchResults.length === 0 && (
+                <button
+                  disabled={merging || notEnoughSpace || cannotMerge}
+                  onClick={() => setConfirming(true)}
+                >
+                  {merging ? '合并中…' : `执行合并（${items.length} 段）`}
+                </button>
+              )}
+            {mode === 'separate' && orientationBatchResults.length === 0 && (
               <button
-                disabled={merging || notEnoughSpace || cannotMerge}
-                onClick={() => setConfirming(true)}
+                disabled={
+                  merging ||
+                  cannotMerge ||
+                  orientationBatches.landscape.length === 0 ||
+                  orientationBatches.portrait.length === 0
+                }
+                onClick={() => setConfirmingOrientationBatch(true)}
               >
-                {merging ? '合并中…' : `执行合并（${items.length} 段）`}
+                {merging ? '分别合并中…' : '执行横竖分别合并'}
               </button>
             )}
-          {mode === 'separate' && orientationBatchResults.length === 0 && (
-            <button
-              disabled={
-                merging ||
-                cannotMerge ||
-                orientationBatches.landscape.length === 0 ||
-                orientationBatches.portrait.length === 0
-              }
-              onClick={() => setConfirmingOrientationBatch(true)}
-            >
-              {merging ? '分别合并中…' : '执行横竖分别合并'}
-            </button>
-          )}
-          {merging && (
-            <button className="secondary" onClick={() => window.api.cancelMerge()}>
-              取消
-            </button>
-          )}
-        </div>
-      </header>
+            {merging && (
+              <button className="secondary" onClick={() => window.api.cancelMerge()}>
+                取消
+              </button>
+            )}
+          </>
+        }
+      />
 
-      <section className="path-card">
-        <span>当前工作区</span>
-        <strong>{workspace || '尚未选择目录'}</strong>
+      <section className="workbench-overview" aria-label="合并工作区概览">
+        <div>
+          <span>当前工作区</span>
+          <strong title={workspace || undefined}>{workspace || '尚未选择目录'}</strong>
+        </div>
+        <div>
+          <span>已发现片段</span>
+          <strong>{loaded ? videos.length : '等待扫描'}</strong>
+        </div>
+        <div>
+          <span>当前参与</span>
+          <strong>{items.length} 段</strong>
+        </div>
+        <div>
+          <span>输出策略</span>
+          <StatusBadge
+            tone={cannotMerge ? 'danger' : compatibility.compatible ? 'success' : 'warning'}
+          >
+            {cannotMerge ? '需排除异常片段' : compatibility.compatible ? '兼容直拼' : '统一转码'}
+          </StatusBadge>
+        </div>
       </section>
 
       {error && <ErrorBanner message={error} />}
@@ -629,8 +655,7 @@ function MergePage({
                 </Panel>
                 <Separator className="merge-studio-resize" />
                 <Panel id="inspector" minSize="20%">
-                  <aside className="merge-inspector" aria-live="polite">
-                    <p className="eyebrow">片段检查器</p>
+                  <InspectorPanel label="片段检查器" className="merge-inspector">
                     {selectedItem ? (
                       <>
                         <div
@@ -697,7 +722,7 @@ function MergePage({
                     ) : (
                       <p className="muted">选择一个片段，查看方向、编码参数并打开预览。</p>
                     )}
-                  </aside>
+                  </InspectorPanel>
                 </Panel>
               </Group>
             )}
@@ -706,15 +731,21 @@ function MergePage({
       )}
 
       {loaded && videos.length === 0 && (
-        <section className="empty">
-          <h2>没有发现视频</h2>
-        </section>
+        <WorkbenchEmptyState
+          title="没有发现视频"
+          description="当前工作区没有可用于合并的视频素材。选择其他工作区，或重新扫描后再试。"
+        />
       )}
       {!loaded && (
-        <section className="empty">
-          <h2>扫描后开始</h2>
-          <p>选择工作区并点击「扫描视频」，将读取每个视频的编码信息用于兼容性判定。</p>
-        </section>
+        <WorkbenchEmptyState
+          title="扫描后开始编排"
+          description="选择工作区并扫描视频后，应用会读取编码、时长与方向，用于安全判定直拼或转码。"
+          action={
+            <button onClick={scan} disabled={!workspace || loading}>
+              扫描视频
+            </button>
+          }
+        />
       )}
 
       {orientationBatchResults.length > 0 && (

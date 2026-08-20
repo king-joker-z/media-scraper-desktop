@@ -3,6 +3,9 @@ import type { LibraryDensity, MergeVideoItem, Orientation } from '../../../share
 import ErrorBanner from '../components/ErrorBanner'
 import VideoModal from '../components/VideoModal'
 import VirtualGrid from '../components/VirtualGrid'
+import StatusBadge from '../components/StatusBadge'
+import WorkbenchEmptyState from '../components/WorkbenchEmptyState'
+import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes, formatDuration } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
@@ -119,24 +122,24 @@ function LibraryPage({
 
   return (
     <div className="page">
-      <header className="page-header page-header-video">
-        <div>
-          <p className="eyebrow">视频工坊 / 媒体库</p>
-          <h1>媒体库仪表盘</h1>
-          <p className="muted">掌握容量、时长与整理缺口，再从海报墙浏览、筛选并播放视频。</p>
-        </div>
-        <div className="actions page-actions">
-          <button className="secondary" onClick={onChooseWorkspace}>
-            选择工作区
-          </button>
-          <button onClick={refresh} disabled={!workspace || loading}>
-            {loading ? '加载中…' : '刷新媒体库'}
-          </button>
-        </div>
-      </header>
+      <WorkbenchHeader
+        eyebrow="视频工坊 / 素材浏览"
+        title="媒体库"
+        description="在海报墙中浏览、筛选与播放视频，并快速定位需要补充封面的素材。"
+        actions={
+          <>
+            <button className="secondary" onClick={onChooseWorkspace}>
+              选择工作区
+            </button>
+            <button onClick={refresh} disabled={!workspace || loading}>
+              {loading ? '加载中…' : '刷新媒体库'}
+            </button>
+          </>
+        }
+      />
 
       <section
-        className="workspace-overview workspace-overview-video"
+        className="workbench-overview workspace-overview workspace-overview-video"
         aria-label="当前视频工作区概览"
       >
         <div className="workspace-overview-path">
@@ -144,18 +147,24 @@ function LibraryPage({
           <strong title={workspace || undefined}>{workspace || '尚未选择目录'}</strong>
         </div>
         <div className="workspace-overview-stat">
-          <strong>{loaded ? videos.length : '—'}</strong>
           <span>视频素材</span>
+          <strong>{loaded ? videos.length : '—'}</strong>
         </div>
         <div className="workspace-overview-stat">
-          <strong>{loaded ? formatBytes(dashboard.totalBytes) : '—'}</strong>
           <span>媒体容量</span>
+          <strong>{loaded ? formatBytes(dashboard.totalBytes) : '—'}</strong>
         </div>
         <div
           className={`workspace-overview-stat ${dashboard.missingPoster > 0 ? 'needs-action' : ''}`}
         >
-          <strong>{loaded ? dashboard.missingPoster : '—'}</strong>
-          <span>待补封面</span>
+          <span>整理状态</span>
+          <StatusBadge tone={dashboard.missingPoster > 0 ? 'warning' : 'success'}>
+            {loaded
+              ? dashboard.missingPoster > 0
+                ? `${dashboard.missingPoster} 个待补封面`
+                : '封面完整'
+              : '等待扫描'}
+          </StatusBadge>
         </div>
       </section>
 
@@ -208,7 +217,7 @@ function LibraryPage({
               个视频尚无封面。可用下方筛选定位，再前往「封面管理」生成候选。
             </section>
           )}
-          <div className="library-toolbar">
+          <div className="library-toolbar workbench-toolbar">
             <label className="library-search-field">
               <input
                 id="library-search"
@@ -340,36 +349,38 @@ function LibraryPage({
       )}
 
       {loaded && videos.length > 0 && filtered.length === 0 && (
-        <section className="empty">
-          <h2>没有匹配的视频</h2>
-          <p>调整搜索关键词或清除筛选条件后，再试一次。</p>
-          <button
-            className="secondary"
-            onClick={() => {
-              setKeyword('')
-              setOrientation('all')
-              setStatusFilter('all')
-            }}
-          >
-            清除筛选
-          </button>
-        </section>
+        <WorkbenchEmptyState
+          title="没有匹配的视频"
+          description="调整搜索关键词或清除筛选条件后，再试一次。"
+          action={
+            <button
+              className="secondary"
+              onClick={() => {
+                setKeyword('')
+                setOrientation('all')
+                setStatusFilter('all')
+              }}
+            >
+              清除筛选
+            </button>
+          }
+        />
       )}
       {loaded && videos.length === 0 && (
-        <section className="empty">
-          <h2>媒体库为空</h2>
-          <p>先用「NFO 归档」整理视频，这里就会变成海报墙。</p>
-        </section>
+        <WorkbenchEmptyState
+          title="媒体库为空"
+          description="先整理或归档视频素材，扫描后这里会成为可筛选的海报墙。"
+        />
       )}
       {!loaded && !loading && (
-        <section className="empty">
-          <h2>选择工作区后开始</h2>
-          <p>指向已整理的工作区，点击「刷新媒体库」生成海报墙。</p>
-        </section>
+        <WorkbenchEmptyState
+          title="选择工作区后开始"
+          description="指向已整理的工作区，扫描后即可生成可浏览的海报墙。"
+        />
       )}
 
       {selectedVideos.length > 0 && (
-        <aside className="library-selection-bar" aria-label="已选视频操作">
+        <aside className="library-selection-bar workbench-selection-bar" aria-label="已选视频操作">
           <strong>已选择 {selectedVideos.length} 个视频</strong>
           <span>{formatBytes(selectedVideos.reduce((sum, video) => sum + video.size, 0))}</span>
           <div>
