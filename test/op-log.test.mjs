@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   getOpLogDetail,
   listOpLogs,
@@ -73,7 +73,7 @@ test('getOpLogDetail returns safe detail without an absolute log path', async ()
       summary: '改名 1 项',
       report: { items: [{ from: 'before.mp4', to: 'after.mp4' }], renamedCount: 1, failed: [] }
     })
-    const detail = await getOpLogDetail(dir, file.split('/').pop())
+    const detail = await getOpLogDetail(dir, basename(file))
     assert.equal(detail.summary, '改名 1 项')
     assert.equal(detail.workspace, 'workspace')
     assert.deepEqual(detail.items, [{ before: 'before.mp4', after: 'after.mp4', status: 'done' }])
@@ -84,7 +84,7 @@ test('getOpLogDetail returns safe detail without an absolute log path', async ()
       report: { failed: [{ target: '/private/other/library/page.jpg', error: '锁定' }] },
       summary: '失败 1 项'
     })
-    const escapedDetail = await getOpLogDetail(dir, escaped.split('/').pop())
+    const escapedDetail = await getOpLogDetail(dir, basename(escaped))
     assert.equal(escapedDetail.failures[0].target, '工作区外路径')
   } finally {
     await rm(dir, { recursive: true, force: true })
