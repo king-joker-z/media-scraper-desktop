@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CandidateFrameScore, PosterVideoItem } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import HoverImagePreview from '../components/HoverImagePreview'
 import PosterDetail from '../components/PosterDetail'
 import VirtualGrid from '../components/VirtualGrid'
 import { formatBytes } from '../utils/format'
@@ -326,11 +327,16 @@ function PosterPage({
                 <button className="video-card-open" onClick={() => setDetail(video)}>
                   <span className="video-thumb">
                     {cover ? (
-                      <img
+                      <HoverImagePreview
                         src={`${mediaUrl(cover)}?v=${coverEpoch}`}
-                        alt={video.name}
-                        loading="lazy"
-                      />
+                        alt={`${video.name} 完整封面预览`}
+                      >
+                        <img
+                          src={`${mediaUrl(cover)}?v=${coverEpoch}`}
+                          alt={video.name}
+                          loading="lazy"
+                        />
+                      </HoverImagePreview>
                     ) : (
                       <span className="video-thumb-empty" aria-label="暂无封面" />
                     )}

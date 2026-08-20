@@ -278,6 +278,16 @@ export interface CandidateFrameScore {
   uniformRatio: number
   /** 近乎纯色的过场/标题卡，保留供人工查看但不参与自动推荐 */
   rejected: boolean
+  /** 截帧在视频中的定位时间；旧缓存或现存封面可不提供。 */
+  timestampMs?: number
+  /** 由精细模式的场景切分命中，属于辅助浏览标签而非绝对质量判断。 */
+  sceneCut?: boolean
+  /** 从播放器当前位置手动截取，不参与自动推荐排序。 */
+  manual?: boolean
+  /** 仅用于接触表辅助浏览的相似组 ID；缺失表示未和其他候选归组。 */
+  similarityGroup?: number
+  /** 同组代表帧与当前帧的感知哈希汉明距离。 */
+  similarityDistance?: number
 }
 
 export interface PosterCaptureOptions {

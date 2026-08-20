@@ -9,6 +9,8 @@ declare module './poster.mjs' {
   /** 轻量质量评分：灰度缩略图的清晰度、纯色比例、亮度与对比度 */
   export function scoreCandidateFrame(framePath: string): Promise<CandidateFrameScore>
   export function rankCandidateFrames(framePaths: string[]): Promise<CandidateFrameScore[]>
+  /** 为候选分配仅供接触表浏览的视觉相似组。 */
+  export function assignSimilarityGroups(scores: CandidateFrameScore[]): CandidateFrameScore[]
   export function framesDirFor(framesRoot: string, videoPath: string): string
   export function captureCandidates(
     videoPath: string,

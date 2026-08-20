@@ -11,6 +11,11 @@ import { probeMediaCached } from '../../core/probe.mjs'
 import sharp from 'sharp'
 import { convertToJpg, isJpegName } from '../../core/image.mjs'
 import {
+  computeDifferenceHash,
+  groupSimilarHashes,
+  hammingDistance
+} from '../../../shared/visual-similarity.mjs'
+import {
   commitStagedFile,
   copyFileSafe,
   createStagingPath,
@@ -144,6 +149,7 @@ export async function scoreCandidateFrame(framePath) {
   const isUniform = uniformRatio >= UNIFORM_FRAME_RATIO && contrast <= UNIFORM_FRAME_CONTRAST
   // 拒绝项仍返回给用户手动选择，但永远沉底且不会成为默认封面。
   const rejected = isBlack || isUniform
+  const hash = computeDifferenceHash(data, info.width, info.height)
   const score = rejected
     ? Number.NEGATIVE_INFINITY
     : clarity * 0.55 + contrast * 0.25 + exposure * 25 - blackRatio * 100
@@ -155,8 +161,28 @@ export async function scoreCandidateFrame(framePath) {
     clarity,
     blackRatio,
     uniformRatio,
-    rejected
+    rejected,
+    hash
   }
+}
+
+/** 为视觉相似候选分配组号；分组仅影响接触表浏览，不影响推荐、自动选择或保存。 */
+export function assignSimilarityGroups(scores) {
+  const groups = groupSimilarHashes(scores.map((entry) => entry.hash))
+  const assignments = new Map()
+  groups.forEach((members, groupIndex) => {
+    const representative = members[0]
+    for (const index of members) {
+      assignments.set(index, {
+        similarityGroup: groupIndex + 1,
+        similarityDistance:
+          index === representative
+            ? 0
+            : hammingDistance(scores[representative].hash, scores[index].hash)
+      })
+    }
+  })
+  return scores.map((entry, index) => ({ ...entry, ...assignments.get(index) }))
 }
 
 /** 对一批候选帧评分，返回稳定排序（同分按原始路径保证结果可复现）。 */
@@ -200,6 +226,7 @@ export async function captureCandidates(
   // 普通模式与精细模式都保留五张候选，保证人工挑选空间；
   // 精细模式仅对短视频额外进行场景切换检测。
   let timestamps = [0]
+  const sceneCutTimestamps = new Set()
   if (durationMs > SCENE_DETECT_MAX_DURATION_MS || !precise) {
     timestamps = buildFrameTimestamps(durationMs, CANDIDATE_COUNT)
   } else if (durationMs > 1000) {
@@ -207,6 +234,7 @@ export async function captureCandidates(
       timestamps = (await detectSceneCuts(videoPath, { ffmpegPath, limit: 5, signal })).filter(
         (t) => t * 1000 < durationMs - 200
       )
+      timestamps.forEach((timestamp) => sceneCutTimestamps.add(Math.round(timestamp * 1000)))
     } catch {
       timestamps = []
     }
@@ -232,15 +260,25 @@ export async function captureCandidates(
   const maxScore = ranked[0]?.score
   const minScore = ranked.at(-1)?.score
   const range = maxScore - minScore
-  return ranked.map((entry) => ({
-    ...entry,
-    // 将原始质量分映射到 0-100，仅用于同一视频候选间的可视化比较。
-    score: Number.isFinite(entry.score)
-      ? range > 0
-        ? ((entry.score - minScore) / range) * 100
-        : 100
-      : 0
-  }))
+  const scored = ranked.map((entry) => {
+    const timestampMs = Math.round((timestampFromCandidatePath(entry.path) ?? 0) * 1000)
+    return {
+      ...entry,
+      timestampMs,
+      sceneCut: sceneCutTimestamps.has(timestampMs),
+      // 将原始质量分映射到 0-100，仅用于同一视频候选间的可视化比较。
+      score: Number.isFinite(entry.score)
+        ? range > 0
+          ? ((entry.score - minScore) / range) * 100
+          : 100
+        : 0
+    }
+  })
+  return assignSimilarityGroups(scored).map((entry) => {
+    const result = { ...entry }
+    delete result.hash
+    return result
+  })
 }
 
 /** 在指定时间点精确截帧（用户在详情页拖动时间轴后手动选帧）。 */

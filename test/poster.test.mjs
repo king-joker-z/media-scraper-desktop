@@ -5,9 +5,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { createScanPlan } from '../src/main/core/scanner.mjs'
+import {
+  computeDifferenceHash,
+  groupSimilarHashes,
+  hammingDistance
+} from '../src/shared/visual-similarity.mjs'
 import { pathExists } from '../src/main/core/fs-ops.mjs'
 import { convertToJpg } from '../src/main/core/image.mjs'
 import {
+  assignSimilarityGroups,
   computePendingSaves,
   framesDirFor,
   listPosterVideos,
@@ -184,6 +190,33 @@ test('候选帧质量评分会排除纯色背景且保留清晰画面', async ()
     assert.equal(ranked[0].rejected, false)
     assert.ok(ranked.slice(1).every((entry) => entry.rejected))
   })
+})
+
+test('视觉相似哈希分组稳定且只合并阈值内的候选', () => {
+  assert.equal(hammingDistance('0000000000000000', '000000000000000f'), 4)
+  assert.deepEqual(
+    groupSimilarHashes(['0000000000000000', '0000000000000003', 'ffffffffffffffff']),
+    [[0, 1]]
+  )
+  const scores = assignSimilarityGroups([
+    { path: 'a.jpg', hash: '0000000000000000' },
+    { path: 'b.jpg', hash: '0000000000000003' },
+    { path: 'c.jpg', hash: 'ffffffffffffffff' }
+  ])
+  assert.equal(scores[0].similarityGroup, 1)
+  assert.equal(scores[0].similarityDistance, 0)
+  assert.equal(scores[1].similarityGroup, 1)
+  assert.equal(scores[1].similarityDistance, 2)
+  assert.equal(scores[2].similarityGroup, undefined)
+})
+
+test('差值感知哈希对相同灰度图稳定', () => {
+  const gradient = Uint8Array.from({ length: 90 }, (_, index) => index % 10)
+  const sameGradient = Uint8Array.from(gradient)
+  const reversed = Uint8Array.from({ length: 90 }, (_, index) => 9 - (index % 10))
+  const hash = computeDifferenceHash(gradient, 10, 9)
+  assert.equal(hash, computeDifferenceHash(sameGradient, 10, 9))
+  assert.ok(hammingDistance(hash, computeDifferenceHash(reversed, 10, 9)) > 0)
 })
 
 test('savePoster directly copies a JPEG that is not a generated preview', async () => {

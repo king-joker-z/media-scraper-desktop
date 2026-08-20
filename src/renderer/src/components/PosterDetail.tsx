@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CandidateFrameScore, PosterVideoItem } from '../../../shared/types'
 import ConfirmDialog from './ConfirmDialog'
+import PosterContactSheet from './PosterContactSheet'
 import { mediaUrl } from '../utils/media'
 
 function PosterDetail({
@@ -35,6 +36,21 @@ function PosterDetail({
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      const player = videoRef.current
+      if (player) {
+        player.pause()
+        player.removeAttribute('src')
+        player.load()
+      }
+      onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
   const generate = async (): Promise<{ frames: string[]; scores: CandidateFrameScore[] }> => {
     const { outcomes } = await window.api.capturePosters(workspace, [video.relativePath], {
       precise: true
@@ -49,8 +65,26 @@ function PosterDetail({
     setCapturingCurrent(true)
     setError('')
     try {
+      const timestampMs = Math.round(player.currentTime * 1000)
       const frame = await window.api.capturePosterAt(video.path, player.currentTime)
-      onCandidates([...candidates, frame])
+      onCandidates(
+        [...candidates, frame],
+        [
+          ...scores,
+          {
+            path: frame,
+            score: 0,
+            clarity: 0,
+            brightness: 0,
+            contrast: 0,
+            blackRatio: 0,
+            uniformRatio: 0,
+            rejected: false,
+            timestampMs,
+            manual: true
+          }
+        ]
+      )
       onSelect(frame)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -93,9 +127,32 @@ function PosterDetail({
     }
   }
 
-  const allFrames = video.posterPath ? [video.posterPath, ...candidates] : candidates
-  const scoreFor = (frame: string): CandidateFrameScore | undefined =>
-    scores.find((entry) => entry.path === frame)
+  const seekTo = async (timestampMs: number): Promise<void> => {
+    const player = videoRef.current
+    if (!player) return
+    await new Promise<void>((resolve, reject) => {
+      const finish = (): void => {
+        player.removeEventListener('seeked', finish)
+        player.removeEventListener('error', fail)
+        resolve()
+      }
+      const fail = (): void => {
+        player.removeEventListener('seeked', finish)
+        player.removeEventListener('error', fail)
+        reject(new Error('播放器定位失败'))
+      }
+      player.addEventListener('seeked', finish, { once: true })
+      player.addEventListener('error', fail, { once: true })
+      player.currentTime = timestampMs / 1000
+    })
+  }
+
+  const togglePlayback = (): void => {
+    const player = videoRef.current
+    if (!player) return
+    if (player.paused) void player.play().catch(() => {})
+    else player.pause()
+  }
 
   // 截帧详情关闭时主动断开播放器，Windows 才能立即释放视频文件锁。
   const close = (): void => {
@@ -108,17 +165,31 @@ function PosterDetail({
     onClose()
   }
 
+  const allFrames = video.posterPath ? [video.posterPath, ...candidates] : candidates
+  const scoreFor = (frame: string): CandidateFrameScore | undefined =>
+    scores.find((entry) => entry.path === frame)
+  const contactFrames = allFrames.map((path) => ({
+    path,
+    score: scoreFor(path),
+    current: path === video.posterPath
+  }))
+
   return (
     <div className="dialog-overlay" onClick={close}>
       <div
-        className="detail-modal"
+        className="detail-modal poster-detail-modal"
         role="dialog"
         aria-modal="true"
         aria-label={`封面详情：${video.name}`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="detail-header">
-          <b>{video.name}</b>
+          <div>
+            <b>{video.name}</b>
+            <span className="muted">
+              选择候选会在播放器完成定位后标记；相似分组仅辅助浏览，不改变保存和推荐。
+            </span>
+          </div>
           <button className="chip-remove" aria-label="关闭封面详情" onClick={close}>
             关闭
           </button>
@@ -145,29 +216,17 @@ function PosterDetail({
           </button>
         </div>
         {error && <p className="danger-text">{error}</p>}
-        <div className="candidate-strip">
-          {generating && allFrames.length === 0 && <p className="muted">正在截取候选帧…</p>}
-          {allFrames.map((frame) => (
-            <button
-              key={frame}
-              className={`candidate ${selection === frame ? 'selected' : ''}`}
-              onClick={() => onSelect(frame)}
-            >
-              <img src={`${mediaUrl(frame)}?v=${version}`} alt="候选帧" loading="lazy" />
-              {frame === video.posterPath ? (
-                <span className="candidate-tag">当前封面</span>
-              ) : (
-                scoreFor(frame) && (
-                  <span className="candidate-tag">
-                    {scoreFor(frame)!.rejected
-                      ? '不推荐：纯色背景'
-                      : `质量 ${scoreFor(frame)!.score}`}
-                  </span>
-                )
-              )}
-            </button>
-          ))}
-        </div>
+        {generating && allFrames.length === 0 ? <p className="muted">正在截取候选帧…</p> : null}
+        <PosterContactSheet
+          frames={contactFrames}
+          selection={selection}
+          version={version}
+          onSelect={onSelect}
+          onSeek={seekTo}
+          onTogglePlayback={togglePlayback}
+          onSave={() => (video.posterPath ? setConfirming(true) : void save())}
+          onClose={close}
+        />
         {confirming && (
           <ConfirmDialog
             title="替换现有封面"
