@@ -201,10 +201,11 @@ export function buildTranscodeArgs(
 ) {
   const useNvenc = encoder === 'nvenc' || encoder === 'cuda-nvenc'
   const useCudaPipeline = encoder === 'cuda-nvenc'
-  // FFmpeg 不提供 pad_cuda。完整 CUDA 路径以 GPU 端黑色画布 + overlay_cuda 替代补边，
-  // 让缩放、画布合成和送入 NVENC 的视频帧始终留在 GPU 内存中。
+  // FFmpeg 不提供 pad_cuda。完整 CUDA 路径以 GPU 端黑色画布 + overlay_cuda 替代补边。
+  // overlay_cuda 的输出保持为 CUDA 硬件帧并直接交给 NVENC，避免输出像素格式要求触发
+  // 自动插入软件 scale，导致 CUDA 与软件帧格式无法协商。
   const videoFilter = useCudaPipeline
-    ? `color=c=black:s=${target.width}x${target.height},format=nv12,hwupload_cuda[canvas];[0:v]scale_cuda=w=${target.width}:h=${target.height}:format=nv12:force_original_aspect_ratio=decrease[scaled];[canvas][scaled]overlay_cuda=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2[out]`
+    ? `color=c=black:s=${target.width}x${target.height},format=nv12,hwupload_cuda[canvas];[0:v]scale_cuda=w=${target.width}:h=${target.height}:format=nv12:force_original_aspect_ratio=decrease[scaled];[canvas][scaled]overlay_cuda=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2[gpu];[gpu]hwdownload,format=yuv420p[out]`
     : `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`
   const videoArgs = useNvenc
     ? [
@@ -238,8 +239,7 @@ export function buildTranscodeArgs(
     ...(useCudaPipeline ? ['-map', '[out]', '-aspect', `${target.width}:${target.height}`] : []),
     '-r',
     String(target.fps),
-    '-pix_fmt',
-    target.pixFmt,
+    ...(useCudaPipeline ? [] : ['-pix_fmt', target.pixFmt]),
     ...videoArgs,
     '-c:a',
     'aac',

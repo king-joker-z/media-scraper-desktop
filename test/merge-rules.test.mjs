@@ -228,6 +228,7 @@ test('buildTranscodeArgs builds a CUDA scale and overlay pipeline without pad_cu
   assert.match(filterGraph, /overlay_cuda=/)
   assert.match(filterGraph, /color=c=black:s=1920x1080/)
   assert.doesNotMatch(filterGraph, /pad_cuda/)
+  assert.equal(args.includes('-pix_fmt'), false)
   assert.deepEqual(args.slice(args.lastIndexOf('-map'), args.lastIndexOf('-map') + 2), [
     '-map',
     '[out]'

@@ -16,6 +16,8 @@ test('probeCudaPipelineCapability uses overlay_cuda rather than the nonexistent 
   assert.match(filterGraph, /overlay_cuda=/)
   assert.doesNotMatch(filterGraph, /pad_cuda/)
   assert.match(filterGraph, /hwupload_cuda/)
+  assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 2), ['-map', '[v]'])
+  assert.equal(args.includes('-pix_fmt'), false)
 })
 
 test('probeCudaPipelineCapability preserves FFmpeg capability errors for the UI', async () => {

@@ -65,8 +65,6 @@ export async function probeCudaPipelineCapability(ffmpegPath, { run = runPooled 
       '[v]',
       '-c:v',
       'h264_nvenc',
-      '-pix_fmt',
-      'yuv420p',
       '-f',
       'null',
       '-'
