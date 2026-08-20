@@ -596,6 +596,9 @@ function MergePage({
               </div>
             ) : (
               <Group
+                // 页面常驻挂载但不可见页以 display:none 隐藏。面板库在零宽容器内初始化会缓存错误比例，
+                // 因此可见性切换时重建 Group，让它在实际可用宽度下重新测量默认布局。
+                key={`merge-studio-${active ? 'visible' : 'hidden'}`}
                 className="merge-studio-content timeline-view"
                 defaultLayout={studioLayout}
                 id="merge-studio"

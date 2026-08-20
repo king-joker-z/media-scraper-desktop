@@ -1448,14 +1448,22 @@ h2 {
   -webkit-backdrop-filter: blur(6px);
 }
 .dialog {
+  /* Radix Portal 将 Overlay 与 Content 作为同级节点渲染；内容必须显式高于遮罩。 */
+  position: fixed;
+  z-index: 101;
+  top: 50%;
+  left: 50%;
   width: 440px;
   max-width: calc(100vw - 64px);
+  max-height: calc(100vh - 48px);
   padding: 22px 24px;
+  overflow: auto;
   border-radius: 14px;
   background: var(--bg-card);
   box-shadow: var(--shadow-pop);
   display: grid;
   gap: 14px;
+  transform: translate(-50%, -50%);
 }
 .dialog.danger {
   border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
