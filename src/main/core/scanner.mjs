@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readdir, stat } from 'node:fs/promises'
 import { basename, dirname, extname, join, relative } from 'node:path'
+import { compareTitles } from '../../shared/rename-rules.mjs'
 
 export const VIDEO_EXTENSIONS = new Set([
   '.mp4',
@@ -73,7 +74,7 @@ export function predictMoves(keep, skippedHidden) {
   const moves = []
   const sorted = keep
     .filter((item) => item.dir !== '.')
-    .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+    .sort((a, b) => compareTitles(a.relativePath, b.relativePath))
   for (const item of sorted) {
     const desired = item.finalName ?? item.name
     let target = desired
@@ -204,7 +205,7 @@ const trimCache = (cache, max) => {
 const fingerprintOf = (records) => {
   const hash = createHash('md5')
   // 拷贝后排序：避免 sort 原地修改调用方持有的数组。
-  const sorted = [...records].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+  const sorted = [...records].sort((a, b) => compareTitles(a.relativePath, b.relativePath))
   for (const record of sorted) {
     hash.update(`${record.relativePath}:${record.size}:${record.mtimeMs}\n`)
   }

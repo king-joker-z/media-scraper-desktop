@@ -119,13 +119,16 @@ function OperationTimeline(): React.JSX.Element {
     }
   }
   return (
-    <section className="settings-card operation-timeline">
+    <section className="settings-card operation-timeline workbench-operation-timeline">
       <div className="op-log-heading">
         <div>
           <span className="section-kicker">本地可追溯</span>
           <h2>操作时间线</h2>
         </div>
-        <span className="op-log-total">{logs.length} 条记录</span>
+        <span className="status-badge status-running">
+          <span className="status-badge-mark" aria-hidden="true" />
+          {logs.length} 条记录
+        </span>
       </div>
       <p className="muted">
         按时间回看文件变更；只有可安全反向执行的改名与归档操作才会开放撤销预检。

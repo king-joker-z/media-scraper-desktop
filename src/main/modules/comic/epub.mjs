@@ -1,6 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import yazl from 'yazl'
 import yauzl from 'yauzl'
+import { compareComicNames } from '../../../shared/comic-rules.mjs'
 import { createFileReadStream, writeReadableFile } from '../../core/fs-ops.mjs'
 
 /**
@@ -330,7 +331,7 @@ export async function appendEpubFile({
       const match = /^OEBPS\/images\/(p\d+)\.(\w+)$/.exec(entry.fileName)
       return { id: match[1], ext: match[2] }
     })
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => compareComicNames(a.id, b.id))
   const oldPages = entries.filter((entry) => isTextPath(entry.fileName)).length
   const statePages = existingChapters.reduce((sum, chapter) => sum + chapter.pageCount, 0)
   if (oldPages === 0 || oldImages.length !== oldPages || oldPages !== statePages) {
@@ -460,7 +461,7 @@ export function appendEpub(existingBytes, { title, existingChapters, newChapters
       imageItems.push({ id: match[1], ext: match[2] })
     }
   }
-  imageItems.sort((a, b) => a.id.localeCompare(b.id))
+  imageItems.sort((a, b) => compareComicNames(a.id, b.id))
   const chapterRanges = []
   let pageIndex = 0
   for (const chapter of existingChapters) {

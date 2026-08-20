@@ -8,6 +8,7 @@ import {
   estimateOutputBytes,
   groupByOrientation,
   orderByOrientation,
+  sortMergeItems,
   isMergeOutputName,
   mergeOutputName,
   selectQualityTarget,
@@ -154,6 +155,26 @@ test('orderByOrientation keeps orientation priority while sorting within each gr
   assert.deepEqual(
     orderByOrientation(items, 'landscape', 'name').map((entry) => entry.name),
     ['横屏大', '横屏小', '竖屏大', '竖屏小']
+  )
+})
+
+test('sortMergeItems uses natural numeric ordering for names and size ties', () => {
+  const items = [
+    { ...item('片段 100.mp4'), size: 100 },
+    { ...item('片段 99.mp4'), size: 100 },
+    { ...item('片段 2.mp4'), size: 100 }
+  ]
+  assert.deepEqual(
+    sortMergeItems(items, 'name').map((entry) => entry.name),
+    ['片段 2.mp4', '片段 99.mp4', '片段 100.mp4']
+  )
+  assert.deepEqual(
+    sortMergeItems(items, 'size').map((entry) => entry.name),
+    ['片段 2.mp4', '片段 99.mp4', '片段 100.mp4']
+  )
+  assert.deepEqual(
+    orderByOrientation(items, 'landscape', 'name').map((entry) => entry.name),
+    ['片段 2.mp4', '片段 99.mp4', '片段 100.mp4']
   )
 })
 

@@ -9,6 +9,7 @@ import {
   type SortingState
 } from '@tanstack/react-table'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { compareTitles } from '../../../shared/rename-rules.mjs'
 import type { ProbeContainerItem } from '../../../shared/types'
 import {
   analyzeRenameRelationships,
@@ -194,6 +195,8 @@ export default function RenameComparisonEditor({
         id: 'original',
         header: '原文件',
         size: 280,
+        sortFn: (left, right) =>
+          compareTitles(left.original.source.name, right.original.source.name),
         minSize: 180,
         cell: ({ row }) => {
           const value = row.original
@@ -229,6 +232,7 @@ export default function RenameComparisonEditor({
         id: 'target',
         header: '目标文件',
         size: 280,
+        sortFn: (left, right) => compareTitles(left.original.targetName, right.original.targetName),
         minSize: 180,
         cell: ({ row }) => {
           const value = row.original

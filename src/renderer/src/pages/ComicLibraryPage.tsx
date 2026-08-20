@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import type { ComicScanResult } from '../../../shared/types'
 import ErrorBanner from '../components/ErrorBanner'
 import VirtualGrid from '../components/VirtualGrid'
+import WorkbenchEmptyState from '../components/WorkbenchEmptyState'
+import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes, joinPath } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
@@ -81,22 +83,22 @@ function ComicLibraryPage({
 
   return (
     <div className="page">
-      <header className="page-header comic-library-header page-header-comic">
-        <div>
-          <p className="eyebrow">漫画书房 / 已归档</p>
-          <h1>你的数字书架</h1>
-          <p className="muted">浏览已整理的 EPUB 与 PDF；选择一本，即可交给系统阅读器继续阅读。</p>
-        </div>
-        <div className="actions">
-          <button className="secondary" onClick={onChooseWorkspace}>
-            选择工作区
-          </button>
-          <button className="secondary" onClick={refresh} disabled={!workspace || loading}>
-            {loading ? '加载中…' : '刷新书架'}
-          </button>
-          <button onClick={onOpenMerge}>整理漫画</button>
-        </div>
-      </header>
+      <WorkbenchHeader
+        eyebrow="漫画书房 / 已归档"
+        title="你的数字书架"
+        description="浏览已整理的 EPUB 与 PDF；选择一本，即可交给系统阅读器继续阅读。"
+        actions={
+          <>
+            <button className="secondary" onClick={onChooseWorkspace}>
+              选择工作区
+            </button>
+            <button className="secondary" onClick={refresh} disabled={!workspace || loading}>
+              {loading ? '加载中…' : '刷新书架'}
+            </button>
+            <button onClick={onOpenMerge}>整理漫画</button>
+          </>
+        }
+      />
 
       <section
         className="comic-library-overview workspace-overview workspace-overview-comic"
@@ -195,27 +197,30 @@ function ComicLibraryPage({
       )}
 
       {loaded && allMergedComics.length > 0 && mergedComics.length === 0 && (
-        <section className="empty comic-library-empty">
-          <h2>没有匹配的漫画</h2>
-          <p>换一个名称试试，或清空搜索回到完整书架。</p>
-          <button className="secondary" onClick={() => setKeyword('')}>
-            清空搜索
-          </button>
-        </section>
+        <WorkbenchEmptyState
+          title="没有匹配的漫画"
+          description="换一个名称试试，或清空搜索回到完整书架。"
+          action={
+            <button className="secondary" onClick={() => setKeyword('')}>
+              清空搜索
+            </button>
+          }
+        />
       )}
 
       {loaded && allMergedComics.length === 0 && (
-        <section className="empty comic-library-empty">
-          <h2>书架还是空的</h2>
-          <p>把章节整理成 EPUB 或 PDF 后，它们会带着封面出现在这里。</p>
-          <button onClick={onOpenMerge}>去整理漫画</button>
-        </section>
+        <WorkbenchEmptyState
+          title="书架还是空的"
+          description="把章节整理成 EPUB 或 PDF 后，它们会带着封面出现在这里。"
+          action={<button onClick={onOpenMerge}>去整理漫画</button>}
+        />
       )}
       {!loaded && (
-        <section className="empty">
-          <h2>选择漫画工作区后开始</h2>
-          <p>指向已合并的工作区，点击「刷新」生成书架。</p>
-        </section>
+        <WorkbenchEmptyState
+          title="选择漫画工作区后开始"
+          description="指向已合并的工作区，刷新后即可生成数字书架。"
+          action={<button onClick={() => void onChooseWorkspace()}>选择工作区</button>}
+        />
       )}
     </div>
   )

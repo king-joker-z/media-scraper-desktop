@@ -39,6 +39,22 @@ test('sortVideos by title and size with order', () => {
   )
 })
 
+test('sortVideos keeps 99 before 100 in title and sequence order', () => {
+  const videos = [
+    { name: '片段 100.mp4', size: 1, relativePath: '100.mp4' },
+    { name: '片段 99.mp4', size: 1, relativePath: '99.mp4' },
+    { name: '片段 2.mp4', size: 1, relativePath: '2.mp4' }
+  ]
+  assert.deepEqual(
+    sortVideos(videos, 'title', 'asc').map((video) => video.name),
+    ['片段 2.mp4', '片段 99.mp4', '片段 100.mp4']
+  )
+  assert.deepEqual(
+    buildSequenceStems(videos).map((pair) => pair.newStem),
+    ['01.片段 2', '02.片段 99', '03.片段 100']
+  )
+})
+
 test('buildSequenceStems generates padded serial with separator', () => {
   const videos = [
     { name: 'b.mp4', size: 2, relativePath: 'b.mp4' },

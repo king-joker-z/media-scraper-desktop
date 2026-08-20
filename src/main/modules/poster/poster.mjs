@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
+import { compareTitles } from '../../../shared/rename-rules.mjs'
 import { createScanPlan, posterFinalName } from '../../core/scanner.mjs'
 import {
   captureFrame,
@@ -209,7 +210,7 @@ export async function rankCandidateFrames(framePaths) {
     }
   })
   return scored.sort(
-    (left, right) => right.score - left.score || left.path.localeCompare(right.path)
+    (left, right) => right.score - left.score || compareTitles(left.path, right.path)
   )
 }
 

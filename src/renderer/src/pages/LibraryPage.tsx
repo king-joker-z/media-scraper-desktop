@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { compareTitles } from '../../../shared/rename-rules.mjs'
 import type { LibraryDensity, MergeVideoItem, Orientation } from '../../../shared/types'
 import ErrorBanner from '../components/ErrorBanner'
 import VideoModal from '../components/VideoModal'
@@ -84,9 +85,12 @@ function LibraryPage({
       list = list.filter((video) => video.media?.orientation === orientation)
     if (statusFilter === 'no-poster') list = list.filter((video) => !video.posterPath)
     return [...list].sort((a, b) => {
-      if (sortKey === 'size') return b.size - a.size
-      if (sortKey === 'duration') return (b.media?.durationMs ?? 0) - (a.media?.durationMs ?? 0)
-      return a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true })
+      if (sortKey === 'size') return b.size - a.size || compareTitles(a.name, b.name)
+      if (sortKey === 'duration')
+        return (
+          (b.media?.durationMs ?? 0) - (a.media?.durationMs ?? 0) || compareTitles(a.name, b.name)
+        )
+      return compareTitles(a.name, b.name)
     })
   }, [videos, keyword, sortKey, orientation, statusFilter])
 

@@ -21,6 +21,9 @@ import {
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
 import RenameComparisonEditor from '../components/RenameComparisonEditor'
+import StatusBadge from '../components/StatusBadge'
+import WorkbenchEmptyState from '../components/WorkbenchEmptyState'
+import WorkbenchHeader from '../components/WorkbenchHeader'
 import { buildRenameComparisonRows, type RenameRuleStep } from '../components/rename-comparison'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
@@ -494,51 +497,73 @@ function RenamePage({
 
   return (
     <div className="page rename-page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">模块三 · 批量重命名</p>
-          <h1>批量重命名</h1>
-          <p className="muted">视频与 poster 成组改名，poster 自动同步为「新名-poster.jpg」。</p>
-        </div>
-        <div className="actions">
-          <button
-            className="secondary"
-            onClick={onChooseWorkspace}
-            disabled={executing || aiLoading}
-          >
-            选择工作区
-          </button>
-          <button
-            className="secondary"
-            onClick={refresh}
-            disabled={!workspace || loading || executing || aiLoading}
-          >
-            {loading ? '扫描中…' : '扫描视频'}
-          </button>
-          {pairs.length > 0 && (
+      <WorkbenchHeader
+        eyebrow="视频工坊 / 批量整理"
+        title="批量重命名"
+        description="按统一规则预览文件改名；视频与 poster 始终作为一组安全迁移。"
+        actions={
+          <>
             <button
-              disabled={
-                changedPairs.length === 0 ||
-                Object.keys(errors).length > 0 ||
-                executing ||
-                aiLoading
-              }
-              onClick={() => setConfirming(true)}
+              className="secondary"
+              onClick={onChooseWorkspace}
+              disabled={executing || aiLoading}
             >
-              {executing ? '执行中…' : `执行重命名（${changedPairs.length}）`}
+              选择工作区
             </button>
-          )}
-          {(executing || aiLoading) && (
-            <button className="secondary" onClick={() => void window.api.cancelRename()}>
-              取消
+            <button
+              className="secondary"
+              onClick={refresh}
+              disabled={!workspace || loading || executing || aiLoading}
+            >
+              {loading ? '扫描中…' : '扫描视频'}
             </button>
-          )}
-        </div>
-      </header>
+            {pairs.length > 0 && (
+              <button
+                disabled={
+                  changedPairs.length === 0 ||
+                  Object.keys(errors).length > 0 ||
+                  executing ||
+                  aiLoading
+                }
+                onClick={() => setConfirming(true)}
+              >
+                {executing ? '执行中…' : `执行重命名（${changedPairs.length}）`}
+              </button>
+            )}
+            {(executing || aiLoading) && (
+              <button className="secondary" onClick={() => void window.api.cancelRename()}>
+                取消
+              </button>
+            )}
+          </>
+        }
+      />
 
-      <section className="path-card">
-        <span>当前工作区</span>
-        <strong>{workspace || '尚未选择目录'}</strong>
+      <section className="workbench-overview rename-overview" aria-label="重命名任务概览">
+        <div>
+          <span>当前工作区</span>
+          <strong title={workspace || undefined}>{workspace || '尚未选择目录'}</strong>
+        </div>
+        <div>
+          <span>已扫描素材</span>
+          <strong>{loaded ? videos.length : '—'}</strong>
+        </div>
+        <div>
+          <span>待执行改名</span>
+          <strong>{loaded ? changedPairs.length : '—'}</strong>
+        </div>
+        <div>
+          <span>预检状态</span>
+          <StatusBadge
+            tone={Object.keys(errors).length > 0 ? 'danger' : loaded ? 'success' : 'warning'}
+          >
+            {Object.keys(errors).length > 0
+              ? `${Object.keys(errors).length} 项需修正`
+              : loaded
+                ? '可以执行'
+                : '等待扫描'}
+          </StatusBadge>
+        </div>
       </section>
 
       {error && <ErrorBanner message={error} />}
@@ -715,15 +740,14 @@ function RenamePage({
       )}
 
       {loaded && videos.length === 0 && (
-        <section className="empty">
-          <h2>没有发现视频</h2>
-        </section>
+        <WorkbenchEmptyState title="没有发现视频" description="当前目录中没有可处理的视频文件。" />
       )}
       {!loaded && (
-        <section className="empty">
-          <h2>扫描后开始</h2>
-          <p>选择工作区并点击「扫描视频」。</p>
-        </section>
+        <WorkbenchEmptyState
+          title="扫描后开始"
+          description="选择视频工作区并扫描，系统会生成可逐项确认的重命名预览。"
+          action={<button onClick={() => void onChooseWorkspace()}>选择工作区</button>}
+        />
       )}
 
       {report && (

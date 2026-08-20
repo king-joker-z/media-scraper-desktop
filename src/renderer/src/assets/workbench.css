@@ -245,6 +245,42 @@
   }
 }
 
+/* 操作日志采用「记录列表 / 属性检查器」的紧凑工作台布局；窄容器再回落为纵向，避免文件名列被压缩。 */
+.workbench-operation-timeline .operation-timeline-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(330px, 1.05fr);
+  align-items: stretch;
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+}
+
+.workbench-operation-timeline .operation-timeline-list {
+  max-height: 600px;
+  padding: 12px;
+  background: var(--media-stage);
+}
+
+.workbench-operation-timeline .operation-detail-panel {
+  min-height: 420px;
+  max-height: 600px;
+  overflow: auto;
+  border-top: 0;
+  border-left: 1px solid var(--border-subtle);
+}
+
+@container (max-width: 820px) {
+  .workbench-operation-timeline .operation-timeline-layout {
+    display: block;
+  }
+
+  .workbench-operation-timeline .operation-detail-panel {
+    min-height: 0;
+    max-height: none;
+    border-top: 1px solid var(--border-subtle);
+    border-left: 0;
+  }
+}
+
 @media (max-width: 760px) {
   .workbench-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
