@@ -17,6 +17,8 @@ import type {
   NfoPlan,
   NfoPlanItem,
   NfoReport,
+  OpLogDetail,
+  OpLogSummary,
   PosterBatchSaveReport,
   PosterCaptureOptions,
   PosterPicks,
@@ -31,6 +33,7 @@ import type {
   StorageCleanResult,
   StorageStats,
   TaskEvent,
+  UndoPreflight,
   UndoReport,
   UpdateStatus
 } from '../shared/types'
@@ -166,19 +169,19 @@ const api = {
   clearBackgroundImage: (): Promise<AppSettings> => ipcRenderer.invoke('background:clear-image'),
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:update', patch),
-  listOpLogs: (): Promise<
-    {
-      file: string
-      module: string
-      finishedAt: string
-      summary: string
-      undone: boolean
-      undoable: boolean
-    }[]
-  > => ipcRenderer.invoke('op-logs:list'),
+  listOpLogs: (): Promise<OpLogSummary[]> => ipcRenderer.invoke('op-logs:list'),
+  getOpLogDetail: (file: string): Promise<OpLogDetail> =>
+    ipcRenderer.invoke('op-logs:get-detail', file),
+  preflightUndoOpLog: (file: string): Promise<UndoPreflight> =>
+    ipcRenderer.invoke('op-logs:preflight-undo', file),
   revealOpLog: (file: string): Promise<void> => ipcRenderer.invoke('op-logs:reveal', file),
   /** 一键撤销（F2）：按日志反向恢复重命名/NFO 归档 */
   undoOpLog: (file: string): Promise<UndoReport> => ipcRenderer.invoke('op-logs:undo', file),
+  onOpLogsChange: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('op-logs:changed', listener)
+    return () => ipcRenderer.removeListener('op-logs:changed', listener)
+  },
   cancelTask: (taskId: string): Promise<boolean> => ipcRenderer.invoke('tasks:cancel', taskId),
   onTaskEvent: (callback: (event: TaskEvent) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, payload: TaskEvent): void => callback(payload)

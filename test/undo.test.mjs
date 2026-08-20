@@ -1,11 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { executeRename, recoverRenameJournal } from '../src/main/modules/rename/execute.mjs'
 import { executeNfoPlan } from '../src/main/modules/nfo/nfo.mjs'
-import { undoOpLog } from '../src/main/modules/undo/undo.mjs'
+import { preflightUndoOpLog, undoOpLog } from '../src/main/modules/undo/undo.mjs'
 import { createTaskCenter } from '../src/main/core/task-center.mjs'
 import { pathExists, writeTextFile } from '../src/main/core/fs-ops.mjs'
 import { writeOpLog } from '../src/main/core/op-log.mjs'
@@ -91,6 +91,10 @@ test('撤销重命名：按日志把新名移回原路径，重复撤销被拒�
     assert.equal(await pathExists(join(root, 'sub', '01.A.mp4')), true)
 
     const logFile = await writeOpLog(root, 'rename', { root, report, summary: '改名 1 项' })
+    const preflight = await preflightUndoOpLog(logFile)
+    assert.equal(preflight.canUndo, true)
+    assert.equal(preflight.ready, 1)
+    assert.equal(preflight.skipped, 0)
     const undo = await undoOpLog(logFile)
     assert.equal(undo.undone, 1)
     assert.equal(undo.failed.length, 0)
@@ -99,6 +103,56 @@ test('撤销重命名：按日志把新名移回原路径，重复撤销被拒�
 
     // 重复撤销被拒绝
     await assert.rejects(undoOpLog(logFile), /已撤销/)
+  })
+})
+
+test('撤销交换重命名会通过两段式恢复原始内容，不产生 (1) 后缀', async () => {
+  await withTempDir(async (root) => {
+    await writeFile(join(root, 'A.mp4'), 'content-A')
+    await writeFile(join(root, 'B.mp4'), 'content-B')
+    const report = await executeRename(
+      root,
+      [
+        { videoRel: 'A.mp4', posterRel: null, newStem: 'B' },
+        { videoRel: 'B.mp4', posterRel: null, newStem: 'A' }
+      ],
+      { taskCenter: center(), taskId: 'swap' }
+    )
+    const logFile = await writeOpLog(root, 'rename', { root, report, summary: '交换改名' })
+    const undo = await undoOpLog(logFile)
+    assert.equal(undo.failed.length, 0)
+    assert.equal(await readFile(join(root, 'A.mp4'), 'utf8'), 'content-A')
+    assert.equal(await readFile(join(root, 'B.mp4'), 'utf8'), 'content-B')
+    assert.equal(await pathExists(join(root, 'A (1).mp4')), false)
+    assert.equal(await pathExists(join(root, 'B (1).mp4')), false)
+  })
+})
+
+test('撤销三项循环和关联 poster 均恢复正确内容', async () => {
+  await withTempDir(async (root) => {
+    for (const [name, content] of [
+      ['A', 'video-A'],
+      ['B', 'video-B'],
+      ['C', 'video-C']
+    ]) {
+      await writeFile(join(root, `${name}.mp4`), content)
+      await writeFile(join(root, `${name}-poster.jpg`), `poster-${name}`)
+    }
+    const report = await executeRename(
+      root,
+      [
+        { videoRel: 'A.mp4', posterRel: 'A-poster.jpg', newStem: 'B' },
+        { videoRel: 'B.mp4', posterRel: 'B-poster.jpg', newStem: 'C' },
+        { videoRel: 'C.mp4', posterRel: 'C-poster.jpg', newStem: 'A' }
+      ],
+      { taskCenter: center(), taskId: 'cycle' }
+    )
+    const logFile = await writeOpLog(root, 'rename', { root, report, summary: '循环改名' })
+    await undoOpLog(logFile)
+    for (const name of ['A', 'B', 'C']) {
+      assert.equal(await readFile(join(root, `${name}.mp4`), 'utf8'), `video-${name}`)
+      assert.equal(await readFile(join(root, `${name}-poster.jpg`), 'utf8'), `poster-${name}`)
+    }
   })
 })
 
@@ -127,6 +181,40 @@ test('撤销 NFO 归档：视频/poster 移回根目录，NFO 删除，空目录
     assert.equal(await pathExists(join(root, 'M')), false)
     const remaining = await readdir(root)
     assert.ok(!remaining.some((name) => name.endsWith('.nfo')))
+  })
+})
+
+test('NFO 撤销遇到视频缺失时保留 NFO 元数据', async () => {
+  await withTempDir(async (root) => {
+    await writeFile(join(root, 'M.mp4'), 'v')
+    const report = await executeNfoPlan(
+      root,
+      [{ videoRel: 'M.mp4', stem: 'M', posterRel: null, targetDir: 'M', conflict: false }],
+      'actor',
+      { taskCenter: center(), taskId: 'nfo-missing' }
+    )
+    const logFile = await writeOpLog(root, 'nfo', { root, report, summary: '归档 1 个视频' })
+    await unlink(join(root, 'M', 'M.mp4'))
+    const undo = await undoOpLog(logFile)
+    assert.equal(undo.skipped, 1)
+    assert.equal(undo.nfoRetained.length, 1)
+    assert.equal(await pathExists(join(root, 'M', 'M.nfo')), true)
+  })
+})
+
+test('撤销预检在没有可恢复文件时明确阻止执行', async () => {
+  await withTempDir(async (root) => {
+    const logFile = await writeOpLog(root, 'rename', {
+      root,
+      report: { items: [{ from: 'before.mp4', to: 'after.mp4' }] },
+      summary: '改名 1 项'
+    })
+    const preflight = await preflightUndoOpLog(logFile)
+    assert.equal(preflight.canUndo, false)
+    assert.equal(preflight.ready, 0)
+    assert.equal(preflight.skipped, 1)
+    assert.equal(preflight.reason, '没有可恢复的文件')
+    assert.equal(preflight.items[0].status, 'missing')
   })
 })
 

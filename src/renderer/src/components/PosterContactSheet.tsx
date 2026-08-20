@@ -44,6 +44,8 @@ function PosterContactSheet({
   const [collapseSimilar, setCollapseSimilar] = useState(true)
   const [activePath, setActivePath] = useState<string | null>(selection ?? frames[0]?.path ?? null)
   const [seekingPath, setSeekingPath] = useState<string | null>(null)
+  const [positionedPath, setPositionedPath] = useState<string | null>(null)
+  const seekRequestRef = useRef(0)
   const gridRef = useRef<HTMLDivElement>(null)
 
   const orderedFrames = useMemo(() => {
@@ -81,14 +83,23 @@ function PosterContactSheet({
     : (orderedFrames[0]?.path ?? null)
 
   const activate = async (frame: ContactFrame): Promise<void> => {
+    const requestId = seekRequestRef.current + 1
+    seekRequestRef.current = requestId
     setActivePath(frame.path)
+    setPositionedPath(null)
     onSelect(frame.path)
-    if (typeof frame.score?.timestampMs !== 'number') return
+    if (typeof frame.score?.timestampMs !== 'number') {
+      setSeekingPath(null)
+      return
+    }
     setSeekingPath(frame.path)
     try {
       await onSeek(frame.score.timestampMs)
+      if (seekRequestRef.current === requestId) setPositionedPath(frame.path)
+    } catch {
+      if (seekRequestRef.current === requestId) setPositionedPath(null)
     } finally {
-      setSeekingPath(null)
+      if (seekRequestRef.current === requestId) setSeekingPath(null)
     }
   }
 
@@ -214,6 +225,17 @@ function PosterContactSheet({
             const isSelected = frame.path === selection
             const isActive = frame.path === activeFramePath
             const timestamp = frame.score?.timestampMs
+            const similarityDistance = frame.score?.similarityDistance
+            const similarityLabel =
+              !collapseSimilar && groupSize > 1 && typeof similarityDistance === 'number'
+                ? `，与代表帧差异 ${similarityDistance}/64`
+                : ''
+            const caption =
+              seekingPath === frame.path
+                ? '定位中…'
+                : positionedPath === frame.path
+                  ? '已定位'
+                  : labelFor(frame)
             return (
               <button
                 key={frame.path}
@@ -222,7 +244,7 @@ function PosterContactSheet({
                 data-frame-path={frame.path}
                 tabIndex={isActive ? 0 : -1}
                 className={`contact-frame ${isSelected ? 'selected' : ''} ${frame.current ? 'current' : ''}`}
-                aria-label={`${labelFor(frame)}${typeof timestamp === 'number' ? `，时间 ${formatDuration(timestamp)}` : ''}${groupSize > 1 ? `，相似组共 ${groupSize} 帧` : ''}`}
+                aria-label={`${labelFor(frame)}${typeof timestamp === 'number' ? `，时间 ${formatDuration(timestamp)}` : ''}${groupSize > 1 ? `，相似组共 ${groupSize} 帧` : ''}${similarityLabel}`}
                 onFocus={() => setActivePath(frame.path)}
                 onClick={() => void activate(frame)}
               >
@@ -237,10 +259,11 @@ function PosterContactSheet({
                 <span className="contact-frame-topline">
                   {typeof timestamp === 'number' && <span>{formatDuration(timestamp)}</span>}
                   {groupSize > 1 && <span>相似 {groupSize}</span>}
+                  {!collapseSimilar && groupSize > 1 && typeof similarityDistance === 'number' && (
+                    <span>差异 {similarityDistance}/64</span>
+                  )}
                 </span>
-                <span className="contact-frame-caption">
-                  {seekingPath === frame.path ? '已定位' : labelFor(frame)}
-                </span>
+                <span className="contact-frame-caption">{caption}</span>
                 {isSelected && <span className="contact-frame-selection">已选择</span>}
               </button>
             )

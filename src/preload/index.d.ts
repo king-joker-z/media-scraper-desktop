@@ -17,6 +17,8 @@ import type {
   NfoPlan,
   NfoPlanItem,
   NfoReport,
+  OpLogDetail,
+  OpLogSummary,
   PosterBatchSaveReport,
   PosterCaptureOptions,
   PosterPicks,
@@ -31,6 +33,7 @@ import type {
   StorageCleanResult,
   StorageStats,
   TaskEvent,
+  UndoPreflight,
   UndoReport,
   UpdateStatus
 } from '../shared/types'
@@ -150,18 +153,13 @@ declare global {
       /** 清除当前背景图，同时删除应用私有副本 */
       clearBackgroundImage: () => Promise<AppSettings>
       updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>
-      listOpLogs: () => Promise<
-        {
-          file: string
-          module: string
-          finishedAt: string
-          summary: string
-          undone: boolean
-          undoable: boolean
-        }[]
-      >
+      listOpLogs: () => Promise<OpLogSummary[]>
+      getOpLogDetail: (file: string) => Promise<OpLogDetail>
+      preflightUndoOpLog: (file: string) => Promise<UndoPreflight>
       revealOpLog: (file: string) => Promise<void>
       undoOpLog: (file: string) => Promise<UndoReport>
+      /** 操作日志成功写入或原日志更新后通知常驻时间线刷新。 */
+      onOpLogsChange: (callback: () => void) => () => void
       /** 请求取消仍在执行且允许取消的任务；返回 false 表示该任务已结束或不可取消。 */
       cancelTask: (taskId: string) => Promise<boolean>
       onTaskEvent: (callback: (event: TaskEvent) => void) => () => void

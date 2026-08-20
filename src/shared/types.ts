@@ -417,6 +417,10 @@ export interface UndoReport {
   /** 已不存在而跳过的条目数 */
   skipped: number
   failed: { target: string; error: string }[]
+  /** 因关联素材未完整恢复而保留的 NFO 元数据。 */
+  nfoRetained?: { target: string; reason: string }[]
+  /** 本次撤销尝试时间；从持久化日志读取时存在。 */
+  attemptedAt?: string
 }
 
 /* ---------------------------- 任务中心 ---------------------------- */
@@ -583,6 +587,60 @@ export interface StorageStats {
 export interface StorageCleanResult {
   category: StorageCategory
   freedBytes: number
+}
+
+/* ------------------------- 操作时间线与撤销（U7） ------------------------- */
+
+export type OpLogCategory = 'delete' | 'rename' | 'archive' | 'merge' | 'other'
+
+/** 操作日志列表的一条轻量摘要；file 仅是不含路径的日志标识。 */
+export interface OpLogSummary {
+  file: string
+  module: string
+  category: OpLogCategory
+  finishedAt: string
+  summary: string
+  affectedCount: number
+  successCount: number
+  failedCount: number
+  undone: boolean
+  undoable: boolean
+}
+
+/** 详情中受影响文件的相对路径与执行结果；不向渲染端暴露日志绝对路径。 */
+export interface OpLogAffectedItem {
+  before?: string
+  after?: string
+  target?: string
+  status: 'done' | 'failed' | 'skipped'
+  error?: string
+}
+
+/** 按需读取的操作日志详情，兼容旧日志字段缺失。 */
+export interface OpLogDetail extends OpLogSummary {
+  workspace?: string
+  legacy: boolean
+  items: OpLogAffectedItem[]
+  failures: { target: string; error: string }[]
+  undoneAt?: string
+  undoReport?: UndoReport
+}
+
+export interface UndoPreflightItem {
+  target: string
+  status: 'ready' | 'missing' | 'collision'
+  message?: string
+}
+
+/** 撤销执行前的只读检查，最终执行仍会重新检查文件系统状态。 */
+export interface UndoPreflight {
+  module: string
+  canUndo: boolean
+  reason?: string
+  ready: number
+  skipped: number
+  collisions: number
+  items: UndoPreflightItem[]
 }
 
 /* ------------------------- 自动更新（F7） ------------------------- */

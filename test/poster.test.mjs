@@ -192,21 +192,27 @@ test('候选帧质量评分会排除纯色背景且保留清晰画面', async ()
   })
 })
 
-test('视觉相似哈希分组稳定且只合并阈值内的候选', () => {
+test('视觉相似哈希按代表帧分组，避免传递链路过度折叠', () => {
   assert.equal(hammingDistance('0000000000000000', '000000000000000f'), 4)
   assert.deepEqual(
     groupSimilarHashes(['0000000000000000', '0000000000000003', 'ffffffffffffffff']),
     [[0, 1]]
   )
+  // A 与 B 距离 9、B 与 C 距离 9，但 A 与 C 距离 18：C 不得因连通关系并入 A 组。
+  assert.deepEqual(
+    groupSimilarHashes(['0000000000000000', '00000000000001ff', '000000000003ffff'], 10),
+    [[0, 1]]
+  )
   const scores = assignSimilarityGroups([
-    { path: 'a.jpg', hash: '0000000000000000' },
-    { path: 'b.jpg', hash: '0000000000000003' },
-    { path: 'c.jpg', hash: 'ffffffffffffffff' }
+    { path: 'a.jpg', hash: '0000000000000000', score: 40 },
+    { path: 'b.jpg', hash: '0000000000000003', score: 80 },
+    { path: 'c.jpg', hash: 'ffffffffffffffff', score: 100 }
   ])
+  // 质量更高的 b 是代表帧，即使它在原数组中排在 a 后面。
   assert.equal(scores[0].similarityGroup, 1)
-  assert.equal(scores[0].similarityDistance, 0)
+  assert.equal(scores[0].similarityDistance, 2)
   assert.equal(scores[1].similarityGroup, 1)
-  assert.equal(scores[1].similarityDistance, 2)
+  assert.equal(scores[1].similarityDistance, 0)
   assert.equal(scores[2].similarityGroup, undefined)
 })
 

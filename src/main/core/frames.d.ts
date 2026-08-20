@@ -29,6 +29,6 @@ declare module './frames.mjs' {
     videoPath: string,
     jobs: Array<{ seconds: number; target: string }>,
     ffmpegPath?: string,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; fast?: boolean; width?: number; quality?: number }
   ): Promise<string[]>
 }

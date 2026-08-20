@@ -122,15 +122,15 @@ export function buildMultiCaptureArgs(videoPath, jobs) {
  * 批量截帧：逐帧使用单输入 FFmpeg 调用，返回成功生成的帧路径。
  *
  * 不复用同一视频作为多个 FFmpeg 输入：部分容错较差的 MP4 在多输入模式下会报
- * "Invalid sample size"，即使单输入的手动截帧完全正常。候选帧采用输入侧快速 seek，
- * 每个进程耗时很短；外层视频任务和 FFmpeg 池仍负责全局并发控制。
+ * "Invalid sample size"，即使单输入的手动截帧完全正常。调用方可选择快速或精确 seek；
+ * 外层视频任务和 FFmpeg 池仍负责全局并发控制。
  * 单个时点失败不会让其余候选帧失败；只有全部时点都失败才抛错。支持 AbortSignal 取消。
  */
 export async function captureFrames(
   videoPath,
   jobs,
   ffmpegPath = resolveFfmpegPath(),
-  { signal, width = 1920, quality = 2 } = {}
+  { signal, fast = false, width = 1920, quality = 2 } = {}
 ) {
   if (jobs.length === 0) return []
   await mkdir(dirname(jobs[0].target), { recursive: true })
@@ -145,7 +145,7 @@ export async function captureFrames(
     try {
       await captureFrame(videoPath, job.seconds, job.target, ffmpegPath, {
         signal,
-        fast: true,
+        fast,
         width,
         quality
       })
@@ -199,7 +199,7 @@ export async function detectSceneCuts(
 
 /**
  * 截取单帧为 JPG；失败（无输出文件）抛错。支持 AbortSignal 取消。
- * fast=true 用快速 seek（候选封面批量生成）；默认两段式精确 seek（用户手动选帧）。
+ * fast=true 用快速 seek；默认两段式精确 seek。
  */
 export async function captureFrame(
   videoPath,

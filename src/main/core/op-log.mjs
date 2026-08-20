@@ -1,17 +1,10 @@
 import { readdir, readFile, rm } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve, win32 } from 'node:path'
 import { writeAtomicTextFile } from './fs-ops.mjs'
 
-/**
- * 操作日志（冻结稿：永久删除不可恢复，留档可查）。
- * 每个执行任务落一份 JSON 到 userData/op-logs/。
- */
-
-/** 最多保留的日志份数（超出后最旧的被清理，防止目录无限增长） */
 export const OP_LOG_KEEP = 100
 
-/** 清理旧日志：按文件名（ISO 时间戳可排序）保留最新 keep 份。返回删除的文件数。 */
 export async function pruneOpLogs(dir, keep = OP_LOG_KEEP) {
   let files = []
   try {
@@ -19,31 +12,26 @@ export async function pruneOpLogs(dir, keep = OP_LOG_KEEP) {
   } catch {
     return 0
   }
-  const sorted = files
-    .filter((f) => f.endsWith('.json'))
+  const stale = files
+    .filter((file) => file.endsWith('.json'))
     .sort()
     .reverse()
-  const stale = sorted.slice(Math.max(0, keep))
-  for (const file of stale) {
-    await rm(join(dir, file), { force: true }).catch(() => {})
-  }
+    .slice(Math.max(0, keep))
+  for (const file of stale) await rm(join(dir, file), { force: true }).catch(() => {})
   return stale.length
 }
 
 export async function writeOpLog(dir, module, payload) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  // 日志异步写入且跨模块可并行，同一毫秒不能复用同名文件，否则会丢失撤销依据。
   const file = join(dir, `${stamp}-${module}-${randomUUID()}.json`)
   await writeAtomicTextFile(
     file,
     JSON.stringify({ module, finishedAt: new Date().toISOString(), ...payload }, null, 2)
   )
-  // 顺带修剪历史日志，失败不影响主流程
   await pruneOpLogs(dir).catch(() => 0)
   return file
 }
 
-/** 读取单份日志的完整内容；不存在/损坏返回 null。 */
 export async function readOpLog(file) {
   try {
     return JSON.parse(await readFile(file, 'utf8'))
@@ -52,15 +40,149 @@ export async function readOpLog(file) {
   }
 }
 
-/** 回写 undoneAt 标记（一键撤销成功后防重复撤销）。 */
-export async function markOpLogUndone(file, log) {
+/** 在原日志持久记录每次撤销尝试；仅无失败时标记为已撤销，保留部分成功的真实结果。 */
+export async function markOpLogUndoAttempt(file, log, report, completed) {
+  const attempt = { attemptedAt: new Date().toISOString(), ...report }
   await writeAtomicTextFile(
     file,
-    JSON.stringify({ ...log, undoneAt: new Date().toISOString() }, null, 2)
+    JSON.stringify(
+      { ...log, lastUndoAttempt: attempt, ...(completed ? { undoneAt: attempt.attemptedAt } : {}) },
+      null,
+      2
+    )
   )
 }
 
-/** 最近的日志摘要（新到旧）。 */
+const undoable = (raw) =>
+  !raw.undoneAt &&
+  ((raw.module === 'rename' && (raw.report?.items?.length ?? 0) > 0) ||
+    (raw.module === 'nfo' && (raw.report?.archived?.length ?? 0) > 0))
+const categoryOf = (module) =>
+  module.includes('delete') || module === 'clean'
+    ? 'delete'
+    : module.includes('rename')
+      ? 'rename'
+      : module === 'nfo'
+        ? 'archive'
+        : module.includes('merge')
+          ? 'merge'
+          : 'other'
+
+/** 将绝对路径严格相对化到日志工作区；根外、Windows 盘符与 UNC 一律不泄漏。 */
+const safePath = (value, root) => {
+  if (typeof value !== 'string' || !value) return '未知项'
+  const windowsAbsolute =
+    win32.isAbsolute(value) || /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\/.test(value)
+  if (!isAbsolute(value) && !windowsAbsolute) return value.replace(/\\/g, '/')
+  if (!root) return '工作区外路径'
+  const rootWindows = win32.isAbsolute(root) || /^[a-zA-Z]:[\\/]/.test(root) || /^\\\\/.test(root)
+  if (windowsAbsolute || rootWindows) {
+    const diff = win32.relative(root.replace(/\//g, '\\'), value.replace(/\//g, '\\'))
+    return diff && !diff.startsWith('..\\') && diff !== '..' && !win32.isAbsolute(diff)
+      ? diff.replace(/\\/g, '/')
+      : '工作区外路径'
+  }
+  const diff = relative(resolve(root), resolve(value))
+  return diff && !diff.startsWith('../') && diff !== '..' && !isAbsolute(diff)
+    ? diff
+    : '工作区外路径'
+}
+
+const failuresOf = (raw) =>
+  Array.isArray(raw.report?.failed)
+    ? raw.report.failed
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => ({
+          target: safePath(String(item.target ?? ''), raw.root),
+          error: String(item.error ?? '未知错误')
+        }))
+    : []
+
+const countOf = (raw, failures) => {
+  const report = raw.report ?? {}
+  const affected =
+    report.items?.length ??
+    report.archived?.length ??
+    raw.items?.length ??
+    report.deletedCount ??
+    report.renamedCount ??
+    report.archivedCount ??
+    report.merged?.length ??
+    0
+  const success =
+    report.deletedCount ??
+    report.renamedCount ??
+    report.archivedCount ??
+    report.undone ??
+    report.merged?.length ??
+    0
+  return { affected: Number(affected) || 0, success: Number(success) || 0, failed: failures.length }
+}
+
+const summaryOf = (file, raw) => {
+  const failures = failuresOf(raw)
+  const counts = countOf(raw, failures)
+  return {
+    file,
+    module: raw.module ?? '?',
+    category: categoryOf(raw.module ?? '?'),
+    finishedAt: raw.finishedAt ?? '',
+    summary: raw.summary ?? '旧格式记录，详情有限',
+    affectedCount: counts.affected,
+    successCount: counts.success,
+    failedCount: counts.failed,
+    undone: Boolean(raw.undoneAt),
+    undoable: undoable(raw)
+  }
+}
+
+const detailItemsOf = (raw) => {
+  const items = []
+  if (Array.isArray(raw.report?.items))
+    for (const item of raw.report.items)
+      items.push({
+        before: safePath(item.from, raw.root),
+        after: safePath(item.to, raw.root),
+        status: 'done'
+      })
+  else if (Array.isArray(raw.report?.archived))
+    for (const item of raw.report.archived)
+      items.push({
+        before: safePath(item.videoRel ?? item.videoName, raw.root),
+        after: safePath(item.targetDir, raw.root),
+        status: 'done'
+      })
+  else if (Array.isArray(raw.items))
+    for (const item of raw.items)
+      items.push({
+        target: safePath(
+          typeof item === 'string' ? item : (item.videoRel ?? item.relDir),
+          raw.root
+        ),
+        status: 'done'
+      })
+  for (const failure of failuresOf(raw))
+    items.push({ target: failure.target, status: 'failed', error: failure.error })
+  return items.filter((item) => item.before || item.after || item.target)
+}
+
+/** 读取单份脱敏详情；file 只能是 op-log 目录内的日志文件名。 */
+export async function getOpLogDetail(dir, file) {
+  if (typeof file !== 'string' || basename(file) !== file || !file.endsWith('.json')) return null
+  const raw = await readOpLog(join(dir, file))
+  if (!raw) return null
+  const summary = summaryOf(file, raw)
+  return {
+    ...summary,
+    workspace: typeof raw.root === 'string' ? basename(raw.root) : undefined,
+    legacy: !raw.summary || !raw.report,
+    items: detailItemsOf(raw),
+    failures: failuresOf(raw),
+    undoneAt: raw.undoneAt,
+    undoReport: raw.lastUndoAttempt
+  }
+}
+
 export async function listOpLogs(dir, limit = 50) {
   let files = []
   try {
@@ -69,42 +191,19 @@ export async function listOpLogs(dir, limit = 50) {
     return []
   }
   const sorted = files
-    .filter((f) => f.endsWith('.json'))
+    .filter((file) => file.endsWith('.json'))
     .sort()
     .reverse()
     .slice(0, limit)
-  // 分批并行读取（串行 readFile 在日志多/机械盘上会阻塞 IPC 数秒）
   const logs = []
-  const READ_BATCH = 8
-  for (let i = 0; i < sorted.length; i += READ_BATCH) {
-    const batch = sorted.slice(i, i + READ_BATCH)
+  for (let index = 0; index < sorted.length; index += 8) {
     const parsed = await Promise.all(
-      batch.map(async (file) => {
-        try {
-          return { file, raw: JSON.parse(await readFile(join(dir, file), 'utf8')) }
-        } catch {
-          return null // 损坏日志跳过
-        }
+      sorted.slice(index, index + 8).map(async (file) => {
+        const raw = await readOpLog(join(dir, file))
+        return raw ? { file, raw } : null
       })
     )
-    for (const entry of parsed) {
-      if (!entry) continue
-      const { file, raw } = entry
-      logs.push({
-        file: join(dir, file),
-        module: raw.module ?? '?',
-        finishedAt: raw.finishedAt ?? '',
-        summary: raw.summary ?? '',
-        undone: Boolean(raw.undoneAt),
-        undoable:
-          !raw.undoneAt &&
-          (raw.module === 'rename'
-            ? (raw.report?.items?.length ?? 0) > 0
-            : raw.module === 'nfo'
-              ? (raw.report?.archived?.length ?? 0) > 0
-              : false)
-      })
-    }
+    for (const entry of parsed) if (entry) logs.push(summaryOf(entry.file, entry.raw))
   }
   return logs
 }

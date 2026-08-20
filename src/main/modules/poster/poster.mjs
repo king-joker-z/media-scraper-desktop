@@ -168,11 +168,16 @@ export async function scoreCandidateFrame(framePath) {
 
 /** 为视觉相似候选分配组号；分组仅影响接触表浏览，不影响推荐、自动选择或保存。 */
 export function assignSimilarityGroups(scores) {
-  const groups = groupSimilarHashes(scores.map((entry) => entry.hash))
+  // 即使调用方未预先排序，也始终选质量最高的候选作为组代表帧。
+  const orderedIndices = scores
+    .map((_, index) => index)
+    .sort((left, right) => (scores[right].score ?? 0) - (scores[left].score ?? 0) || left - right)
+  const groups = groupSimilarHashes(orderedIndices.map((index) => scores[index].hash))
   const assignments = new Map()
   groups.forEach((members, groupIndex) => {
-    const representative = members[0]
-    for (const index of members) {
+    const representative = orderedIndices[members[0]]
+    for (const member of members) {
+      const index = orderedIndices[member]
       assignments.set(index, {
         similarityGroup: groupIndex + 1,
         similarityDistance:
@@ -241,7 +246,7 @@ export async function captureCandidates(
     timestamps = [...new Set([0, ...timestamps])].slice(0, 5)
     if (timestamps.length < 3) timestamps = buildFrameTimestamps(durationMs)
   }
-  // 候选截帧使用输入侧快速 seek；单个时点失败会被容忍剔除，全部失败才抛错。
+  // 候选截帧使用精确 seek，使候选预览、播放器定位和最终保存始终对应同一画面。
   const jobs = timestamps.map((seconds, i) => ({
     seconds,
     target: join(
@@ -252,6 +257,7 @@ export async function captureCandidates(
   // 候选只供预览和评分，低清 JPEG 大幅减少解码、编码及临时文件写入。
   const frames = await captureFrames(videoPath, jobs, ffmpegPath, {
     signal,
+    fast: false,
     width: PREVIEW_WIDTH,
     quality: PREVIEW_QUALITY
   })
@@ -321,10 +327,9 @@ export async function savePoster({
   const candidateSeconds = timestampFromCandidatePath(chosenFramePath)
   try {
     if (candidateSeconds !== null) {
-      // 选中低清候选后才按同一时点复截高清图，避免批量阶段生成五倍高清候选。
+      // 候选预览与保存均按同一时间点精确截帧，避免 GOP 关键帧造成画面不一致。
       await captureFrame(videoPath, candidateSeconds, stagingPath, undefined, {
         signal,
-        fast: true,
         width: FINAL_WIDTH,
         quality: 2
       })

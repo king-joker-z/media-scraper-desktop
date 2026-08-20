@@ -3,7 +3,13 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { listOpLogs, markOpLogUndone, readOpLog, writeOpLog } from '../src/main/core/op-log.mjs'
+import {
+  getOpLogDetail,
+  listOpLogs,
+  markOpLogUndoAttempt,
+  readOpLog,
+  writeOpLog
+} from '../src/main/core/op-log.mjs'
 
 test('writeOpLog + listOpLogs roundtrip with summary', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'msd-oplog-'))
@@ -39,14 +45,47 @@ test('writeOpLog keeps concurrent same-module operations as independent files', 
   }
 })
 
-test('markOpLogUndone atomically keeps a readable undo marker', async () => {
+test('markOpLogUndoAttempt persists rollback results and completed marker', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'msd-oplog-'))
   try {
     const file = await writeOpLog(dir, 'rename', { report: { items: [{ from: 'a', to: 'b' }] } })
     const log = await readOpLog(file)
     assert.ok(log)
-    await markOpLogUndone(file, log)
-    assert.ok((await readOpLog(file))?.undoneAt)
+    await markOpLogUndoAttempt(
+      file,
+      log,
+      { module: 'rename', undone: 1, skipped: 0, failed: [] },
+      true
+    )
+    const stored = await readOpLog(file)
+    assert.ok(stored?.undoneAt)
+    assert.equal(stored?.lastUndoAttempt?.undone, 1)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('getOpLogDetail returns safe detail without an absolute log path', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'msd-oplog-'))
+  try {
+    const file = await writeOpLog(dir, 'rename', {
+      root: '/secret/workspace',
+      summary: '改名 1 项',
+      report: { items: [{ from: 'before.mp4', to: 'after.mp4' }], renamedCount: 1, failed: [] }
+    })
+    const detail = await getOpLogDetail(dir, file.split('/').pop())
+    assert.equal(detail.summary, '改名 1 项')
+    assert.equal(detail.workspace, 'workspace')
+    assert.deepEqual(detail.items, [{ before: 'before.mp4', after: 'after.mp4', status: 'done' }])
+    assert.equal(await getOpLogDetail(dir, '../outside.json'), null)
+
+    const escaped = await writeOpLog(dir, 'comic-delete-sources', {
+      root: '/secret/workspace',
+      report: { failed: [{ target: '/private/other/library/page.jpg', error: '锁定' }] },
+      summary: '失败 1 项'
+    })
+    const escapedDetail = await getOpLogDetail(dir, escaped.split('/').pop())
+    assert.equal(escapedDetail.failures[0].target, '工作区外路径')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

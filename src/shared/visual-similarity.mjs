@@ -30,40 +30,21 @@ export function hammingDistance(left, right) {
 }
 
 /**
- * 按相似度建立稳定的连通组。阈值越小越严格；返回仅包含至少两项的组，
- * 组内索引保持输入顺序，以便调用方决定代表帧。
+ * 以输入顺序中的首项为代表帧建立非传递相似组。
+ *
+ * 调用方应先按候选质量降序排列，因此每组首项即质量最高的代表帧。成员只会在
+ * 与代表帧的距离不大于阈值时加入；不会因 A≈B、B≈C 而把 A 与 C 错误折叠。
  */
 export function groupSimilarHashes(hashes, threshold = 10) {
-  const parent = hashes.map((_, index) => index)
-  const find = (index) => {
-    let current = index
-    while (parent[current] !== current) {
-      parent[current] = parent[parent[current]]
-      current = parent[current]
-    }
-    return current
+  const groups = []
+  for (let index = 0; index < hashes.length; index += 1) {
+    const hash = hashes[index]
+    if (!hash) continue
+    const group = groups.find(
+      (candidate) => hammingDistance(hashes[candidate[0]], hash) <= threshold
+    )
+    if (group) group.push(index)
+    else groups.push([index])
   }
-  const union = (left, right) => {
-    const leftRoot = find(left)
-    const rightRoot = find(right)
-    if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot
-  }
-
-  for (let left = 0; left < hashes.length; left += 1) {
-    if (!hashes[left]) continue
-    for (let right = left + 1; right < hashes.length; right += 1) {
-      if (hashes[right] && hammingDistance(hashes[left], hashes[right]) <= threshold)
-        union(left, right)
-    }
-  }
-
-  const groups = new Map()
-  hashes.forEach((hash, index) => {
-    if (!hash) return
-    const root = find(index)
-    const members = groups.get(root) ?? []
-    members.push(index)
-    groups.set(root, members)
-  })
-  return [...groups.values()].filter((members) => members.length > 1)
+  return groups.filter((members) => members.length > 1)
 }

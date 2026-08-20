@@ -9,7 +9,7 @@ import type {
   ThemeMode,
   ThemePalette
 } from '../../../shared/types'
-import OpLogPanel from '../components/OpLogPanel'
+import OperationTimeline from '../components/OperationTimeline'
 import { formatBytes } from '../utils/format'
 import {
   applyBackgroundAppearance,
@@ -1250,7 +1250,7 @@ function SettingsPage(): React.JSX.Element {
             {cleaning === 'op-logs' ? '清理中…' : '清空'}
           </button>
         </div>
-        <OpLogPanel />
+        <OperationTimeline />
       </section>
     </div>
   )

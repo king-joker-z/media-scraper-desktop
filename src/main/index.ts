@@ -17,7 +17,7 @@ import { requestAiNames, testAiConnection } from './modules/rename/ai.mjs'
 import { createNfoPlan, executeNfoPlan } from './modules/nfo/nfo.mjs'
 import { deleteMergeSources, mergeVideos } from './modules/merge/merge.mjs'
 import { findDuplicates } from './modules/dedupe/dedupe.mjs'
-import { undoOpLog } from './modules/undo/undo.mjs'
+import { preflightUndoOpLog, undoOpLog } from './modules/undo/undo.mjs'
 import { scanComicWorkspace } from './modules/comic/scan.mjs'
 import { deleteComicSources, mergeComics } from './modules/comic/merge.mjs'
 import { renameComicDirectories } from './modules/comic/rename.mjs'
@@ -42,7 +42,7 @@ import {
 import { collectFailures } from './core/task-report.mjs'
 import { killAllActiveProcesses, activeProcessCount } from './core/process-registry.mjs'
 import { setPoolSize } from './core/ffmpeg-pool.mjs'
-import { listOpLogs, writeOpLog } from './core/op-log.mjs'
+import { getOpLogDetail, listOpLogs, writeOpLog } from './core/op-log.mjs'
 import { isMediaPathAllowed, mediaUrlPathToLocal } from './core/media-path.mjs'
 import { assertRegisteredRoot, assertSafeFileName, resolveInsideRoot } from './core/path-guard.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
@@ -130,9 +130,15 @@ const cleanMergeTempDirs = async (settings: AppSettings): Promise<number> => {
   return results.flat().reduce((sum, size) => sum + size, 0)
 }
 
+/** 操作日志成功落盘后广播，常驻设置页可即时刷新。 */
+const sendOpLogChange = (): void => {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send('op-logs:changed')
+}
 /** 记录一条操作日志（不阻塞主流程） */
 const logOp = (module: string, payload: object): void => {
-  writeOpLog(opLogDir, module, payload).catch(() => {})
+  writeOpLog(opLogDir, module, payload)
+    .then(sendOpLogChange)
+    .catch(() => {})
 }
 
 /**
@@ -1416,8 +1422,18 @@ function registerIpcHandlers(): void {
 
   // ---------- 操作日志 ----------
   ipcMain.handle('op-logs:list', async () => listOpLogs(opLogDir))
+  ipcMain.handle('op-logs:get-detail', async (_event, file: string) => {
+    assertSafeFileName(file)
+    const detail = await getOpLogDetail(opLogDir, file)
+    if (!detail) throw new Error('日志不存在或已损坏')
+    return detail
+  })
+  ipcMain.handle('op-logs:preflight-undo', async (_event, file: string) => {
+    const safeFile = requireFileInRoots(join(opLogDir, file), [opLogDir], '操作日志')
+    return preflightUndoOpLog(safeFile)
+  })
   ipcMain.handle('op-logs:reveal', async (_event, file: string) => {
-    shell.showItemInFolder(requireFileInRoots(file, [opLogDir], '操作日志'))
+    shell.showItemInFolder(requireFileInRoots(join(opLogDir, file), [opLogDir], '操作日志'))
   })
   // 系统默认应用打开文件（漫画库打开 EPUB/PDF）
   ipcMain.handle('shell:open-path', async (_event, target: string) => {
@@ -1431,18 +1447,14 @@ function registerIpcHandlers(): void {
   // 一键撤销（F2）：按日志反向恢复重命名/NFO 归档
   ipcMain.handle('op-logs:undo', async (_event, file: string) =>
     runExclusive('undo', '撤销', async (taskId) => {
-      const safeFile = requireFileInRoots(file, [opLogDir], '操作日志')
+      const safeFile = requireFileInRoots(join(opLogDir, file), [opLogDir], '操作日志')
       const settings = await settingsStore.get()
       const report = await undoOpLog(safeFile, {
         taskCenter,
         taskId,
         concurrency: settings.concurrency
       })
-      logOp('undo', {
-        file: safeFile,
-        report,
-        summary: `撤销 ${report.module}：回退 ${report.undone} 项，跳过 ${report.skipped} 项`
-      })
+      sendOpLogChange()
       return report
     })
   )
