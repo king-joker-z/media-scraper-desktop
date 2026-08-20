@@ -201,6 +201,7 @@ function PosterPage({
             <button
               className="secondary"
               onClick={refresh}
+              data-command="scan"
               disabled={!workspace || loading || capturing || saving}
             >
               {loading ? '扫描中…' : '刷新列表'}

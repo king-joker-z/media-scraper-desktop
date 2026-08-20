@@ -92,7 +92,12 @@ function ComicLibraryPage({
             <button className="secondary" onClick={onChooseWorkspace}>
               选择工作区
             </button>
-            <button className="secondary" onClick={refresh} disabled={!workspace || loading}>
+            <button
+              className="secondary"
+              data-command="scan"
+              onClick={refresh}
+              disabled={!workspace || loading}
+            >
               {loading ? '加载中…' : '刷新书架'}
             </button>
             <button onClick={onOpenMerge}>整理漫画</button>

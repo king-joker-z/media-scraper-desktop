@@ -129,7 +129,7 @@ function CleanPage({
           <button className="secondary" onClick={choose} disabled={executing}>
             选择工作区
           </button>
-          <button disabled={!workspace || loading || executing} onClick={scan}>
+          <button data-command="scan" disabled={!workspace || loading || executing} onClick={scan}>
             {loading ? '扫描中…' : '生成清理计划'}
           </button>
           {plan && (

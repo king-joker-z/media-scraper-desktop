@@ -8,7 +8,15 @@ type Command = {
   description: string
   group: string
   shortcut?: string
-  run: () => void
+  disabled?: boolean
+  run: () => boolean | void
+}
+
+type PageAction = {
+  id: string
+  label: string
+  description: string
+  selector: string
 }
 
 type NavigationItem = { key: PageKey; label: string }
@@ -22,7 +30,9 @@ function CommandPalette({
   onNavigate,
   onSwitchModule,
   onChooseWorkspace,
-  onFocusSearch
+  onFocusSearch,
+  pageActions,
+  onRunPageAction
 }: {
   open: boolean
   module: AppModule | null
@@ -33,6 +43,8 @@ function CommandPalette({
   onSwitchModule: (module: AppModule) => void
   onChooseWorkspace: () => void
   onFocusSearch: () => void
+  pageActions: PageAction[]
+  onRunPageAction: (selector: string) => boolean
 }): React.JSX.Element | null {
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
@@ -47,7 +59,15 @@ function CommandPalette({
       group: '导航',
       run: () => onNavigate(item.key)
     }))
+    const contextualActions = pageActions.map((action) => ({
+      id: `page-action-${action.id}`,
+      label: action.label,
+      description: action.description,
+      group: '当前页面',
+      run: () => onRunPageAction(action.selector)
+    }))
     return [
+      ...contextualActions,
       ...navigation,
       {
         id: 'switch-video',
@@ -79,7 +99,17 @@ function CommandPalette({
         run: onFocusSearch
       }
     ]
-  }, [comicItems, module, onChooseWorkspace, onFocusSearch, onNavigate, onSwitchModule, videoItems])
+  }, [
+    comicItems,
+    module,
+    onChooseWorkspace,
+    onFocusSearch,
+    onNavigate,
+    onRunPageAction,
+    onSwitchModule,
+    pageActions,
+    videoItems
+  ])
 
   const visible = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -105,17 +135,18 @@ function CommandPalette({
       }
       if (event.key === 'ArrowDown') {
         event.preventDefault()
-        setActiveIndex((index) => Math.min(index + 1, visible.length - 1))
+        setActiveIndex((index) =>
+          visible.length === 0 ? 0 : Math.min(index + 1, visible.length - 1)
+        )
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault()
-        setActiveIndex((index) => Math.max(index - 1, 0))
+        setActiveIndex((index) => (visible.length === 0 ? 0 : Math.max(index - 1, 0)))
       }
       const selected = visible[Math.min(activeIndex, Math.max(0, visible.length - 1))]
-      if (event.key === 'Enter' && selected) {
+      if (event.key === 'Enter' && selected && !selected.disabled) {
         event.preventDefault()
-        selected.run()
-        onClose()
+        if (selected.run() !== false) onClose()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -125,8 +156,8 @@ function CommandPalette({
   if (!open) return null
 
   const execute = (command: Command): void => {
-    command.run()
-    onClose()
+    if (command.disabled) return
+    if (command.run() !== false) onClose()
   }
 
   return (
@@ -170,6 +201,7 @@ function CommandPalette({
                 className={`command-item ${index === activeIndex ? 'active' : ''}`}
                 role="option"
                 aria-selected={index === activeIndex}
+                disabled={command.disabled}
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => execute(command)}
               >

@@ -135,7 +135,7 @@ function LibraryPage({
             <button className="secondary" onClick={onChooseWorkspace}>
               选择工作区
             </button>
-            <button onClick={refresh} disabled={!workspace || loading}>
+            <button data-command="scan" onClick={refresh} disabled={!workspace || loading}>
               {loading ? '加载中…' : '刷新媒体库'}
             </button>
           </>

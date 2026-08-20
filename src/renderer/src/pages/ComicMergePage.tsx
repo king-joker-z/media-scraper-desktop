@@ -253,6 +253,7 @@ function ComicMergePage({
           <button
             className="secondary"
             onClick={scan}
+            data-command="scan"
             disabled={!workspace || loading || comicMutating}
           >
             {loading ? '扫描中…' : '刷新'}

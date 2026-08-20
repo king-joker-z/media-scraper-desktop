@@ -356,6 +356,7 @@ function MergePage({
             <button
               className="secondary"
               onClick={scan}
+              data-command="scan"
               disabled={!workspace || loading || merging}
             >
               {loading ? '读取中…' : '扫描视频'}

@@ -70,6 +70,83 @@ const MODULE_META: Record<AppModule, { icon: IconName; name: string; home: PageK
   comic: { icon: 'book', name: '漫画书房', home: 'comic-merge' }
 }
 
+const PAGE_COMMAND_ACTIONS: Partial<
+  Record<PageKey, { id: string; label: string; description: string; selector: string }[]>
+> = {
+  clean: [
+    {
+      id: 'scan',
+      label: '生成清理计划',
+      description: '扫描当前工作区并预览清理结果',
+      selector: '[data-command="scan"]'
+    }
+  ],
+  merge: [
+    {
+      id: 'scan',
+      label: '扫描合并片段',
+      description: '读取视频编码、时长与方向信息',
+      selector: '[data-command="scan"]'
+    }
+  ],
+  rename: [
+    {
+      id: 'scan',
+      label: '扫描重命名素材',
+      description: '读取视频并生成重命名预览',
+      selector: '[data-command="scan"]'
+    }
+  ],
+  poster: [
+    {
+      id: 'scan',
+      label: '刷新封面素材',
+      description: '扫描视频列表并更新封面状态',
+      selector: '[data-command="scan"]'
+    }
+  ],
+  nfo: [
+    {
+      id: 'scan',
+      label: '生成归档计划',
+      description: '扫描当前工作区并预览 NFO 归档',
+      selector: '[data-command="scan"]'
+    }
+  ],
+  dedupe: [
+    {
+      id: 'scan',
+      label: '开始重复检测',
+      description: '计算文件指纹并检测重复视频',
+      selector: '[data-command="scan"]'
+    }
+  ],
+  library: [
+    {
+      id: 'scan',
+      label: '刷新媒体库',
+      description: '重新扫描视频素材与封面状态',
+      selector: '[data-command="scan"]'
+    }
+  ],
+  'comic-merge': [
+    {
+      id: 'scan',
+      label: '刷新漫画列表',
+      description: '扫描章节和可追更状态',
+      selector: '[data-command="scan"]'
+    }
+  ],
+  'comic-library': [
+    {
+      id: 'scan',
+      label: '刷新数字书架',
+      description: '重新扫描已归档漫画',
+      selector: '[data-command="scan"]'
+    }
+  ]
+}
+
 function Icon({ name, size = 18 }: { name: IconName; size?: number }): React.JSX.Element {
   const paths: Record<IconName, React.JSX.Element> = {
     archive: (
@@ -235,6 +312,14 @@ function App(): React.JSX.Element {
     (next: PageKey): void => requestNavigation(() => setPage(next)),
     [requestNavigation]
   )
+
+  const runCurrentPageAction = useCallback((selector: string): boolean => {
+    const activePage = document.querySelector<HTMLElement>('.page-host:not(.page-hidden)')
+    const target = activePage?.querySelector<HTMLButtonElement>(selector)
+    if (!target || target.disabled) return false
+    target.click()
+    return true
+  }, [])
 
   const discardPendingPostersAndNavigate = useCallback((): void => {
     const action = pendingNavigation
@@ -611,6 +696,8 @@ function App(): React.JSX.Element {
             .querySelector<HTMLElement>('#library-search, .comic-search input, .comic-search')
             ?.focus()
         }
+        pageActions={PAGE_COMMAND_ACTIONS[page] ?? []}
+        onRunPageAction={runCurrentPageAction}
       />
     </div>
   )

@@ -513,6 +513,7 @@ function RenamePage({
             <button
               className="secondary"
               onClick={refresh}
+              data-command="scan"
               disabled={!workspace || loading || executing || aiLoading}
             >
               {loading ? '扫描中…' : '扫描视频'}

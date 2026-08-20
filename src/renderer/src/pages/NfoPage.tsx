@@ -102,6 +102,7 @@ function NfoPage({
           <button
             className="secondary"
             onClick={scan}
+            data-command="scan"
             disabled={!workspace || loading || executing}
           >
             {loading ? '扫描中…' : '生成归档计划'}

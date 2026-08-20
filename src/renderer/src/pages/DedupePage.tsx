@@ -183,7 +183,7 @@ function DedupePage({
             />
             <span className="muted">快速模式</span>
           </label>
-          <button onClick={scan} disabled={!workspace || loading || deleting}>
+          <button data-command="scan" onClick={scan} disabled={!workspace || loading || deleting}>
             {loading ? '检测中…' : '开始检测'}
           </button>
           {deleting ? (
