@@ -15,6 +15,22 @@ import type { TaskFeed } from './useTaskFeed'
 
 const AUTO_COLLAPSE_MS = 5000
 
+const TASKS_WITH_OPERATION_LOG = new Set([
+  '删除清理项',
+  '标准化 poster',
+  '解散文件夹',
+  '重命名（阶段二）',
+  'NFO 归档',
+  '删除源片段',
+  '删除重复文件',
+  '合并漫画（EPUB）',
+  '合并漫画（PDF）',
+  '重命名漫画',
+  '删除漫画源图片'
+])
+
+const canOpenOperationTimeline = (label: string): boolean => TASKS_WITH_OPERATION_LOG.has(label)
+
 function TaskIsland({ feed }: { feed: TaskFeed }): React.JSX.Element {
   const { tasks, activeTasks, dismissTask } = feed
   const [expanded, setExpanded] = useState(false)
@@ -78,6 +94,11 @@ function TaskIsland({ feed }: { feed: TaskFeed }): React.JSX.Element {
   const transition = reduceMotion
     ? { duration: 0 }
     : { duration: 0.16, ease: [0.2, 0, 0, 1] as const }
+
+  const openOperationTimeline = (): void => {
+    window.dispatchEvent(new Event('task-center:close'))
+    window.dispatchEvent(new Event('operation-timeline:open'))
+  }
 
   const toggleExpanded = (): void => {
     if (expanded) {
@@ -159,6 +180,11 @@ function TaskIsland({ feed }: { feed: TaskFeed }): React.JSX.Element {
                 >
                   打开任务队列
                 </button>
+                {canOpenOperationTimeline(event.label) && (
+                  <button type="button" onClick={openOperationTimeline}>
+                    查看操作记录
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {

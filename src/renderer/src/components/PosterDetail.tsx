@@ -198,40 +198,48 @@ function PosterDetail({
             关闭
           </button>
         </div>
-        <video ref={videoRef} src={mediaUrl(video.path)} controls className="detail-player" />
-        <div className="detail-actions">
-          {candidates.length === 0 && (
-            <button className="secondary" disabled={generating || saving} onClick={regenerate}>
-              {generating ? '生成候选帧中…' : '生成候选帧'}
-            </button>
-          )}
-          <button
-            className="secondary"
-            disabled={capturingCurrent || saving}
-            onClick={captureCurrent}
-          >
-            {capturingCurrent ? '截取中…' : '截取当前帧'}
-          </button>
-          <button
-            disabled={!dirty || saving}
-            onClick={() => (video.posterPath ? setConfirming(true) : save())}
-          >
-            {saving ? '保存中…' : dirty ? '保存封面' : '无改动'}
-          </button>
+        <div className="poster-detail-body">
+          <div className="poster-detail-preview">
+            <div className="poster-detail-player-stage">
+              <video ref={videoRef} src={mediaUrl(video.path)} controls muted className="detail-player" />
+            </div>
+            <div className="detail-actions">
+              {candidates.length === 0 && (
+                <button className="secondary" disabled={generating || saving} onClick={regenerate}>
+                  {generating ? '生成候选帧中…' : '生成候选帧'}
+                </button>
+              )}
+              <button
+                className="secondary"
+                disabled={capturingCurrent || saving}
+                onClick={captureCurrent}
+              >
+                {capturingCurrent ? '截取中…' : '截取当前帧'}
+              </button>
+              <button
+                disabled={!dirty || saving}
+                onClick={() => (video.posterPath ? setConfirming(true) : save())}
+              >
+                {saving ? '保存中…' : dirty ? '保存封面' : '无改动'}
+              </button>
+            </div>
+            {error && <p className="danger-text">{error}</p>}
+            {generating && allFrames.length === 0 ? <p className="muted">正在截取候选帧…</p> : null}
+          </div>
+          <div className="poster-detail-candidates">
+            <PosterContactSheet
+              frames={contactFrames}
+              selection={selection}
+              version={version}
+              onSelect={onSelect}
+              onSeek={seekTo}
+              onTogglePlayback={togglePlayback}
+              onSave={() => (video.posterPath ? setConfirming(true) : void save())}
+              onClose={close}
+              onInspect={setInspectedFrame}
+            />
+          </div>
         </div>
-        {error && <p className="danger-text">{error}</p>}
-        {generating && allFrames.length === 0 ? <p className="muted">正在截取候选帧…</p> : null}
-        <PosterContactSheet
-          frames={contactFrames}
-          selection={selection}
-          version={version}
-          onSelect={onSelect}
-          onSeek={seekTo}
-          onTogglePlayback={togglePlayback}
-          onSave={() => (video.posterPath ? setConfirming(true) : void save())}
-          onClose={close}
-          onInspect={setInspectedFrame}
-        />
         {inspectedFrame && (
           <ImageInspectorDialog
             open

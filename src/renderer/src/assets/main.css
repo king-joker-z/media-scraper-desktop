@@ -2019,8 +2019,75 @@ input[type='checkbox']:disabled {
 }
 
 .poster-detail-modal {
-  width: min(1120px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  width: min(1080px, calc(100vw - 40px));
+  height: min(810px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+}
+.poster-detail-body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  min-height: 0;
+}
+.poster-detail-preview {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.poster-detail-candidates {
+  min-width: 0;
+}
+.poster-detail-player-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--separator) 78%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--fill-quaternary) 84%, transparent),
+      transparent
+    ),
+    var(--fill-quaternary);
+}
+.poster-detail-preview .detail-player {
+  position: absolute;
+  inset: 10px;
+  display: block;
+  width: calc(100% - 20px);
+  height: calc(100% - 20px);
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #000;
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 20%, transparent);
+}
+.poster-detail-preview .detail-actions {
+  justify-content: center;
+  gap: 8px;
+}
+.poster-detail-preview .detail-actions button {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.poster-detail-candidates .poster-contact-sheet {
+  max-height: min(30vh, 230px);
+  overflow-y: auto;
+}
+.poster-detail-candidates .contact-sheet-help {
+  display: none;
 }
 .poster-detail-modal .detail-header > div {
   display: grid;
@@ -2032,12 +2099,12 @@ input[type='checkbox']:disabled {
 }
 .poster-contact-sheet {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--separator);
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--separator) 82%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--fill-quaternary) 54%, transparent);
+  background: color-mix(in srgb, var(--fill-quaternary) 42%, transparent);
 }
 .contact-sheet-toolbar,
 .contact-sheet-controls,
@@ -2050,12 +2117,14 @@ input[type='checkbox']:disabled {
   gap: 12px;
 }
 .contact-sheet-summary {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 .contact-sheet-summary b {
   color: var(--label-primary);
-  font-size: 13px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
 }
 .contact-sheet-summary span,
 .contact-sheet-help {
@@ -2068,45 +2137,53 @@ input[type='checkbox']:disabled {
   gap: 8px;
 }
 .contact-sheet-controls select {
-  min-height: 30px;
+  min-height: 28px;
+  padding-block: 3px;
   font-size: 11px;
 }
 .contact-sheet-switch {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-height: 30px;
+  min-height: 28px;
   color: var(--label-secondary);
   font-size: 11px;
   cursor: pointer;
 }
 .contact-sheet-grid {
-  --contact-columns: 4;
+  --contact-columns: 6;
   display: grid;
-  grid-template-columns: repeat(var(--contact-columns), minmax(0, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 152px));
+  justify-content: start;
+  gap: 7px;
 }
 .contact-frame {
   position: relative;
   min-width: 0;
   padding: 0;
   overflow: hidden;
-  border: 2px solid transparent;
-  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--separator) 76%, transparent);
+  border-radius: 7px;
   background: var(--fill-quaternary);
   color: #fff;
   text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 .contact-frame:hover,
 .contact-frame:focus-visible {
   overflow: visible;
+  z-index: 1;
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--accent) 64%, #fff);
+  box-shadow: 0 5px 14px color-mix(in srgb, #000 16%, transparent);
   outline: none;
 }
 .contact-frame.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .contact-frame.current {
   border-style: dashed;
@@ -2119,24 +2196,31 @@ input[type='checkbox']:disabled {
 .contact-frame-thumbnail img {
   aspect-ratio: 16 / 9;
   object-fit: cover;
+  filter: saturate(0.92) contrast(0.98);
+  transition: filter 160ms ease;
+}
+.contact-frame:hover .contact-frame-thumbnail img,
+.contact-frame:focus-visible .contact-frame-thumbnail img,
+.contact-frame.selected .contact-frame-thumbnail img {
+  filter: none;
 }
 .contact-frame-topline {
   position: absolute;
-  top: 5px;
-  right: 5px;
-  left: 5px;
+  top: 4px;
+  right: 4px;
+  left: 4px;
   justify-content: space-between;
-  gap: 4px;
+  gap: 3px;
   pointer-events: none;
 }
 .contact-frame-topline span,
 .contact-frame-caption,
 .contact-frame-selection {
-  padding: 2px 5px;
-  border-radius: 5px;
+  padding: 1px 4px;
+  border-radius: 4px;
   background: rgba(0, 0, 0, 0.68);
   color: #fff;
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1.25;
 }
 .contact-frame-caption {
@@ -2149,12 +2233,12 @@ input[type='checkbox']:disabled {
   white-space: nowrap;
   border-radius: 0;
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.86));
-  padding: 14px 7px 5px;
+  padding: 12px 5px 4px;
 }
 .contact-frame-selection {
   position: absolute;
-  bottom: 25px;
-  left: 5px;
+  bottom: 21px;
+  left: 4px;
   background: var(--accent);
 }
 .contact-sheet-help {
@@ -2165,8 +2249,21 @@ input[type='checkbox']:disabled {
 }
 @media (max-width: 740px) {
   .poster-detail-modal {
-    width: calc(100vw - 24px);
+    height: auto;
     max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+  .poster-detail-preview .detail-player {
+    position: static;
+    width: 100%;
+    height: auto;
+  }
+  .poster-detail-candidates .poster-contact-sheet {
+    max-height: none;
+    overflow: visible;
+  }
+  .poster-detail-modal {
+    width: calc(100vw - 24px);
   }
   .contact-sheet-toolbar {
     align-items: flex-start;

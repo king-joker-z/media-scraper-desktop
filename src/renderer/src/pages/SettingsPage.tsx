@@ -189,6 +189,16 @@ function SettingsPage(): React.JSX.Element {
     }
   }, [])
 
+  useEffect(() => {
+    const openSafety = (): void => {
+      setActiveGroup('safety')
+      setSettingsQuery('')
+      requestAnimationFrame(() => document.getElementById('settings-group-safety')?.focus())
+    }
+    window.addEventListener('settings:safety:open', openSafety)
+    return () => window.removeEventListener('settings:safety:open', openSafety)
+  }, [])
+
   const cleanStorage = async (category: StorageCategory): Promise<void> => {
     setCleaning(category)
     setStorageNotice('')

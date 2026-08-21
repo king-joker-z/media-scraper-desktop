@@ -177,120 +177,126 @@ function PosterContactSheet({
   }
 
   return (
-    <section className="poster-contact-sheet" aria-label="候选封面接触表">
-      <div className="contact-sheet-toolbar">
-        <div className="contact-sheet-summary">
-          <b>候选接触表</b>
-          <span>
-            {collapseSimilar
-              ? `${orderedFrames.length} 个代表帧`
-              : `${orderedFrames.length} 个候选帧`}
-          </span>
-        </div>
-        <div className="contact-sheet-controls">
-          <label>
-            <span className="sr-only">排序方式</span>
-            <select
-              value={sortMode}
-              onChange={(event) => setSortMode(event.target.value as SortMode)}
-            >
-              <option value="recommended">推荐优先</option>
-              <option value="time">时间顺序</option>
-              <option value="scene">场景优先</option>
-              <option value="similar">相似分组</option>
-            </select>
-          </label>
-          <label className="contact-sheet-switch">
-            <input
-              type="checkbox"
-              checked={collapseSimilar}
-              onChange={(event) => setCollapseSimilar(event.target.checked)}
-            />
-            合并相似帧
-          </label>
-        </div>
-      </div>
-
-      {orderedFrames.length === 0 ? (
-        <p className="muted contact-sheet-empty">尚无候选帧。生成候选或在播放器定位后手动截取。</p>
-      ) : (
-        <div
-          ref={gridRef}
-          className="contact-sheet-grid"
-          role="grid"
-          aria-label="候选封面网格，可用方向键移动，Enter 选择，空格播放或暂停，S 保存"
-          onKeyDown={onKeyDown}
-        >
-          {orderedFrames.map((frame) => {
-            const groupSize = frame.score?.similarityGroup
-              ? (groupCount.get(frame.score.similarityGroup) ?? 1)
-              : 1
-            const isSelected = frame.path === selection
-            const isActive = frame.path === activeFramePath
-            const timestamp = frame.score?.timestampMs
-            const similarityDistance = frame.score?.similarityDistance
-            const similarityLabel =
-              !collapseSimilar && groupSize > 1 && typeof similarityDistance === 'number'
-                ? `，与代表帧差异 ${similarityDistance}/64`
-                : ''
-            const caption =
-              seekingPath === frame.path
-                ? '定位中…'
-                : positionedPath === frame.path
-                  ? '已定位'
-                  : labelFor(frame)
-            return (
-              <button
-                key={frame.path}
-                type="button"
-                role="gridcell"
-                data-frame-path={frame.path}
-                tabIndex={isActive ? 0 : -1}
-                className={`contact-frame ${isSelected ? 'selected' : ''} ${frame.current ? 'current' : ''}`}
-                aria-label={`${labelFor(frame)}${typeof timestamp === 'number' ? `，时间 ${formatDuration(timestamp)}` : ''}${groupSize > 1 ? `，相似组共 ${groupSize} 帧` : ''}${similarityLabel}`}
-                onFocus={() => setActivePath(frame.path)}
-                onClick={() => void activate(frame)}
-                onDoubleClick={() => onInspect(frame.path)}
+    <Tooltip.Provider delayDuration={300}>
+      <section className="poster-contact-sheet" aria-label="候选封面接触表">
+        <div className="contact-sheet-toolbar">
+          <div className="contact-sheet-summary">
+            <b>候选接触表</b>
+            <span>
+              {collapseSimilar
+                ? `${orderedFrames.length} 个代表帧`
+                : `${orderedFrames.length} 个候选帧`}
+            </span>
+          </div>
+          <div className="contact-sheet-controls">
+            <label>
+              <span className="sr-only">排序方式</span>
+              <select
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as SortMode)}
               >
-                <HoverImagePreview
-                  src={`${mediaUrl(frame.path)}?v=${version}`}
-                  alt={`${labelFor(frame)} 完整预览`}
-                >
-                  <span className="contact-frame-thumbnail">
-                    <img src={`${mediaUrl(frame.path)}?v=${version}`} alt="" loading="lazy" />
-                  </span>
-                </HoverImagePreview>
-                <span className="contact-frame-topline">
-                  {typeof timestamp === 'number' && <span>{formatDuration(timestamp)}</span>}
-                  {groupSize > 1 && (
-                    <Tooltip.Root>
-                      <Tooltip.Trigger asChild>
-                        <span>相似 {groupSize}</span>
-                      </Tooltip.Trigger>
-                      <Tooltip.Portal>
-                        <Tooltip.Content className="app-tooltip" sideOffset={6}>
-                          当前候选与 {groupSize - 1} 张相近帧归为一组
-                          <Tooltip.Arrow className="app-tooltip-arrow" />
-                        </Tooltip.Content>
-                      </Tooltip.Portal>
-                    </Tooltip.Root>
-                  )}
-                  {!collapseSimilar && groupSize > 1 && typeof similarityDistance === 'number' && (
-                    <span>差异 {similarityDistance}/64</span>
-                  )}
-                </span>
-                <span className="contact-frame-caption">{caption}</span>
-                {isSelected && <span className="contact-frame-selection">已选择</span>}
-              </button>
-            )
-          })}
+                <option value="recommended">推荐优先</option>
+                <option value="time">时间顺序</option>
+                <option value="scene">场景优先</option>
+                <option value="similar">相似分组</option>
+              </select>
+            </label>
+            <label className="contact-sheet-switch">
+              <input
+                type="checkbox"
+                checked={collapseSimilar}
+                onChange={(event) => setCollapseSimilar(event.target.checked)}
+              />
+              合并相似帧
+            </label>
+          </div>
         </div>
-      )}
-      <p className="contact-sheet-help">
-        悬停完整预览 · 双击细节检查 · 方向键浏览 · Enter 选择 · Space 播放/暂停 · S 保存 · Escape
-        关闭
-      </p>
-    </section>
+
+        {orderedFrames.length === 0 ? (
+          <p className="muted contact-sheet-empty">
+            尚无候选帧。生成候选或在播放器定位后手动截取。
+          </p>
+        ) : (
+          <div
+            ref={gridRef}
+            className="contact-sheet-grid"
+            role="grid"
+            aria-label="候选封面网格，可用方向键移动，Enter 选择，空格播放或暂停，S 保存"
+            onKeyDown={onKeyDown}
+          >
+            {orderedFrames.map((frame) => {
+              const groupSize = frame.score?.similarityGroup
+                ? (groupCount.get(frame.score.similarityGroup) ?? 1)
+                : 1
+              const isSelected = frame.path === selection
+              const isActive = frame.path === activeFramePath
+              const timestamp = frame.score?.timestampMs
+              const similarityDistance = frame.score?.similarityDistance
+              const similarityLabel =
+                !collapseSimilar && groupSize > 1 && typeof similarityDistance === 'number'
+                  ? `，与代表帧差异 ${similarityDistance}/64`
+                  : ''
+              const caption =
+                seekingPath === frame.path
+                  ? '定位中…'
+                  : positionedPath === frame.path
+                    ? '已定位'
+                    : labelFor(frame)
+              return (
+                <button
+                  key={frame.path}
+                  type="button"
+                  role="gridcell"
+                  data-frame-path={frame.path}
+                  tabIndex={isActive ? 0 : -1}
+                  className={`contact-frame ${isSelected ? 'selected' : ''} ${frame.current ? 'current' : ''}`}
+                  aria-label={`${labelFor(frame)}${typeof timestamp === 'number' ? `，时间 ${formatDuration(timestamp)}` : ''}${groupSize > 1 ? `，相似组共 ${groupSize} 帧` : ''}${similarityLabel}`}
+                  onFocus={() => setActivePath(frame.path)}
+                  onClick={() => void activate(frame)}
+                  onDoubleClick={() => onInspect(frame.path)}
+                >
+                  <HoverImagePreview
+                    src={`${mediaUrl(frame.path)}?v=${version}`}
+                    alt={`${labelFor(frame)} 完整预览`}
+                  >
+                    <span className="contact-frame-thumbnail">
+                      <img src={`${mediaUrl(frame.path)}?v=${version}`} alt="" loading="lazy" />
+                    </span>
+                  </HoverImagePreview>
+                  <span className="contact-frame-topline">
+                    {typeof timestamp === 'number' && <span>{formatDuration(timestamp)}</span>}
+                    {groupSize > 1 && (
+                      <Tooltip.Root>
+                        <Tooltip.Trigger asChild>
+                          <span>相似 {groupSize}</span>
+                        </Tooltip.Trigger>
+                        <Tooltip.Portal>
+                          <Tooltip.Content className="app-tooltip" sideOffset={6}>
+                            当前候选与 {groupSize - 1} 张相近帧归为一组
+                            <Tooltip.Arrow className="app-tooltip-arrow" />
+                          </Tooltip.Content>
+                        </Tooltip.Portal>
+                      </Tooltip.Root>
+                    )}
+                    {!collapseSimilar &&
+                      groupSize > 1 &&
+                      typeof similarityDistance === 'number' && (
+                        <span>差异 {similarityDistance}/64</span>
+                      )}
+                  </span>
+                  <span className="contact-frame-caption">{caption}</span>
+                  {isSelected && <span className="contact-frame-selection">已选择</span>}
+                </button>
+              )
+            })}
+          </div>
+        )}
+        <p className="contact-sheet-help">
+          悬停完整预览 · 双击细节检查 · 方向键浏览 · Enter 选择 · Space 播放/暂停 · S 保存 · Escape
+          关闭
+        </p>
+      </section>
+    </Tooltip.Provider>
   )
 }
 

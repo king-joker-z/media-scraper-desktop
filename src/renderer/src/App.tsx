@@ -321,6 +321,15 @@ function App(): React.JSX.Element {
     return true
   }, [])
 
+  useEffect(() => {
+    const openOperationTimeline = (): void => {
+      navigateToPage('settings')
+      window.setTimeout(() => window.dispatchEvent(new Event('settings:safety:open')), 0)
+    }
+    window.addEventListener('operation-timeline:open', openOperationTimeline)
+    return () => window.removeEventListener('operation-timeline:open', openOperationTimeline)
+  }, [navigateToPage])
+
   const discardPendingPostersAndNavigate = useCallback((): void => {
     const action = pendingNavigation
     setPendingNavigation(null)
