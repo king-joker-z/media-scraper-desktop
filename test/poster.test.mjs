@@ -225,6 +225,24 @@ test('差值感知哈希对相同灰度图稳定', () => {
   assert.ok(hammingDistance(hash, computeDifferenceHash(reversed, 10, 9)) > 0)
 })
 
+test('savePoster directly copies a generated high-quality candidate without re-capturing', async () => {
+  await withTempDir(async (root) => {
+    const video = join(root, 'Movie.mp4')
+    const framesDir = framesDirFor(join(root, 'frames'), video)
+    const candidate = join(framesDir, 'candidate-01-at-1000ms.jpg')
+    await mkdir(framesDir, { recursive: true })
+    await writeFile(video, 'not-a-real-video')
+    await writeFile(candidate, Buffer.from(PNG_BASE64, 'base64'))
+
+    const result = await savePoster({
+      videoPath: video,
+      chosenFramePath: candidate,
+      oldPosterPath: null
+    })
+    assert.deepEqual(await readFile(result.saved), Buffer.from(PNG_BASE64, 'base64'))
+  })
+})
+
 test('savePoster directly copies a JPEG that is not a generated preview', async () => {
   await withTempDir(async (root) => {
     const video = join(root, 'Movie.mp4')

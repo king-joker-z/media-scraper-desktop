@@ -18,6 +18,7 @@ import {
   validateRenameTargets,
   withSequencePrefix
 } from '../../../shared/rename-rules.mjs'
+import { buildAiChunks } from '../../../shared/ai-batch-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
 import RenameComparisonEditor from '../components/RenameComparisonEditor'
@@ -75,6 +76,7 @@ function RenamePage({
   const [useCustom, setUseCustom] = useState(false)
   const [aiNamesMap, setAiNamesMap] = useState<Record<string, string> | null>(null)
   const [selectedAiVideos, setSelectedAiVideos] = useState<Set<string>>(() => new Set())
+  const [aiBatch, setAiBatch] = useState('all')
   const [aiLoading, setAiLoading] = useState(false)
   const [regenerating, setRegenerating] = useState<string | null>(null)
   const [probes, setProbes] = useState<Record<string, ProbeContainerItem>>({})
@@ -115,6 +117,7 @@ function RenamePage({
     setReport(null)
     setAiNamesMap(null)
     setSelectedAiVideos(new Set())
+    setAiBatch('all')
     setEdits({})
     setProbes({})
     setPreflight({})
@@ -354,6 +357,29 @@ function RenamePage({
     [pairs, probes]
   )
 
+  const aiBatches = useMemo(() => {
+    const batchSize = activeAi?.modelTunings[activeAi.selectedModel]?.batchSize ?? 40
+    return buildAiChunks(
+      sortVideos(videos, 'title', 'asc').map((video) => ({
+        file: { parentFolder: parentFolderOf(video.relativePath), fileName: video.name },
+        relativePath: video.relativePath
+      })),
+      batchSize
+    )
+  }, [activeAi, videos])
+
+  const aiBatchOptions = useMemo(
+    () =>
+      aiBatches.map((batch, index) => ({
+        value: String(index),
+        label: `第 ${index + 1} 批（${batch.length} 项）`,
+        videoRels: batch.map((entry) => entry.relativePath)
+      })),
+    [aiBatches]
+  )
+
+  const selectedAiBatch = aiBatchOptions.find((batch) => batch.value === aiBatch)
+
   const runAi = async (forceRefresh = false): Promise<void> => {
     setAiLoading(true)
     setError('')
@@ -374,6 +400,7 @@ function RenamePage({
         )
       )
       setSelectedAiVideos(new Set())
+      setAiBatch('all')
     } catch (err) {
       // 主进程已按 HTTP 状态返回对应处理建议；503 等服务端故障不应误导为本地 Token/模型配置问题。
       setError(`AI 命名失败：${err instanceof Error ? err.message : String(err)}`)
@@ -415,7 +442,10 @@ function RenamePage({
         selectedVideos.forEach((video) => delete next[video.relativePath])
         return next
       })
-      setSelectedAiVideos(new Set())
+      // 保留选择，方便用户检查当前批次的最新建议后继续重新生成。
+      setSelectedAiVideos(
+        (previous) => new Set([...previous].filter((relativePath) => videoByRel.has(relativePath)))
+      )
     } catch (err) {
       setError(`AI 命名失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -663,6 +693,30 @@ function RenamePage({
               </p>
               <SeqControls seq={seq} onChange={setSeq} />
               <div className="actions">
+                {aiNamesMap && aiBatchOptions.length > 1 && (
+                  <label>
+                    AI 请求批次
+                    <select
+                      value={aiBatch}
+                      disabled={aiLoading || executing}
+                      onChange={(event) => {
+                        const nextBatch = event.target.value
+                        setAiBatch(nextBatch)
+                        if (nextBatch !== 'all') {
+                          const batch = aiBatchOptions.find((item) => item.value === nextBatch)
+                          if (batch) setSelectedAiVideos(new Set(batch.videoRels))
+                        }
+                      }}
+                    >
+                      <option value="all">全部结果（{videos.length} 项）</option>
+                      {aiBatchOptions.map((batch) => (
+                        <option key={batch.value} value={batch.value}>
+                          {batch.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <button
                   onClick={() => void runAi()}
                   disabled={aiLoading || executing || videos.length === 0}
@@ -720,6 +774,7 @@ function RenamePage({
               probes={probes}
               mode={mode}
               selectedAiVideos={selectedAiVideos}
+              batchVideoRels={selectedAiBatch?.videoRels}
               onSelectedAiVideosChange={setSelectedAiVideos}
               onChange={(videoRel, value) => setEdits((prev) => ({ ...prev, [videoRel]: value }))}
               onReset={(videoRel) =>

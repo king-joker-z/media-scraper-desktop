@@ -72,10 +72,9 @@ export function framesDirFor(framesRoot, videoPath) {
 // 直接用固定百分比时点；短视频才值得跑场景检测找内容突变帧
 const SCENE_DETECT_MAX_DURATION_MS = 2 * 60 * 1000
 const SCORE_WIDTH = 240
-// 候选图仅用于选择；确认后才从原视频重新截取 1920px 封面。
-// 降低预览尺寸可显著减少 Windows 上的 JPEG 编码、落盘和杀毒扫描开销。
-const PREVIEW_WIDTH = 480
-const PREVIEW_QUALITY = 8
+// 候选图即为最终封面：一次截取到位，确认时仅安全复制落盘，避免重复解码视频。
+const PREVIEW_WIDTH = 1920
+const PREVIEW_QUALITY = 2
 const CANDIDATE_COUNT = 5
 const FINAL_WIDTH = 1920
 const SCORE_CONCURRENCY = 2
@@ -244,8 +243,12 @@ export async function captureCandidates(
     } catch {
       timestamps = []
     }
-    timestamps = [...new Set([0, ...timestamps])].slice(0, 5)
-    if (timestamps.length < 3) timestamps = buildFrameTimestamps(durationMs)
+    // 场景检测常只返回少量切换点；补足固定比例时点，确保可选画面始终尽量达到五张。
+    timestamps = [
+      ...new Set([0, ...timestamps, ...buildFrameTimestamps(durationMs, CANDIDATE_COUNT)])
+    ]
+      .sort((left, right) => left - right)
+      .slice(0, CANDIDATE_COUNT)
   }
   // 候选截帧使用精确 seek，使候选预览、播放器定位和最终保存始终对应同一画面。
   const jobs = timestamps.map((seconds, i) => ({
@@ -255,7 +258,7 @@ export async function captureCandidates(
       `candidate-${String(i + 1).padStart(2, '0')}-at-${Math.round(seconds * 1000)}ms.jpg`
     )
   }))
-  // 候选只供预览和评分，低清 JPEG 大幅减少解码、编码及临时文件写入。
+  // 候选即最终封面，使用高质量限宽图，确认时无需重新从视频截帧。
   const frames = await captureFrames(videoPath, jobs, ffmpegPath, {
     signal,
     fast: false,
@@ -327,15 +330,8 @@ export async function savePoster({
   const stagingPath = createStagingPath(target)
   const candidateSeconds = timestampFromCandidatePath(chosenFramePath)
   try {
-    if (candidateSeconds !== null) {
-      // 候选预览与保存均按同一时间点精确截帧，避免 GOP 关键帧造成画面不一致。
-      await captureFrame(videoPath, candidateSeconds, stagingPath, undefined, {
-        signal,
-        width: FINAL_WIDTH,
-        quality: 2
-      })
-    } else if (isJpegName(chosenFramePath)) {
-      // 手动截图和已有 JPG 无需再经 sharp 解码/编码，直接暂存复制并安全提交。
+    if (candidateSeconds !== null || isJpegName(chosenFramePath)) {
+      // 候选和手动截图均已是最终质量的 JPG，直接暂存复制并安全提交。
       await copyFileSafe(chosenFramePath, stagingPath)
     } else {
       await convertToJpg(chosenFramePath, stagingPath)

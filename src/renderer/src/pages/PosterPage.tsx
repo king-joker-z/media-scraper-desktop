@@ -100,7 +100,7 @@ function PosterPage({
     })
   }, [captureScope, selectedPaths, visiblePaths, withoutCandidates])
 
-  /** 按当前范围生成候选预览图；精细模式才额外进行短视频场景检测。 */
+  /** 按当前范围生成最终质量候选图；精细模式才额外进行短视频场景检测。 */
   const captureAll = async (): Promise<void> => {
     if (!workspace || captureTargets.length === 0) return
     setCapturing(true)
@@ -188,7 +188,7 @@ function PosterPage({
       <WorkbenchHeader
         eyebrow="视频工坊 / 视觉选择"
         title="封面接触表"
-        description="生成候选帧、比较画面质量并确认封面。低清候选仅供选择，保存时才复截高清封面。"
+        description="一次生成五张高清候选帧，比较后确认；保存时直接安全落盘，不会重复截帧。"
         actions={
           <>
             <button
@@ -285,7 +285,7 @@ function PosterPage({
                 disabled={capturing || saving}
                 onChange={(event) => setPreciseCapture(event.target.checked)}
               />
-              <span>精细模式</span>
+              <span>精细模式（场景检测）</span>
             </label>
           </div>
         </section>

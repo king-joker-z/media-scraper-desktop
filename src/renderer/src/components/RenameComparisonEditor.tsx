@@ -68,6 +68,7 @@ export default function RenameComparisonEditor({
   probes,
   mode,
   selectedAiVideos,
+  batchVideoRels,
   onSelectedAiVideosChange,
   onChange,
   onReset,
@@ -79,6 +80,8 @@ export default function RenameComparisonEditor({
   probes: Record<string, ProbeContainerItem>
   mode: 'seq' | 'regex' | 'ai' | 'ext'
   selectedAiVideos: Set<string>
+  /** 当前选取的 AI 请求批次；不传时显示全部结果。 */
+  batchVideoRels?: string[]
   onSelectedAiVideosChange: (next: Set<string>) => void
   onChange: (videoRel: string, value: string) => void
   onReset: (videoRel: string) => void
@@ -95,6 +98,7 @@ export default function RenameComparisonEditor({
   const pageSize = 200
   const searchRef = useRef<HTMLInputElement>(null)
   const editorInputRef = useRef<HTMLInputElement>(null)
+  const lastAiSelectionRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (editingRel) editorInputRef.current?.focus()
@@ -118,15 +122,17 @@ export default function RenameComparisonEditor({
 
   const visibleRows = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()
+    const batchSet = batchVideoRels ? new Set(batchVideoRels) : null
     return rows.filter(
       (row) =>
+        (!batchSet || batchSet.has(row.videoRel)) &&
         matchesRenameFilter(row, filter) &&
         (!normalized ||
           row.source.name.toLocaleLowerCase().includes(normalized) ||
           row.targetName.toLocaleLowerCase().includes(normalized) ||
           row.videoRel.toLocaleLowerCase().includes(normalized))
     )
-  }, [filter, query, rows])
+  }, [batchVideoRels, filter, query, rows])
   const rowByVideo = useMemo(() => new Map(rows.map((row) => [row.videoRel, row])), [rows])
   const relationships = useMemo(() => analyzeRenameRelationships(rows), [rows])
   const visibleAiRows = useMemo(() => visibleRows.filter((row) => row.ai), [visibleRows])
@@ -135,6 +141,30 @@ export default function RenameComparisonEditor({
   ).length
   const allVisibleAiSelected =
     visibleAiRows.length > 0 && visibleAiRows.every((row) => selectedAiVideos.has(row.videoRel))
+  const toggleAiSelection = useCallback(
+    (videoRel: string, checked: boolean, shiftKey: boolean): void => {
+      const next = new Set(selectedAiVideos)
+      const lastSelected = lastAiSelectionRef.current
+      const lastIndex = lastSelected
+        ? visibleAiRows.findIndex((row) => row.videoRel === lastSelected)
+        : -1
+      const currentIndex = visibleAiRows.findIndex((row) => row.videoRel === videoRel)
+      if (shiftKey && lastIndex >= 0 && currentIndex >= 0) {
+        const [start, end] = [lastIndex, currentIndex].sort((left, right) => left - right)
+        for (const row of visibleAiRows.slice(start, end + 1)) {
+          if (checked) next.add(row.videoRel)
+          else next.delete(row.videoRel)
+        }
+      } else if (checked) {
+        next.add(videoRel)
+      } else {
+        next.delete(videoRel)
+      }
+      lastAiSelectionRef.current = videoRel
+      onSelectedAiVideosChange(next)
+    },
+    [onSelectedAiVideosChange, selectedAiVideos, visibleAiRows]
+  )
   const summary = useMemo(
     () => ({
       changedCount: rows.filter((row) => row.changed).length,
@@ -179,12 +209,13 @@ export default function RenameComparisonEditor({
                     type="checkbox"
                     aria-label={`选择 ${value.source.name}`}
                     checked={selectedAiVideos.has(value.videoRel)}
-                    onChange={(event) => {
-                      const next = new Set(selectedAiVideos)
-                      if (event.target.checked) next.add(value.videoRel)
-                      else next.delete(value.videoRel)
-                      onSelectedAiVideosChange(next)
-                    }}
+                    onChange={(event) =>
+                      toggleAiSelection(
+                        value.videoRel,
+                        event.target.checked,
+                        event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey
+                      )
+                    }
                   />
                 )
               }
@@ -328,8 +359,8 @@ export default function RenameComparisonEditor({
       mode,
       onRegenerate,
       onReset,
-      onSelectedAiVideosChange,
       probes,
+      toggleAiSelection,
       regenerating,
       selectedAiVideos
     ]
@@ -521,7 +552,7 @@ export default function RenameComparisonEditor({
                 onSelectedAiVideosChange(next)
               }}
             />
-            选择当前筛选结果（{visibleAiSelectedCount}/{visibleAiRows.length}）
+            选择当前结果（{visibleAiSelectedCount}/{visibleAiRows.length}，支持 Shift 连选）
           </label>
         )}
       </footer>

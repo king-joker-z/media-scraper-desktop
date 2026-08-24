@@ -191,7 +191,7 @@ function PosterDetail({
           <div>
             <b>{video.name}</b>
             <span className="muted">
-              选择候选会在播放器完成定位后标记；相似分组仅辅助浏览，不改变保存和推荐。
+              每次生成尽量提供五张高清候选；选择候选会在播放器完成定位后标记，保存时直接落盘。
             </span>
           </div>
           <button className="chip-remove" aria-label="关闭封面详情" onClick={close}>
@@ -201,7 +201,13 @@ function PosterDetail({
         <div className="poster-detail-body">
           <div className="poster-detail-preview">
             <div className="poster-detail-player-stage">
-              <video ref={videoRef} src={mediaUrl(video.path)} controls muted className="detail-player" />
+              <video
+                ref={videoRef}
+                src={mediaUrl(video.path)}
+                controls
+                muted
+                className="detail-player"
+              />
             </div>
             <div className="detail-actions">
               {candidates.length === 0 && (

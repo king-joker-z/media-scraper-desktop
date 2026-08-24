@@ -4,6 +4,7 @@
  */
 
 import { createLruCache } from '../../core/lru-cache.mjs'
+import { buildAiChunks } from '../../../shared/ai-batch-rules.mjs'
 import {
   ILLEGAL_NAME_RE,
   MAX_STEM_LENGTH,
@@ -177,40 +178,7 @@ export async function fetchWithRetry(
   return lastError
 }
 
-/** 按父目录分组、在不超过批大小的前提下尽可能不拆分同目录文件。 */
-export function buildAiChunks(entries, batchSize = AI_BATCH_SIZE) {
-  const limit = clampInteger(batchSize, 1, 100, AI_BATCH_SIZE)
-  const groups = []
-  const byFolder = new Map()
-  for (const entry of entries) {
-    const folder = entry.file.parentFolder ?? ''
-    if (!byFolder.has(folder)) {
-      const group = []
-      byFolder.set(folder, group)
-      groups.push(group)
-    }
-    byFolder.get(folder).push(entry)
-  }
-  const chunks = []
-  let current = []
-  const flush = () => {
-    if (current.length) chunks.push(current)
-    current = []
-  }
-  for (const group of groups) {
-    if (group.length > limit) {
-      flush()
-      for (let offset = 0; offset < group.length; offset += limit) {
-        chunks.push(group.slice(offset, offset + limit))
-      }
-      continue
-    }
-    if (current.length + group.length > limit) flush()
-    current.push(...group)
-  }
-  flush()
-  return chunks
-}
+export { buildAiChunks }
 
 /** 计算批次所需输出 token；用户显式设置时尊重配置，否则按名称数量预留。 */
 export function maxTokensForAiNames(itemCount, configuredMaxTokens = 0) {
