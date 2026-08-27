@@ -53,6 +53,7 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
   { key: 'lemon', label: '柠檬黄', description: '明亮活泼，让关键操作更易发现' },
   { key: 'rose', label: '樱花粉', description: '柔和轻快，为界面增添温暖层次' },
   { key: 'comic', label: '漫画风', description: '墨线、纸张与亮黄点缀，侧栏同步切换' },
+  { key: 'comic-ukiyo', label: '浮世绘卷', description: '青海波纹、靛蓝朱印与木刻版画框' },
   { key: 'pixel', label: '像素风', description: '8-bit 机能配色与像素化游戏界面质感' },
   { key: 'retro', label: '复古未来', description: '铬金属、太空轨道与复古仪表盘质感' },
   { key: 'editorial', label: '编辑风', description: '报纸分栏、衬线大标题与印刷油墨质感' },

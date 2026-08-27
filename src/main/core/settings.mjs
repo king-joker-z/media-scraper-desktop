@@ -82,6 +82,7 @@ export const THEME_PALETTE_OPTIONS = [
   'lemon',
   'rose',
   'comic',
+  'comic-ukiyo',
   'pixel',
   'retro',
   'editorial',

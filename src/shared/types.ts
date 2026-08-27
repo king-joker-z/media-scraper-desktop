@@ -191,6 +191,7 @@ export type ThemePalette =
   | 'lemon'
   | 'rose'
   | 'comic'
+  | 'comic-ukiyo'
   | 'pixel'
   | 'retro'
   | 'editorial'

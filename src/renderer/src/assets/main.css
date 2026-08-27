@@ -6427,6 +6427,10 @@ body {
   background: linear-gradient(135deg, #ffd83d 0 47%, #ef4b46 48% 100%);
 }
 
+.palette-swatch-comic-ukiyo {
+  background: linear-gradient(135deg, #efe6cf 0 36%, #27506e 37% 68%, #b4443c 69% 100%);
+}
+
 .palette-swatch-pixel {
   background: linear-gradient(135deg, #7c3aed 0 47%, #f43f5e 48% 100%);
 }
@@ -10016,4 +10020,461 @@ kbd {
   :root[data-palette='y2k'] .comic-card:hover {
     transform: none;
   }
+}
+/* ---------- 特例主题：浮世绘卷 ----------
+ * 木刻版画语言：旧纸底上浮着青海波弧线，侧栏是一整条深靛海浪，
+ * 格式角标做成方形朱印，标题与正文统一用衬线，边框是版画的双线画框。
+ */
+:root[data-palette='comic-ukiyo'] {
+  --accent: #27506e;
+  --accent-press: #1a3a51;
+  --accent-soft: #dde6e2;
+  --focus-ring: rgba(39, 80, 110, 0.42);
+  --danger: #a03a32;
+  --success: #3d6b4f;
+  --warning: #9a6b1e;
+  --label-primary: #26303a;
+  --label-secondary: #5b5c52;
+  --label-tertiary: #8f8a7a;
+  --bg-window: #efe6cf;
+  --bg-card: #f9f3e2;
+  --bg-sidebar: #1d3a4f;
+  --fill-quaternary: #e7dcc0;
+  --fill-tertiary: #d6c69e;
+  --separator: #a39374;
+  --radius-card: 3px;
+  --radius-control: 2px;
+  --shadow-card:
+    0 0 0 1px rgba(38, 58, 74, 0.28),
+    5px 6px 0 rgba(38, 58, 74, 0.16);
+  --shadow-pop:
+    0 0 0 1px rgba(38, 58, 74, 0.34),
+    8px 9px 0 rgba(38, 58, 74, 0.18);
+  --workspace-header-surface: #f9f3e2;
+  --workspace-header-border: #a39374;
+  --workspace-header-shadow: rgba(38, 48, 58, 0.16);
+  --font: Georgia, 'Songti SC', 'Noto Serif SC', 'SimSun', serif;
+}
+
+:root[data-palette='comic-ukiyo'] body,
+:root[data-palette='comic-ukiyo'] .content {
+  background-color: var(--bg-window);
+  background-image:
+    radial-gradient(circle at 50% 115%, transparent 58%, rgba(39, 80, 110, 0.1) 59% 62%, transparent 63%),
+    radial-gradient(circle at 50% 115%, transparent 74%, rgba(39, 80, 110, 0.08) 75% 78%, transparent 79%);
+  background-position:
+    0 0,
+    26px 13px;
+  background-size:
+    52px 26px,
+    52px 26px;
+}
+
+:root[data-palette='comic-ukiyo'] .content::after {
+  background: color-mix(in srgb, var(--bg-window) 85%, transparent);
+}
+
+/* 深靛侧栏 = 夜色海浪，米白文字直接定义在本主题内，不走浅底黑字共享规则。 */
+:root[data-palette='comic-ukiyo'] .sidebar {
+  color: #e9dfc3;
+  background-color: #1d3a4f;
+  background-image: radial-gradient(
+    circle at 50% 118%,
+    transparent 60%,
+    rgba(233, 223, 195, 0.08) 61% 64%,
+    transparent 65%
+  );
+  background-size: 46px 23px;
+  border-right: 2px solid #12252f;
+  box-shadow: inset -5px 0 0 #b4443c;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-palette='comic-ukiyo'] .brand-icon,
+:root[data-palette='comic-ukiyo'] .brand-icon-comic {
+  width: 34px;
+  height: 34px;
+  border: 2px solid #e9dfc3;
+  border-radius: 50%;
+  background: #b4443c;
+  color: #f9f3e2;
+}
+
+:root[data-palette='comic-ukiyo'] .brand-name {
+  color: #f9f3e2;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+:root[data-palette='comic-ukiyo'] .sidebar .module-switch,
+:root[data-palette='comic-ukiyo'] .sidebar .workspace-button,
+:root[data-palette='comic-ukiyo'] .sidebar .recents-toggle,
+:root[data-palette='comic-ukiyo'] .sidebar .recents-pop {
+  border-color: #a39374;
+  background: #f9f3e2;
+  color: #26303a;
+  box-shadow: 3px 3px 0 rgba(10, 20, 28, 0.4);
+}
+
+:root[data-palette='comic-ukiyo'] .sidebar .module-switch:hover:not(:disabled),
+:root[data-palette='comic-ukiyo'] .sidebar .workspace-button:hover:not(:disabled) {
+  background: #efe3c2;
+  color: #26303a;
+  transform: none;
+}
+
+:root[data-palette='comic-ukiyo'] .sidebar .module-switch-caret,
+:root[data-palette='comic-ukiyo'] .sidebar .workspace-label {
+  color: #d3a24f;
+}
+
+:root[data-palette='comic-ukiyo'] .sidebar .workspace-value,
+:root[data-palette='comic-ukiyo'] .sidebar .recents-item {
+  color: #26303a;
+}
+
+:root[data-palette='comic-ukiyo'] .sidebar .recents-item:hover:not(:disabled),
+:root[data-palette='comic-ukiyo'] .sidebar .recents-item.active {
+  background: #efe3c2;
+  color: #26303a;
+}
+
+:root[data-palette='comic-ukiyo'] .nav-item {
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: #d9d0b6;
+  letter-spacing: 0.05em;
+  box-shadow: none;
+}
+
+:root[data-palette='comic-ukiyo'] .nav-item:hover:not(.active) {
+  border-color: rgba(233, 223, 195, 0.4);
+  background: rgba(233, 223, 195, 0.1);
+  color: #f9f3e2;
+}
+
+:root[data-palette='comic-ukiyo'] .nav-item.active {
+  border-color: #12252f;
+  background: #b4443c;
+  color: #f9f3e2;
+  box-shadow: inset 4px 0 0 #e3b34c;
+}
+
+:root[data-palette='comic-ukiyo'] .sidebar .nav-item.active .app-icon {
+  color: #f9f3e2;
+}
+
+:root[data-palette='comic-ukiyo'] .sidebar-footer {
+  border-top: 1px solid rgba(233, 223, 195, 0.35);
+  color: #a8b8b0;
+}
+
+:root[data-palette='comic-ukiyo'] .page-header,
+:root[data-palette='comic-ukiyo'] .settings-card,
+:root[data-palette='comic-ukiyo'] .path-card,
+:root[data-palette='comic-ukiyo'] .empty,
+:root[data-palette='comic-ukiyo'] .placeholder-card,
+:root[data-palette='comic-ukiyo'] .comic-library-overview,
+:root[data-palette='comic-ukiyo'] .comic-card,
+:root[data-palette='comic-ukiyo'] .command-palette,
+:root[data-palette='comic-ukiyo'] .task-panel,
+:root[data-palette='comic-ukiyo'] .task-progress-card {
+  border: 1px solid #a39374;
+  background: #f9f3e2;
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-palette='comic-ukiyo'] .comic-library-overview {
+  border-top: 4px double #27506e;
+}
+
+:root[data-palette='comic-ukiyo'] .comic-card:hover {
+  border-color: #27506e;
+  transform: translateY(-2px);
+}
+
+:root[data-palette='comic-ukiyo'] h1,
+:root[data-palette='comic-ukiyo'] h2,
+:root[data-palette='comic-ukiyo'] .brand-name {
+  letter-spacing: 0.04em;
+}
+
+:root[data-palette='comic-ukiyo'] .eyebrow {
+  color: #b4443c;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+}
+
+:root[data-palette='comic-ukiyo'] button {
+  border: 2px solid #27506e;
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 rgba(38, 58, 74, 0.3);
+}
+
+:root[data-palette='comic-ukiyo'] button:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 rgba(38, 58, 74, 0.3);
+}
+
+:root[data-palette='comic-ukiyo'] button:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+:root[data-palette='comic-ukiyo'] button.secondary {
+  background: #f9f3e2;
+  color: #26303a;
+}
+
+:root[data-palette='comic-ukiyo'] button.secondary:hover:not(:disabled) {
+  border-color: #b4443c;
+  background: #efe3c2;
+  color: #26303a;
+}
+
+:root[data-palette='comic-ukiyo'] input:not([type='checkbox']):not([type='range']),
+:root[data-palette='comic-ukiyo'] select,
+:root[data-palette='comic-ukiyo'] textarea {
+  border-color: #a39374;
+  border-radius: 2px;
+  background: #fdf9ec;
+}
+
+:root[data-palette='comic-ukiyo'] kbd {
+  border-color: #a39374;
+  border-radius: 2px;
+}
+
+/* 方形朱印：格式角标做成盖在画角的名章。 */
+:root[data-palette='comic-ukiyo'] .comic-format-badge {
+  border: 0;
+  border-radius: 2px;
+  background: #b4443c;
+  color: #f9f3e2;
+  box-shadow: 1px 1px 0 rgba(38, 48, 58, 0.35);
+  backdrop-filter: none;
+}
+
+:root[data-palette='comic-ukiyo'] .comic-card-update {
+  border: 0;
+  border-radius: 2px;
+  background: #27506e;
+  color: #f9f3e2;
+}
+
+:root[data-palette='comic-ukiyo'][data-theme='dark'] {
+  --accent: #5890b8;
+  --accent-press: #3a6c8f;
+  --label-primary: #ece2c8;
+  --label-secondary: #c4b992;
+  --label-tertiary: #8f8a72;
+  --bg-window: #101c26;
+  --bg-card: #182836;
+  --fill-quaternary: #20343f;
+  --fill-tertiary: #2c4550;
+  --separator: #4a6070;
+  --accent-soft: #22394a;
+  --workspace-header-surface: #182836;
+  --workspace-header-border: #4a6070;
+  --workspace-header-shadow: rgba(0, 0, 0, 0.5);
+}
+
+:root[data-palette='comic-ukiyo'][data-theme='dark'] body,
+:root[data-palette='comic-ukiyo'][data-theme='dark'] .content {
+  background-image:
+    radial-gradient(circle at 50% 115%, transparent 58%, rgba(120, 160, 190, 0.1) 59% 62%, transparent 63%),
+    radial-gradient(circle at 50% 115%, transparent 74%, rgba(120, 160, 190, 0.07) 75% 78%, transparent 79%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette='comic-ukiyo']:not([data-theme='light']) {
+    --accent: #5890b8;
+    --accent-press: #3a6c8f;
+    --label-primary: #ece2c8;
+    --label-secondary: #c4b992;
+    --label-tertiary: #8f8a72;
+    --bg-window: #101c26;
+    --bg-card: #182836;
+    --fill-quaternary: #20343f;
+    --fill-tertiary: #2c4550;
+    --separator: #4a6070;
+    --accent-soft: #22394a;
+    --workspace-header-surface: #182836;
+    --workspace-header-border: #4a6070;
+    --workspace-header-shadow: rgba(0, 0, 0, 0.5);
+  }
+
+  :root[data-palette='comic-ukiyo']:not([data-theme='light']) body,
+  :root[data-palette='comic-ukiyo']:not([data-theme='light']) .content {
+    background-image:
+      radial-gradient(circle at 50% 115%, transparent 58%, rgba(120, 160, 190, 0.1) 59% 62%, transparent 63%),
+      radial-gradient(circle at 50% 115%, transparent 74%, rgba(120, 160, 190, 0.07) 75% 78%, transparent 79%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-palette='comic-ukiyo'] .comic-card:hover,
+  :root[data-palette='comic-ukiyo'] button:hover:not(:disabled),
+  :root[data-palette='comic-ukiyo'] button:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ==================== 特例主题差异化强化 ====================
+ * 浮世绘卷在配色之外拥有独立的形状语言：挂轴页头、落款朱印、和纸纹理与ぼかし封面。
+ * 以下规则全部只改变视觉呈现，不触碰任何布局度量。
+ */
+
+/* ---------- 强化·浮世绘卷：挂轴页头、落款朱印、和纸纹理、ぼかし渐变封面 ---------- */
+
+/* 标题后盖一枚方形朱印落款。 */
+:root[data-palette='comic-ukiyo'] h1::after {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-left: 0.35em;
+  border-radius: 1px;
+  content: '';
+  background: #b4443c;
+  box-shadow: 1px 1px 0 rgba(38, 48, 58, 0.3);
+}
+
+/* 页头 = 挂轴：顶端一条粗靛蓝“轴杆”，底缘细线收边。 */
+:root[data-palette='comic-ukiyo'] .page-header {
+  border-top: 6px solid #27506e;
+  border-bottom: 1px solid #a39374;
+}
+
+/* 卡片铺一层和纸纤维纹理。 */
+:root[data-palette='comic-ukiyo'] .page-header,
+:root[data-palette='comic-ukiyo'] .settings-card,
+:root[data-palette='comic-ukiyo'] .path-card,
+:root[data-palette='comic-ukiyo'] .empty,
+:root[data-palette='comic-ukiyo'] .placeholder-card,
+:root[data-palette='comic-ukiyo'] .comic-library-overview,
+:root[data-palette='comic-ukiyo'] .comic-card,
+:root[data-palette='comic-ukiyo'] .command-palette,
+:root[data-palette='comic-ukiyo'] .task-panel,
+:root[data-palette='comic-ukiyo'] .task-progress-card {
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(120, 100, 60, 0.04) 0 1px,
+    transparent 1px 4px
+  );
+}
+
+/* 按钮刻成印章：内圈一道米白刻线 + 拉开字距。 */
+:root[data-palette='comic-ukiyo'] button {
+  letter-spacing: 0.12em;
+  box-shadow:
+    inset 0 0 0 1px rgba(249, 243, 226, 0.55),
+    2px 2px 0 rgba(38, 58, 74, 0.3);
+}
+
+:root[data-palette='comic-ukiyo'] button.secondary {
+  box-shadow:
+    inset 0 0 0 1px rgba(39, 80, 110, 0.35),
+    2px 2px 0 rgba(38, 58, 74, 0.3);
+}
+
+/* 侧栏海浪加大并锚定在底部，像画卷下缘的波涛。 */
+:root[data-palette='comic-ukiyo'] .sidebar {
+  background-image:
+    radial-gradient(circle at 50% 130%, transparent 62%, rgba(233, 223, 195, 0.12) 63% 66%, transparent 67%),
+    radial-gradient(circle at 50% 130%, transparent 78%, rgba(233, 223, 195, 0.09) 79% 82%, transparent 83%);
+  background-position:
+    0 100%,
+    32px 100%;
+  background-size:
+    64px 32px,
+    64px 32px;
+}
+
+/* 选中导航 = 贴在夜浪上的纸签。 */
+:root[data-palette='comic-ukiyo'] .nav-item.active {
+  border-color: #a39374;
+  background: #f9f3e2;
+  color: #26303a;
+  box-shadow:
+    3px 3px 0 rgba(10, 20, 28, 0.45),
+    inset 4px 0 0 #b4443c;
+}
+
+:root[data-palette='comic-ukiyo'] .sidebar .nav-item.active,
+:root[data-palette='comic-ukiyo'] .sidebar .nav-item.active .app-icon {
+  color: #26303a;
+}
+
+/* 封面顶端一道靛蓝ぼかし（渐层刷色），画面做旧。 */
+:root[data-palette='comic-ukiyo'] .comic-thumb::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: '';
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(39, 80, 110, 0.28), transparent 42%);
+}
+
+:root[data-palette='comic-ukiyo'] .comic-thumb img {
+  filter: sepia(0.24) saturate(0.92) contrast(1.02);
+}
+
+:root[data-palette='comic-ukiyo'] .comic-format-badge,
+:root[data-palette='comic-ukiyo'] .comic-card-update {
+  z-index: 2;
+}
+
+/* ==================== 新主题可读性修正 ====================
+ * 卡片/日志行等“透明结构按钮”不是真正的按钮：主题的 button 规则（边框/变换/字距）
+ * 特异性更高会击穿它们的透明底，导致卡片内部多套一层框。统一恢复为无框、透明、不变换。
+ */
+:root[data-palette='comic-ukiyo'] button.video-card-open,
+:root[data-palette='comic-ukiyo'] button.comic-card-main,
+:root[data-palette='comic-ukiyo'] button.op-log-row,
+:root[data-palette='comic-ukiyo'] button.recents-mask {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  filter: none;
+  letter-spacing: normal;
+}
+
+:root[data-palette='comic-ukiyo'] button.video-card-open:hover:not(:disabled),
+:root[data-palette='comic-ukiyo'] button.comic-card-main:hover:not(:disabled),
+:root[data-palette='comic-ukiyo'] button.op-log-row:hover:not(:disabled) {
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  transform: none;
+}
+
+:root[data-palette='comic-ukiyo'] button.video-card-open:active:not(:disabled),
+:root[data-palette='comic-ukiyo'] button.comic-card-main:active:not(:disabled) {
+  background: transparent;
+  transform: none;
+}
+
+/* 视频卡片本体补齐统一的边框语言，但不动内部结构。 */
+:root[data-palette='comic-ukiyo'] .video-card {
+  border: 1px solid #a39374;
+  border-radius: 3px;
+  background: #f9f3e2;
+  letter-spacing: normal;
+}
+
+/* 浮世绘侧栏：模块切换是米白卡片，品牌名必须用墨色，否则白字落在白卡上。 */
+:root[data-palette='comic-ukiyo'] .sidebar .module-switch .brand-name {
+  color: #26303a;
+}
+
+/* 浮世绘导航与页脚文字提亮一档，深靛底上保证对比度。 */
+:root[data-palette='comic-ukiyo'] .nav-item {
+  color: #ece2c8;
+}
+
+:root[data-palette='comic-ukiyo'] .sidebar-footer {
+  color: #c8bda0;
 }
