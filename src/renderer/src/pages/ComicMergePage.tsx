@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Comic, ComicFormat, ComicMergeReport, ComicScanResult } from '../../../shared/types'
 import { chapterDisplayName } from '../../../shared/comic-rules.mjs'
 import { applyRegexRules } from '../../../shared/rename-rules.mjs'
@@ -16,6 +16,114 @@ function comicBadge(comic: Comic): { text: string; tone: 'muted' | 'ok' | 'warn'
     return { text: `+${comic.newChapters.length} 章更新`, tone: 'new' }
   return { text: `已合并 ${comic.merged.format.toUpperCase()}`, tone: 'ok' }
 }
+
+/**
+ * 单行漫画条目（memo 隔离）：
+ * 输入名称/正则预览的按键更新、任务事件、全局选中变化都会触发页面重渲染，
+ * 逐行比较复杂 props 后只真正重绘变化行，避免数百行列表整列表重渲染、
+ * 进而避免 Windows 上键盘输入与重命名执行期间肉眼可见的卡帧。
+ */
+const ComicListItem = memo(function ComicListItem({
+  comic,
+  checked,
+  rebuild,
+  mutating,
+  name,
+  regexActive,
+  workspace,
+  isOpen,
+  onToggle,
+  onNameChange,
+  onToggleExpand
+}: {
+  comic: Comic
+  checked: boolean
+  rebuild: boolean
+  mutating: boolean
+  name: string
+  regexActive: boolean
+  workspace: string
+  isOpen: boolean
+  onToggle: (relDir: string) => void
+  onNameChange: (relDir: string, value: string) => void
+  onToggleExpand: (relDir: string) => void
+}): React.JSX.Element {
+  const badge = comicBadge(comic)
+  return (
+    <div className="comic-item">
+      <label className="comic-row">
+        <input
+          className="check-input"
+          type="checkbox"
+          checked={checked}
+          onChange={() => onToggle(comic.relDir)}
+          disabled={
+            mutating ||
+            comic.imageCount === 0 ||
+            (!comic.merged ? false : comic.newChapters.length === 0 && !rebuild)
+          }
+        />
+        <span className="comic-cover">
+          {comic.coverRel ? (
+            <img
+              src={mediaUrl(joinPath(workspace, joinPath(comic.relDir, comic.coverRel)))}
+              alt={comic.name}
+              loading="lazy"
+            />
+          ) : (
+            <span className="comic-cover-empty" aria-label="暂无封面" />
+          )}
+        </span>
+        <span className="comic-info">
+          <input
+            className="comic-name-input"
+            value={name}
+            aria-label={`${comic.name} 的漫画名称`}
+            title={
+              regexActive
+                ? '正在显示批量替换预览；清空“正则查找”后可逐项编辑。'
+                : '可直接编辑漫画名称'
+            }
+            disabled={mutating || regexActive}
+            onClick={(event) => event.preventDefault()}
+            onChange={(event) => onNameChange(comic.relDir, event.target.value)}
+          />
+          <span className="muted">
+            {comic.chapters.length} 章 · {comic.imageCount} 图
+            {comic.merged ? ` · 产物 ${formatBytes(comic.merged.outputBytes)}` : ''}
+          </span>
+        </span>
+        <span className={`comic-badge comic-badge-${badge.tone}`}>{badge.text}</span>
+        <button
+          className="secondary comic-expand"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onToggleExpand(comic.relDir)
+          }}
+        >
+          {isOpen ? '收起' : '章节'}
+        </button>
+      </label>
+      {isOpen && (
+        <div className="comic-chapters">
+          {comic.chapters.map((chapter) => {
+            const isNew = comic.newChapters.some((c) => c.relDir === chapter.relDir)
+            const isChanged = comic.changedChapters.includes(chapterDisplayName(chapter))
+            return (
+              <div key={chapter.relDir || '__flat__'} className="comic-chapter-row">
+                <span>{chapterDisplayName(chapter)}</span>
+                <span className="muted">{chapter.images.length} 图</span>
+                {isNew && <span className="comic-badge comic-badge-new">新</span>}
+                {isChanged && <span className="comic-badge comic-badge-warn">已变化</span>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+})
 
 /**
  * 漫画合并：扫描漫画工作区 → 勾选漫画 → 选格式（EPUB/PDF）→ 执行 → 报告 → 删除源图。
@@ -132,14 +240,21 @@ function ComicMergePage({
   const needRebuild = selectedComics.some((comic) => comic.changedChapters.length > 0)
   const comicMutating = merging || renaming || deleting
 
-  const toggle = (relDir: string): void => {
+  // 回调必须保持稳定引用（useCallback + 函数式更新），否则 memo 化的行组件每次都会失效。
+  const handleToggleComic = useCallback((relDir: string): void => {
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(relDir)) next.delete(relDir)
       else next.add(relDir)
       return next
     })
-  }
+  }, [])
+  const handleNameChange = useCallback((relDir: string, value: string): void => {
+    setComicNames((prev) => ({ ...prev, [relDir]: value }))
+  }, [])
+  const handleToggleExpand = useCallback((relDir: string): void => {
+    setExpanded((prev) => (prev === relDir ? null : relDir))
+  }, [])
 
   const changeFormat = (next: ComicFormat): void => {
     setFormat(next)
@@ -233,7 +348,7 @@ function ComicMergePage({
   const mergedSourceBytes = report?.merged.reduce((sum, item) => sum + item.sourceBytes, 0) ?? 0
 
   return (
-    <div className="page">
+    <div className="page comic-merge-page">
       <header className="page-header">
         <div>
           <p className="eyebrow">漫画合并</p>
@@ -261,6 +376,25 @@ function ComicMergePage({
           <button className="secondary" onClick={onOpenLibrary}>
             漫画库
           </button>
+          {/* 主操作放在置顶的页头：随时可见，且不会被右下角任务浮岛遮挡。 */}
+          {result && (
+            <span className="muted comic-picked">
+              已选 {selectedComics.length} 部{rebuild ? '（全量重建）' : ''}
+            </span>
+          )}
+          {result &&
+            (merging ? (
+              <button className="secondary" onClick={() => void window.api.cancelComicMerge()}>
+                取消合并
+              </button>
+            ) : (
+              <button
+                onClick={execute}
+                disabled={selectedComics.length === 0 || deleting || (needRebuild && !rebuild)}
+              >
+                {`合并 ${selectedComics.length} 部为 ${format.toUpperCase()}`}
+              </button>
+            ))}
         </div>
       </header>
 
@@ -368,116 +502,28 @@ function ComicMergePage({
           {comics.length === 0 && keyword && <p className="muted">没有匹配的漫画。</p>}
 
           <div className="comic-list" tabIndex={0}>
-            {comics.map((comic) => {
-              const badge = comicBadge(comic)
-              const isOpen = expanded === comic.relDir
-              return (
-                <div key={comic.relDir} className="comic-item">
-                  <label className="comic-row">
-                    <input
-                      className="check-input"
-                      type="checkbox"
-                      checked={selected.has(comic.relDir)}
-                      onChange={() => toggle(comic.relDir)}
-                      disabled={
-                        comicMutating ||
-                        comic.imageCount === 0 ||
-                        (!comic.merged ? false : comic.newChapters.length === 0 && !rebuild)
-                      }
-                    />
-                    <span className="comic-cover">
-                      {comic.coverRel ? (
-                        <img
-                          src={mediaUrl(
-                            joinPath(workspace, joinPath(comic.relDir, comic.coverRel))
-                          )}
-                          alt={comic.name}
-                          loading="lazy"
-                        />
-                      ) : (
-                        <span className="comic-cover-empty" aria-label="暂无封面" />
-                      )}
-                    </span>
-                    <span className="comic-info">
-                      <input
-                        className="comic-name-input"
-                        value={previewNames[comic.relDir] ?? comic.name}
-                        aria-label={`${comic.name} 的漫画名称`}
-                        title={
-                          regexPattern
-                            ? '正在显示批量替换预览；清空“正则查找”后可逐项编辑。'
-                            : '可直接编辑漫画名称'
-                        }
-                        disabled={comicMutating || Boolean(regexPattern)}
-                        onClick={(event) => event.preventDefault()}
-                        onChange={(event) =>
-                          setComicNames((prev) => ({ ...prev, [comic.relDir]: event.target.value }))
-                        }
-                      />
-                      <span className="muted">
-                        {comic.chapters.length} 章 · {comic.imageCount} 图
-                        {comic.merged ? ` · 产物 ${formatBytes(comic.merged.outputBytes)}` : ''}
-                      </span>
-                    </span>
-                    <span className={`comic-badge comic-badge-${badge.tone}`}>{badge.text}</span>
-                    <button
-                      className="secondary comic-expand"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        setExpanded(isOpen ? null : comic.relDir)
-                      }}
-                    >
-                      {isOpen ? '收起' : '章节'}
-                    </button>
-                  </label>
-                  {isOpen && (
-                    <div className="comic-chapters">
-                      {comic.chapters.map((chapter) => {
-                        const isNew = comic.newChapters.some((c) => c.relDir === chapter.relDir)
-                        const isChanged = comic.changedChapters.includes(
-                          chapterDisplayName(chapter)
-                        )
-                        return (
-                          <div key={chapter.relDir || '__flat__'} className="comic-chapter-row">
-                            <span>{chapterDisplayName(chapter)}</span>
-                            <span className="muted">{chapter.images.length} 图</span>
-                            {isNew && <span className="comic-badge comic-badge-new">新</span>}
-                            {isChanged && (
-                              <span className="comic-badge comic-badge-warn">已变化</span>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          <div className="plan-footer">
-            <span className="muted">
-              已选 {selectedComics.length} 部{rebuild ? '（全量重建）' : ''}
-            </span>
-            {merging ? (
-              <button className="secondary" onClick={() => void window.api.cancelComicMerge()}>
-                取消合并
-              </button>
-            ) : (
-              <button
-                onClick={execute}
-                disabled={selectedComics.length === 0 || deleting || (needRebuild && !rebuild)}
-              >
-                {`合并 ${selectedComics.length} 部为 ${format.toUpperCase()}`}
-              </button>
-            )}
+            {comics.map((comic) => (
+              <ComicListItem
+                key={comic.relDir}
+                comic={comic}
+                checked={selected.has(comic.relDir)}
+                rebuild={rebuild}
+                mutating={comicMutating}
+                name={previewNames[comic.relDir] ?? comic.name}
+                regexActive={Boolean(regexPattern)}
+                workspace={workspace}
+                isOpen={expanded === comic.relDir}
+                onToggle={handleToggleComic}
+                onNameChange={handleNameChange}
+                onToggleExpand={handleToggleExpand}
+              />
+            ))}
           </div>
         </section>
       )}
 
       {report && (
-        <section className="plan">
+        <section className="plan comic-report">
           <h2>合并报告</h2>
           {report.merged.length > 0 && (
             <div className="comic-report-list">

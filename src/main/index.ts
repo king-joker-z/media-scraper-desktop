@@ -1349,11 +1349,32 @@ function registerIpcHandlers(): void {
         const safeRoot = requireComicRoot(root)
         items.forEach((item) => requireComicDir(safeRoot, item.relDir))
         const settings = await settingsStore.get()
-        const report = await renameComicDirectories(safeRoot, items, {
-          taskCenter,
-          taskId,
-          concurrency: settings.concurrency
-        })
+        // 暂存/恢复阶段在 TaskCenter 派发前/后执行，Windows 上带锁重试可能耗时较长，
+        // 经同一任务 ID 持续上报进度，避免界面看起来像卡死。
+        let stageNotified = false
+        let report
+        try {
+          report = await renameComicDirectories(safeRoot, items, {
+            taskCenter,
+            taskId,
+            concurrency: settings.concurrency,
+            onStageProgress: (completed, total, current) => {
+              stageNotified = true
+              emitTask(taskId, '重命名漫画', { type: 'progress', current, completed, total })
+            }
+          })
+        } catch (error) {
+          // 暂存阶段失败发生在 TaskCenter 派发之前，必须补发终态事件，
+          // 否则任务洋岛卡片会一直停在“进行中”。
+          if (stageNotified) {
+            emitTask(taskId, '重命名漫画', {
+              type: 'failed',
+              current: '重命名失败',
+              error: error instanceof Error ? error.message : String(error)
+            })
+          }
+          throw error
+        }
         logOp('comic-rename', {
           root: safeRoot,
           report,

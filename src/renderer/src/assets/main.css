@@ -10,9 +10,14 @@
   border-radius: 6px;
 }
 
+/* .comic-row 设置了 cursor: pointer，名称输入框是可编辑文本，必须恢复文本光标。 */
+.comic-name-input:not(:disabled) {
+cursor: text;
+}
+
 .comic-name-input:focus {
-  outline: 2px solid var(--focus-ring);
-  border-color: var(--accent);
+outline: 2px solid var(--focus-ring);
+border-color: var(--accent);
 }
 
 .comic-name-input:disabled {
@@ -630,9 +635,38 @@ h2 {
   overflow: visible;
 }
 .comic-merge-plan > .comic-list {
-  flex: 0 1 min(58vh, 680px);
-  min-height: 168px;
-  overflow-y: auto;
+flex: 0 1 min(58vh, 680px);
+min-height: 168px;
+overflow-y: auto;
+}
+/* 漫画合并页整页不滚动：页头、工具栏、底栏及各状态卡固定，
+ * 仅漫画列表单点内部滚动，避免页面与列表双重滚动条叠在一起。
+ * 注意：不得加 overflow: hidden——会破坏页头 sticky 的滚动上下文（页头不再置顶）；
+ * 页面高度恰好等于视口时页头自然贴在顶部，小窗口溢出仍可退化回整页滚动。 */
+/* 用 .page 前缀提高优先级：后文另有 .page 规则把底部内边距覆写成 64/96px，等优先级会被挤掉。 */
+.page.comic-merge-page {
+display: flex;
+flex-direction: column;
+min-height: 100%;
+height: 100%;
+padding-bottom: 24px;
+}
+.comic-merge-page > :not(.comic-merge-plan) {
+flex-shrink: 0;
+}
+.comic-merge-page > .comic-merge-plan {
+flex: 1 1 auto;
+min-height: 0;
+}
+.comic-merge-page .comic-merge-plan > .comic-list {
+flex: 1 1 auto;
+}
+/* 只压合并报告卡（合并计划卡本身也有 .plan，绝不能用 > .plan 通配限高它）。 */
+.comic-merge-page > .comic-report {
+flex: 0 1 auto;
+min-height: 0;
+max-height: 34vh;
+overflow-y: auto;
 }
 .comic-merge-plan > .plan-footer {
   flex-shrink: 0;
@@ -4120,8 +4154,24 @@ button.op-log-row:focus-visible {
   padding: 0;
 }
 .comic-search {
-  margin-left: auto;
-  min-width: 200px;
+margin-left: auto;
+min-width: 200px;
+}
+/* 选中计数以轻量信息胶囊嵌入页头操作组：与按钮等高、同卡片质感，不再是裸文本。 */
+.comic-picked {
+display: inline-flex;
+flex-shrink: 0;
+align-items: center;
+align-self: center;
+min-height: 34px;
+padding: 0 11px;
+font-size: 12px;
+font-weight: 600;
+color: var(--label-secondary);
+border: 1px solid color-mix(in srgb, var(--separator) 86%, transparent);
+border-radius: 8px;
+background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+white-space: nowrap;
 }
 .warning-text {
   margin: 0 0 12px;
@@ -4153,9 +4203,11 @@ button.op-log-row:focus-visible {
   overflow: hidden;
   transition: border-color 140ms ease;
 }
-.comic-item:has(.comic-row:hover),
+/* 避免 :has(.comic-row:hover)：大列表中每行一条 :has() 会显著放大样式重算成本，
+ * Windows 上重命名期间尤为明显；.comic-item 的 hover 覆盖语义等效且廉价。 */
+.comic-item:hover,
 .comic-item:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--separator));
+border-color: color-mix(in srgb, var(--accent) 30%, var(--separator));
 }
 .comic-row {
   display: flex;

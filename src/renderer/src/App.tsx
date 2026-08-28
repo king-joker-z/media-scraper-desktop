@@ -225,8 +225,23 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }): React.JSX
   )
 }
 
+/**
+ * 任务浮层（进度浮岛 + 任务抽屉）单独挂载并自订阅任务事件：
+ * 批量任务期间事件以 120ms 节流高频推送，若由 App 根组件持有状态，
+ * 每次事件都会触发全部常驻页面（含数百行的漫画/视频列表）整树重渲染。
+ * 独立组件订阅后，事件更新只重渲染浮层自身，页面不受影响。
+ */
+function TaskLayer(): React.JSX.Element {
+  const feed = useTaskFeed()
+  return (
+    <>
+      <TaskIsland feed={feed} />
+      <TaskCenter feed={feed} />
+    </>
+  )
+}
+
 function App(): React.JSX.Element {
-  const taskFeed = useTaskFeed()
   // null = 显示模块选择页（首次启动 / 主动返回）
   const [module, setModule] = useState<AppModule | null>(null)
   const [page, setPage] = useState<PageKey>('clean')
@@ -674,8 +689,7 @@ function App(): React.JSX.Element {
           <div className="drop-hint">松开以设为{module === 'video' ? '' : '漫画'}工作区</div>
         </div>
       )}
-      <TaskIsland feed={taskFeed} />
-      <TaskCenter feed={taskFeed} />
+      <TaskLayer />
       <AppToaster />
       {pendingNavigation && (
         <ConfirmDialog

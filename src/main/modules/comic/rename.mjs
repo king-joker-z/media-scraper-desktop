@@ -53,7 +53,11 @@ const restoreDir = async (from, to) => {
  * 漫画目录改名：全部先改临时目录，再逐项提交关联产物/封面/清单，支持名称交换和仅大小写改名。
  * 单项任一关联文件改名失败会完整回退到原目录，避免 Windows 文件锁留下半完成状态。
  */
-export async function renameComicDirectories(root, items, { taskCenter, taskId, concurrency = 5 }) {
+export async function renameComicDirectories(
+  root,
+  items,
+  { taskCenter, taskId, concurrency = 5, onStageProgress }
+) {
   const unique = new Map()
   for (const item of items) {
     const relDir = String(item.relDir ?? '')
@@ -88,15 +92,23 @@ export async function renameComicDirectories(root, items, { taskCenter, taskId, 
   const report = { taskId, cancelled: false, renamedCount: 0, items: [], failed: [] }
   if (active.length === 0) return report
 
+  // 暂存阶段串行改名（Windows 上每次都可能撞上文件锁重试，最坏单次数秒），
+  // 此前完全没有进度反馈，批量改名时界面如同卡死；这里持续上报进度。
   const staged = []
   try {
     for (const [relDir, newName] of active) {
       const tempPath = join(root, `.msd-comic-rename-${crypto.randomUUID()}`)
+      onStageProgress?.(staged.length, active.length, `暂存 ${relDir}`)
       await moveExact(join(root, relDir), tempPath)
       staged.push({ relDir, newName, tempPath })
     }
   } catch (error) {
-    for (const item of staged.reverse()) await restoreDir(item.tempPath, join(root, item.relDir))
+    let rolledBack = 0
+    for (const item of staged.reverse()) {
+      onStageProgress?.(rolledBack, staged.length, `回退 ${item.relDir}`)
+      await restoreDir(item.tempPath, join(root, item.relDir))
+      rolledBack += 1
+    }
     throw error
   }
 
@@ -161,7 +173,12 @@ export async function renameComicDirectories(root, items, { taskCenter, taskId, 
   })
   report.cancelled = result.cancelled
   // 未派发、取消或失败的项仍留在临时名：统一回退，保证扫描不会丢失漫画。
-  for (const item of staged) await restoreDir(item.tempPath, join(root, item.relDir))
+  let restored = 0
+  for (const item of staged) {
+    onStageProgress?.(restored, staged.length, `恢复 ${item.relDir}`)
+    await restoreDir(item.tempPath, join(root, item.relDir))
+    restored += 1
+  }
   result.results.forEach((entry, index) => {
     if (!entry.ok && !entry.cancelled) {
       report.failed.push({ target: staged[index].relDir, error: entry.error ?? '未知错误' })
