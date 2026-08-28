@@ -518,8 +518,9 @@ test('invalid palette falls back to ocean', () => {
 
 test('cursorEffects 光标动效白名单归一化，未知值回退 particles', () => {
   assert.equal(normalizeSettings({}).cursorEffects, 'particles')
-  assert.equal(normalizeSettings({ cursorEffects: 'ribbon' }).cursorEffects, 'ribbon')
-  assert.equal(normalizeSettings({ cursorEffects: 'off' }).cursorEffects, 'off')
+  for (const effect of ['ribbon', 'sparkles', 'comets', 'confetti', 'ripples', 'off']) {
+    assert.equal(normalizeSettings({ cursorEffects: effect }).cursorEffects, effect)
+  }
   assert.equal(normalizeSettings({ cursorEffects: 'sparkle' }).cursorEffects, 'particles')
   assert.equal(normalizeSettings({ cursorEffects: 42 }).cursorEffects, 'particles')
 })

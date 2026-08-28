@@ -41,9 +41,13 @@ const THEME_TABS: { key: ThemeMode; label: string }[] = [
 ]
 
 const CURSOR_EFFECT_TABS: { key: CursorEffectsMode; label: string; description: string }[] = [
-  { key: 'particles', label: '粒子光点', description: '最轻最灵动' },
-  { key: 'ribbon', label: '霓虹拖尾', description: '线条感更强' },
-  { key: 'off', label: '关闭', description: '不要任何轨迹' }
+  { key: 'particles', label: '粒子光点', description: '轻盈惯性尾迹' },
+  { key: 'ribbon', label: '霓虹拖尾', description: '流动线条笔触' },
+  { key: 'sparkles', label: '星尘闪烁', description: '会呼吸的小星芒' },
+  { key: 'comets', label: '流星彗尾', description: '高速划过的光束' },
+  { key: 'confetti', label: '彩纸碎屑', description: '主题色纸片飘落' },
+  { key: 'ripples', label: '水波涟漪', description: '点击扩散的圆环' },
+  { key: 'off', label: '关闭动效', description: '不显示任何轨迹' }
 ]
 
 const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }[] = [
@@ -731,7 +735,7 @@ function SettingsPage(): React.JSX.Element {
       <section className="settings-card" hidden={!isGroupActive('appearance')}>
         <h2>光标动效</h2>
         <p className="muted">
-          指针移动时跟随强调色轨迹，点击任意位置附带光点迸溅；跟随当前主题强调色。
+          提供光点、霓虹、星尘、流星、彩纸和水波六种方案；点击会按当前方案产生专属反馈，并跟随当前主题强调色。
           系统开启「减少动态效果」时会自动停用。卡片悬停光斑与磁吸效果始终启用。
         </p>
         <div className="mode-tabs cursor-effect-tabs" role="tablist" aria-label="光标动效模式">

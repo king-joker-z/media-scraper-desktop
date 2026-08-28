@@ -2,20 +2,32 @@ import { useEffect, useRef } from 'react'
 import type { CursorEffectsMode } from '../../../shared/types'
 
 /**
- * 光标轨迹特效层（参考 Magic UI / CodePen 粒子轨迹的实现思路）：
- * - particles：沿指针移动路径播撒强调色光点，带惯性漂移与淡出
- * - ribbon：最近一段指针路径绘制为逐渐变细、淡出的霓虹拖尾
- * - 两种模式下点击（pointerdown）都会触发一圈小迸溅
- * 性能约束：粒子预渲染为离屏精灵、总量设上限、空闲即停帧、隐藏即清空；
- * 系统开启「减少动态效果」时整层关闭。仅响应鼠标 / 手写笔，不干扰触屏滚动。
+ * 光标动效层（单 Canvas）：
+ * - particles：轻量惯性光点
+ * - ribbon：霓虹线条笔触
+ * - sparkles：缓慢浮动、明暗呼吸的星芒
+ * - comets：沿指针方向划出的短彗尾
+ * - confetti：跟随主题色的纸片飘落
+ * - ripples：点击时层叠扩散的水波圆环
+ *
+ * 性能边界：离屏精灵、全局粒子上限、rAF 合帧、空闲停帧、页面隐藏清空；
+ * 系统“减少动态效果”时整层关闭。只监听 mouse / pen，触屏滚动不受影响。
  */
 
 const MAX_PARTICLES = 220
-const SPAWN_SPACING_PX = 5
+const MAX_RIPPLES = 14
 const RIBBON_MAX_POINTS = 26
 const RIBBON_LIFE_MS = 420
-const BURST_COUNT = 14
 const IDLE_STOP_MS = 160
+
+const PATH_SPACING: Partial<Record<CursorEffectsMode, number>> = {
+  particles: 5,
+  sparkles: 17,
+  comets: 26,
+  confetti: 14
+}
+
+type ParticleKind = 'trail' | 'burst' | 'sparkle' | 'comet' | 'confetti'
 
 type Particle = {
   x: number
@@ -25,17 +37,58 @@ type Particle = {
   age: number
   ttl: number
   size: number
-  /** trail 轻漂移 / burst 点击迸溅（衰减更快） */
-  kind: 'trail' | 'burst'
+  kind: ParticleKind
+  rotation: number
+  angularVelocity: number
+  colorIndex: number
 }
 
 type RibbonPoint = { x: number; y: number; t: number }
+
+type Ripple = {
+  x: number
+  y: number
+  age: number
+  ttl: number
+  maxRadius: number
+  lineWidth: number
+}
+
+type AccentAssets = {
+  sprite: HTMLCanvasElement
+  rgb: [number, number, number]
+  colors: string[]
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
 
 function hexToRgb(color: string): [number, number, number] | null {
   const match = /^#?([0-9a-f]{6})$/i.exec(color.trim())
   if (!match) return null
   const value = parseInt(match[1], 16)
   return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff]
+}
+
+function mixRgb(
+  [fromR, fromG, fromB]: [number, number, number],
+  [toR, toG, toB]: [number, number, number],
+  amount: number
+): [number, number, number] {
+  return [
+    Math.round(fromR + (toR - fromR) * amount),
+    Math.round(fromG + (toG - fromG) * amount),
+    Math.round(fromB + (toB - fromB) * amount)
+  ]
+}
+
+function rgbColor([r, g, b]: [number, number, number]): string {
+  return `rgb(${r}, ${g}, ${b})`
+}
+
+function randomBetween(min: number, max: number): number {
+  return min + Math.random() * (max - min)
 }
 
 /** 将当前强调色预渲染为径向渐变精灵，避免每粒子每帧构建渐变对象。 */
@@ -65,10 +118,16 @@ function makeGlowSprite(rgb: [number, number, number]): HTMLCanvasElement {
   return sprite
 }
 
-function readAccent(): { sprite: HTMLCanvasElement; rgb: [number, number, number] } {
+function readAccent(): AccentAssets {
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--accent')
   const rgb = hexToRgb(raw) ?? [22, 119, 255]
-  return { sprite: makeGlowSprite(rgb), rgb }
+  // 彩纸碎屑只使用同一主题色的明暗变体，避免突兀的固定彩虹色。
+  const colors = [
+    rgbColor(rgb),
+    rgbColor(mixRgb(rgb, [255, 255, 255], 0.35)),
+    rgbColor(mixRgb(rgb, [0, 0, 0], 0.22))
+  ]
+  return { sprite: makeGlowSprite(rgb), rgb, colors }
 }
 
 function CursorTrail(): React.JSX.Element {
@@ -85,15 +144,22 @@ function CursorTrail(): React.JSX.Element {
     let running = false
     let lastFrameAt = 0
     let lastPointerAt = 0
-    let { sprite, rgb: accentRgb } = readAccent()
+    let viewportWidth = window.innerWidth
+    let viewportHeight = window.innerHeight
+    let { sprite, rgb: accentRgb, colors: accentColors } = readAccent()
 
     const particles: Particle[] = []
     const ribbon: RibbonPoint[] = []
+    const ripples: Ripple[] = []
     const pointer = { x: 0, y: 0, has: false, vx: 0, vy: 0 }
     let pendingDistance = 0
 
     const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
     enabled = !motionQuery.matches
+
+    const clearCanvas = (): void => {
+      context.clearRect(0, 0, viewportWidth, viewportHeight)
+    }
 
     const stopLoop = (): void => {
       if (rafId) cancelAnimationFrame(rafId)
@@ -104,75 +170,273 @@ function CursorTrail(): React.JSX.Element {
     const clearAll = (): void => {
       particles.length = 0
       ribbon.length = 0
+      ripples.length = 0
       pendingDistance = 0
-      context.clearRect(0, 0, canvas.width, canvas.height)
+      pointer.has = false
+      clearCanvas()
     }
 
     const resize = (): void => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
-      canvas.width = Math.round(window.innerWidth * dpr)
-      canvas.height = Math.round(window.innerHeight * dpr)
-      canvas.style.width = `${window.innerWidth}px`
-      canvas.style.height = `${window.innerHeight}px`
+      viewportWidth = window.innerWidth
+      viewportHeight = window.innerHeight
+      canvas.width = Math.round(viewportWidth * dpr)
+      canvas.height = Math.round(viewportHeight * dpr)
+      canvas.style.width = `${viewportWidth}px`
+      canvas.style.height = `${viewportHeight}px`
       context.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
     resize()
 
-    const spawnTrailParticles = (x: number, y: number, distance: number): void => {
-      pendingDistance += distance
-      while (pendingDistance >= SPAWN_SPACING_PX && particles.length < MAX_PARTICLES) {
-        pendingDistance -= SPAWN_SPACING_PX
-        particles.push({
-          x: x + (Math.random() - 0.5) * 6,
-          y: y + (Math.random() - 0.5) * 6,
-          // 继承一小部分指针速度，形成随拖动方向甩开的惯性尾迹
-          vx: pointer.vx * 0.08 + (Math.random() - 0.5) * 34,
-          vy: pointer.vy * 0.08 + (Math.random() - 0.5) * 34 - 12,
-          age: 0,
-          ttl: 420 + Math.random() * 420,
-          size: 5 + Math.random() * 9,
-          kind: 'trail'
-        })
-      }
+    const addParticle = (particle: Particle): void => {
+      if (particles.length < MAX_PARTICLES) particles.push(particle)
+    }
+
+    const spawnTrailParticle = (x: number, y: number): void => {
+      addParticle({
+        x: x + randomBetween(-3, 3),
+        y: y + randomBetween(-3, 3),
+        // 继承少量指针速度，形成顺着移动方向甩开的惯性尾迹。
+        vx: pointer.vx * 0.08 + randomBetween(-17, 17),
+        vy: pointer.vy * 0.08 + randomBetween(-26, 8),
+        age: 0,
+        ttl: randomBetween(420, 840),
+        size: randomBetween(5, 14),
+        kind: 'trail',
+        rotation: 0,
+        angularVelocity: 0,
+        colorIndex: 0
+      })
+    }
+
+    const spawnSparkle = (x: number, y: number, burst = false): void => {
+      const angle = burst ? Math.random() * Math.PI * 2 : 0
+      const speed = burst ? randomBetween(45, 175) : randomBetween(4, 22)
+      addParticle({
+        x: x + randomBetween(-4, 4),
+        y: y + randomBetween(-4, 4),
+        vx: burst ? Math.cos(angle) * speed : pointer.vx * 0.025 + randomBetween(-8, 8),
+        vy: burst ? Math.sin(angle) * speed : pointer.vy * 0.025 - randomBetween(12, 28),
+        age: 0,
+        ttl: randomBetween(550, 1050),
+        size: randomBetween(4, 10),
+        kind: 'sparkle',
+        rotation: Math.random() * Math.PI,
+        angularVelocity: randomBetween(-3, 3),
+        colorIndex: Math.floor(Math.random() * accentColors.length)
+      })
+    }
+
+    const spawnComet = (x: number, y: number, burst = false): void => {
+      const velocityMagnitude = Math.hypot(pointer.vx, pointer.vy)
+      const direction =
+        burst || velocityMagnitude < 80
+          ? Math.random() * Math.PI * 2
+          : Math.atan2(pointer.vy, pointer.vx)
+      const speed = burst ? randomBetween(160, 320) : clamp(velocityMagnitude * 0.16, 135, 310)
+      addParticle({
+        x,
+        y,
+        vx: Math.cos(direction) * speed + randomBetween(-16, 16),
+        vy: Math.sin(direction) * speed + randomBetween(-16, 16),
+        age: 0,
+        ttl: randomBetween(260, 520),
+        size: randomBetween(6, 11),
+        kind: 'comet',
+        rotation: direction,
+        angularVelocity: 0,
+        colorIndex: 0
+      })
+    }
+
+    const spawnConfetti = (x: number, y: number, burst = false): void => {
+      const angle = burst
+        ? Math.random() * Math.PI * 2
+        : Math.atan2(pointer.vy, pointer.vx) + randomBetween(-0.9, 0.9)
+      const speed = burst ? randomBetween(90, 260) : randomBetween(50, 135)
+      addParticle({
+        x: x + randomBetween(-3, 3),
+        y: y + randomBetween(-3, 3),
+        vx: pointer.vx * 0.055 + Math.cos(angle) * speed,
+        vy: pointer.vy * 0.055 + Math.sin(angle) * speed - randomBetween(15, 60),
+        age: 0,
+        ttl: randomBetween(780, 1450),
+        size: randomBetween(5, 10),
+        kind: 'confetti',
+        rotation: Math.random() * Math.PI * 2,
+        angularVelocity: randomBetween(-12, 12),
+        colorIndex: Math.floor(Math.random() * accentColors.length)
+      })
     }
 
     const spawnBurst = (x: number, y: number): void => {
-      for (let i = 0; i < BURST_COUNT && particles.length < MAX_PARTICLES; i += 1) {
+      for (let i = 0; i < 14 && particles.length < MAX_PARTICLES; i += 1) {
         const angle = Math.random() * Math.PI * 2
-        const speed = 60 + Math.random() * 220
-        particles.push({
+        const speed = randomBetween(60, 220)
+        addParticle({
           x,
           y,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
           age: 0,
-          ttl: 320 + Math.random() * 380,
-          size: 4 + Math.random() * 8,
-          kind: 'burst'
+          ttl: randomBetween(320, 700),
+          size: randomBetween(4, 12),
+          kind: 'burst',
+          rotation: 0,
+          angularVelocity: 0,
+          colorIndex: 0
         })
       }
     }
 
-    const drawParticles = (dt: number): void => {
-      const damping = Math.exp(-dt * 2.2)
+    const spawnModeBurst = (x: number, y: number): void => {
+      if (mode === 'sparkles') {
+        for (let i = 0; i < 11; i += 1) spawnSparkle(x, y, true)
+        return
+      }
+      if (mode === 'comets') {
+        for (let i = 0; i < 7; i += 1) spawnComet(x, y, true)
+        return
+      }
+      if (mode === 'confetti') {
+        for (let i = 0; i < 18; i += 1) spawnConfetti(x, y, true)
+        return
+      }
+      spawnBurst(x, y)
+    }
+
+    const spawnRipple = (x: number, y: number, delay: number, scale: number): void => {
+      if (ripples.length >= MAX_RIPPLES) ripples.shift()
+      ripples.push({
+        x,
+        y,
+        // 负数 age 充当延迟，不需要 setTimeout，也能随着页面隐藏一并安全清理。
+        age: -delay,
+        ttl: 560,
+        maxRadius: 28 * scale,
+        lineWidth: scale > 1 ? 1.3 : 1.7
+      })
+    }
+
+    const spawnModePathEffect = (x: number, y: number, distance: number): void => {
+      const spacing = PATH_SPACING[mode]
+      if (!spacing) return
+      pendingDistance += distance
+      while (pendingDistance >= spacing && particles.length < MAX_PARTICLES) {
+        pendingDistance -= spacing
+        if (mode === 'particles') spawnTrailParticle(x, y)
+        if (mode === 'sparkles') spawnSparkle(x, y)
+        if (mode === 'comets') spawnComet(x, y)
+        if (mode === 'confetti') spawnConfetti(x, y)
+      }
+    }
+
+    const drawSparkle = (particle: Particle, alpha: number): void => {
+      const pulse = 0.55 + 0.45 * Math.sin(particle.age * 0.018 + particle.rotation)
+      const radius = particle.size * (0.45 + pulse * 0.6)
+      context.save()
+      context.translate(particle.x, particle.y)
+      context.rotate(particle.rotation)
+      context.globalAlpha = alpha * (0.55 + pulse * 0.45)
+      context.strokeStyle = accentColors[particle.colorIndex] ?? accentColors[0]
+      context.fillStyle = accentColors[particle.colorIndex] ?? accentColors[0]
+      context.lineWidth = Math.max(0.65, radius * 0.15)
+      context.beginPath()
+      context.moveTo(-radius, 0)
+      context.lineTo(radius, 0)
+      context.moveTo(0, -radius)
+      context.lineTo(0, radius)
+      context.moveTo(-radius * 0.5, -radius * 0.5)
+      context.lineTo(radius * 0.5, radius * 0.5)
+      context.moveTo(radius * 0.5, -radius * 0.5)
+      context.lineTo(-radius * 0.5, radius * 0.5)
+      context.stroke()
+      context.globalAlpha = alpha
+      context.beginPath()
+      context.arc(0, 0, Math.max(0.8, radius * 0.16), 0, Math.PI * 2)
+      context.fill()
+      context.restore()
+    }
+
+    const drawComet = (particle: Particle, alpha: number): void => {
+      const speed = Math.hypot(particle.vx, particle.vy)
+      const tailLength = clamp(speed * 0.11, 14, 38) * (1 - particle.age / particle.ttl)
+      const direction = Math.atan2(particle.vy, particle.vx)
+      context.save()
+      context.globalAlpha = alpha * 0.72
+      context.strokeStyle = `rgb(${accentRgb[0]}, ${accentRgb[1]}, ${accentRgb[2]})`
+      context.lineCap = 'round'
+      context.lineWidth = Math.max(0.8, particle.size * 0.25)
+      context.beginPath()
+      context.moveTo(
+        particle.x - Math.cos(direction) * tailLength,
+        particle.y - Math.sin(direction) * tailLength
+      )
+      context.lineTo(particle.x, particle.y)
+      context.stroke()
+      context.globalAlpha = alpha
+      context.drawImage(
+        sprite,
+        particle.x - particle.size / 2,
+        particle.y - particle.size / 2,
+        particle.size,
+        particle.size
+      )
+      context.restore()
+    }
+
+    const drawConfetti = (particle: Particle, alpha: number): void => {
+      context.save()
+      context.translate(particle.x, particle.y)
+      context.rotate(particle.rotation)
+      context.globalAlpha = alpha * 0.88
+      context.fillStyle = accentColors[particle.colorIndex] ?? accentColors[0]
+      context.fillRect(
+        -particle.size * 0.38,
+        -particle.size * 0.72,
+        particle.size * 0.76,
+        particle.size * 1.44
+      )
+      context.restore()
+    }
+
+    const updateAndDrawParticles = (dt: number): void => {
       for (let i = particles.length - 1; i >= 0; i -= 1) {
-        const p = particles[i]
-        p.age += dt * 1000
-        if (p.age >= p.ttl) {
+        const particle = particles[i]
+        particle.age += dt * 1000
+        if (particle.age >= particle.ttl) {
           particles.splice(i, 1)
           continue
         }
-        p.vx *= damping
-        p.vy *= damping
-        // trail 光点轻微上浮，burst 更受衰减影响
-        p.vy += (p.kind === 'trail' ? -14 : 60) * dt
-        p.x += p.vx * dt
-        p.y += p.vy * dt
-        const remain = 1 - p.age / p.ttl
-        const alpha = p.kind === 'trail' ? remain * 0.55 : remain * 0.75
-        const size = p.size * (p.kind === 'trail' ? 0.6 + remain * 0.4 : remain)
+
+        const damping = Math.exp(-dt * (particle.kind === 'confetti' ? 0.7 : 2.2))
+        particle.vx *= damping
+        particle.vy *= damping
+        if (particle.kind === 'confetti') particle.vy += 330 * dt
+        if (particle.kind === 'sparkle') particle.vy -= 7 * dt
+        if (particle.kind === 'trail') particle.vy -= 14 * dt
+        if (particle.kind === 'burst') particle.vy += 60 * dt
+        particle.x += particle.vx * dt
+        particle.y += particle.vy * dt
+        particle.rotation += particle.angularVelocity * dt
+
+        const remain = 1 - particle.age / particle.ttl
+        const alpha = particle.kind === 'trail' ? remain * 0.55 : remain * 0.76
+        if (particle.kind === 'sparkle') {
+          drawSparkle(particle, alpha)
+          continue
+        }
+        if (particle.kind === 'comet') {
+          drawComet(particle, alpha)
+          continue
+        }
+        if (particle.kind === 'confetti') {
+          drawConfetti(particle, alpha)
+          continue
+        }
+        const size = particle.size * (particle.kind === 'trail' ? 0.6 + remain * 0.4 : remain)
         context.globalAlpha = alpha
-        context.drawImage(sprite, p.x - size / 2, p.y - size / 2, size, size)
+        context.drawImage(sprite, particle.x - size / 2, particle.y - size / 2, size, size)
       }
       context.globalAlpha = 1
     }
@@ -182,6 +446,7 @@ function CursorTrail(): React.JSX.Element {
       if (ribbon.length < 2) return
       context.lineCap = 'round'
       context.lineJoin = 'round'
+      context.strokeStyle = `rgb(${accentRgb[0]}, ${accentRgb[1]}, ${accentRgb[2]})`
       for (let i = 1; i < ribbon.length; i += 1) {
         const from = ribbon[i - 1]
         const to = ribbon[i]
@@ -189,7 +454,6 @@ function CursorTrail(): React.JSX.Element {
         if (life <= 0) continue
         context.globalAlpha = life * 0.5
         context.lineWidth = Math.max(0.5, life * 10)
-        context.strokeStyle = `rgb(${accentRgb[0]}, ${accentRgb[1]}, ${accentRgb[2]})`
         context.beginPath()
         context.moveTo(from.x, from.y)
         context.lineTo(to.x, to.y)
@@ -198,18 +462,42 @@ function CursorTrail(): React.JSX.Element {
       context.globalAlpha = 1
     }
 
+    const updateAndDrawRipples = (dt: number): void => {
+      for (let i = ripples.length - 1; i >= 0; i -= 1) {
+        const ripple = ripples[i]
+        ripple.age += dt * 1000
+        if (ripple.age >= ripple.ttl) {
+          ripples.splice(i, 1)
+          continue
+        }
+        if (ripple.age < 0) continue
+        const progress = ripple.age / ripple.ttl
+        // ease-out 圆环，起始不突兀、末尾自然淡出。
+        const radius = ripple.maxRadius * (1 - (1 - progress) * (1 - progress))
+        context.globalAlpha = (1 - progress) * 0.68
+        context.strokeStyle = `rgb(${accentRgb[0]}, ${accentRgb[1]}, ${accentRgb[2]})`
+        context.lineWidth = ripple.lineWidth * (1 - progress * 0.35)
+        context.beginPath()
+        context.arc(ripple.x, ripple.y, radius, 0, Math.PI * 2)
+        context.stroke()
+      }
+      context.globalAlpha = 1
+    }
+
     const tick = (now: number): void => {
       const dt = Math.min(0.05, (now - lastFrameAt) / 1000 || 0.016)
       lastFrameAt = now
-      context.clearRect(0, 0, canvas.width, canvas.height)
+      clearCanvas()
       if (mode === 'ribbon') drawRibbon(now)
-      // 点击迸溅在两种模式下都保留
-      if (particles.length > 0) drawParticles(dt)
+      if (particles.length > 0) updateAndDrawParticles(dt)
+      if (ripples.length > 0) updateAndDrawRipples(dt)
+
+      const hasEffect = particles.length > 0 || ribbon.length > 0 || ripples.length > 0
       const idle = now - lastPointerAt > IDLE_STOP_MS && ribbon.length === 0
-      if (particles.length === 0 && idle) {
+      if (!hasEffect && idle) {
         running = false
         rafId = 0
-        context.clearRect(0, 0, canvas.width, canvas.height)
+        clearCanvas()
         return
       }
       rafId = requestAnimationFrame(tick)
@@ -226,25 +514,19 @@ function CursorTrail(): React.JSX.Element {
       if (!enabled || mode === 'off') return
       if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
       const now = performance.now()
+      const distance = pointer.has
+        ? Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y)
+        : 0
       if (pointer.has) {
         const dt = Math.max((now - lastPointerAt) / 1000, 0.004)
-        pointer.vx = (event.clientX - pointer.x) / dt
-        pointer.vy = (event.clientY - pointer.y) / dt
-        // 限制单次补间速度，避免窗口遮挡导致的跳帧拉出长粒子带
-        const cap = 2600
-        pointer.vx = Math.max(-cap, Math.min(cap, pointer.vx))
-        pointer.vy = Math.max(-cap, Math.min(cap, pointer.vy))
+        pointer.vx = clamp((event.clientX - pointer.x) / dt, -2600, 2600)
+        pointer.vy = clamp((event.clientY - pointer.y) / dt, -2600, 2600)
       } else {
         pointer.vx = 0
         pointer.vy = 0
       }
-      if (mode === 'particles' && pointer.has) {
-        spawnTrailParticles(
-          event.clientX,
-          event.clientY,
-          Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y)
-        )
-      }
+
+      spawnModePathEffect(event.clientX, event.clientY, distance)
       if (mode === 'ribbon') {
         ribbon.push({ x: event.clientX, y: event.clientY, t: now })
         if (ribbon.length > RIBBON_MAX_POINTS) ribbon.shift()
@@ -253,13 +535,20 @@ function CursorTrail(): React.JSX.Element {
       pointer.y = event.clientY
       pointer.has = true
       lastPointerAt = now
-      ensureLoop()
+      // 涟漪只由点击触发，移动时不唤醒 rAF。
+      if (mode !== 'ripples') ensureLoop()
     }
 
     const onPointerDown = (event: PointerEvent): void => {
       if (!enabled || mode === 'off') return
       if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
-      spawnBurst(event.clientX, event.clientY)
+      lastPointerAt = performance.now()
+      if (mode === 'ripples') {
+        spawnRipple(event.clientX, event.clientY, 0, 0.8)
+        spawnRipple(event.clientX, event.clientY, 110, 1.45)
+      } else {
+        spawnModeBurst(event.clientX, event.clientY)
+      }
       ensureLoop()
     }
 
@@ -274,6 +563,7 @@ function CursorTrail(): React.JSX.Element {
       const resolved: CursorEffectsMode = next ?? 'particles'
       if (resolved !== mode) {
         mode = resolved
+        stopLoop()
         clearAll()
       }
     }
@@ -294,11 +584,12 @@ function CursorTrail(): React.JSX.Element {
       .then((settings) => syncMode(settings.cursorEffects))
       .catch(() => {})
 
-    // 主题/色板切换会改写根节点 dataset 或内联 --accent，精灵与描边色跟随重建
+    // 主题/色板切换会改写根节点 dataset 或内联 --accent，精灵与绘制色随之重建。
     const themeObserver = new MutationObserver(() => {
       const next = readAccent()
       sprite = next.sprite
       accentRgb = next.rgb
+      accentColors = next.colors
     })
     themeObserver.observe(document.documentElement, {
       attributes: true,

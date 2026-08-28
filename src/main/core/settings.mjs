@@ -368,7 +368,15 @@ export function normalizeSettings(raw) {
       : DEFAULT_SETTINGS.themePalette,
     customAccent: normalizeCustomAccent(input.customAccent),
     backgroundAppearance: normalizeBackgroundAppearance(input.backgroundAppearance),
-    cursorEffects: ['off', 'particles', 'ribbon'].includes(input.cursorEffects)
+    cursorEffects: [
+      'off',
+      'particles',
+      'ribbon',
+      'sparkles',
+      'comets',
+      'confetti',
+      'ripples'
+    ].includes(input.cursorEffects)
       ? input.cursorEffects
       : DEFAULT_SETTINGS.cursorEffects,
     libraryDensity: ['comfortable', 'standard', 'compact'].includes(input.libraryDensity)

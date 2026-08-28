@@ -162,8 +162,9 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 /** 媒体库浏览密度：舒展 / 标准 / 紧凑 */
 export type LibraryDensity = 'comfortable' | 'standard' | 'compact'
 
-/** 光标动效模式：关闭 / 粒子光点拖尾 / 霓虹线条拖尾 */
-export type CursorEffectsMode = 'off' | 'particles' | 'ribbon'
+/** 光标动效模式：关闭 / 光点 / 霓虹 / 星尘 / 流星 / 彩纸 / 涟漪 */
+export type CursorEffectsMode =
+  'off' | 'particles' | 'ribbon' | 'sparkles' | 'comets' | 'confetti' | 'ripples'
 
 /** 强调色方案：仅改变品牌色与交互强调，不改变内容层级 */
 export type BackgroundFit = 'cover' | 'contain'
