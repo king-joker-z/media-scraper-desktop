@@ -23,6 +23,9 @@ declare module './ffmpeg-pool.mjs' {
   /** 当前排队等待数 */
   export function getPendingCount(): number
 
+  /** 单个 ffmpeg 进程的线程预算（按当前池大小均分核数，下限 2） */
+  export function getThreadBudget(): number
+
   /** 获取一个执行许可（池未满时立即返回，否则排队等待；signal 取消即时出队） */
   export function acquire(options?: { signal?: AbortSignal }): Promise<void>
 

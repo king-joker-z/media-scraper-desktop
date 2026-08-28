@@ -1,4 +1,5 @@
 import { copyFile, mkdir, readFile } from 'node:fs/promises'
+import { cpus } from 'node:os'
 import { dirname } from 'node:path'
 import { clampConcurrency, DEFAULT_CONCURRENCY } from './task-center.mjs'
 import { writeAtomicTextFile } from './fs-ops.mjs'
@@ -115,7 +116,8 @@ export const clampScanConcurrency = (value) => {
   return Math.min(MAX_SCAN_CONCURRENCY, Math.max(MIN_SCAN_CONCURRENCY, Math.round(n)))
 }
 
-export const DEFAULT_FFMPEG_POOL_SIZE = 4
+// 与 ffmpeg-pool.mjs 的默认池大小保持一致：按核数自适应（低配机 2，上限 4）。
+export const DEFAULT_FFMPEG_POOL_SIZE = Math.min(4, Math.max(2, Math.floor(cpus().length / 2)))
 export const MIN_FFMPEG_POOL_SIZE = 1
 export const MAX_FFMPEG_POOL_SIZE = 8
 

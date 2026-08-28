@@ -17,7 +17,7 @@ import {
   writeTextFile
 } from '../../core/fs-ops.mjs'
 import { probeMedia } from '../../core/probe.mjs'
-import { spawnPooled } from '../../core/ffmpeg-pool.mjs'
+import { getThreadBudget, spawnPooled } from '../../core/ffmpeg-pool.mjs'
 import { probeCudaPipelineCapability, probeNvencCapability } from '../../core/nvenc.mjs'
 import { collectFailures } from '../../core/task-report.mjs'
 import {
@@ -439,7 +439,9 @@ export async function mergeVideos({
                 ffmpegPath,
                 buildTranscodeArgs(item.path, target, segment, {
                   encoder: segmentEncoder,
-                  hasAudio: Boolean(item.media?.audioCodec)
+                  hasAudio: Boolean(item.media?.audioCodec),
+                  // 按池大小均分核数，防止并发转码时线程超订打满 CPU
+                  threads: getThreadBudget()
                 }),
                 {
                   signal,

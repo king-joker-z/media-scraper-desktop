@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { cpus } from 'node:os'
 import { spawnManaged, trackChild } from './process-registry.mjs'
 
 /**
@@ -17,7 +18,9 @@ import { spawnManaged, trackChild } from './process-registry.mjs'
  * 因此"池化"在此场景下是进程数限流 + 减少启动竞争，而非长进程复用。
  */
 
-const DEFAULT_POOL_SIZE = 4
+// 默认池大小按核数自适应：低配机（≤4 核）降到 2，避免 N 个进程 × 每进程全核线程
+// 的超订把 Windows 低配机 CPU/磁盘打满；高配机维持上限 4。用户仍可在设置页覆盖。
+const DEFAULT_POOL_SIZE = Math.min(4, Math.max(2, Math.floor(cpus().length / 2)))
 
 let poolSize = DEFAULT_POOL_SIZE
 let activeCount = 0
@@ -51,6 +54,15 @@ export function getActiveCount() {
 
 export function getPendingCount() {
   return waitQueue.length
+}
+
+/**
+ * 单个 ffmpeg 进程的线程预算：按当前池大小均分核数（下限 2）。
+ * 用于给转码命令传 -threads / -filter_threads，防止「池大小 × 每进程全核线程」
+ * 的线程超订。池大小运行时变化时，下一次调用自动按新池大小计算。
+ */
+export function getThreadBudget() {
+  return Math.max(2, Math.ceil(cpus().length / poolSize))
 }
 
 /**

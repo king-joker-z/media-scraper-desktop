@@ -197,10 +197,12 @@ export function buildTranscodeArgs(
   inputPath,
   target,
   outputPath,
-  { encoder = 'cpu', hasAudio = true } = {}
+  { encoder = 'cpu', hasAudio = true, threads = 0 } = {}
 ) {
   const useNvenc = encoder === 'nvenc' || encoder === 'cuda-nvenc'
   const useCudaPipeline = encoder === 'cuda-nvenc'
+  // threads > 0 时限制解码/滤镜/编码线程数，避免并发转码时「进程数 × 全核线程」超订 CPU。
+  const threadArgs = threads > 0 ? ['-threads', String(threads)] : []
   // FFmpeg 不提供 pad_cuda。完整 CUDA 路径以 GPU 端黑色画布 + overlay_cuda 替代补边。
   // overlay_cuda 的输出保持为 CUDA 硬件帧并直接交给 NVENC，避免输出像素格式要求触发
   // 自动插入软件 scale，导致 CUDA 与软件帧格式无法协商。
@@ -223,11 +225,13 @@ export function buildTranscodeArgs(
         '-b:v',
         '0'
       ]
-    : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18']
+    : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', ...threadArgs]
   return [
     '-v',
     'error',
+    ...(threads > 0 ? ['-filter_threads', String(threads)] : []),
     ...(useCudaPipeline ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] : []),
+    ...threadArgs,
     '-i',
     inputPath,
     ...(hasAudio ? [] : ['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo']),

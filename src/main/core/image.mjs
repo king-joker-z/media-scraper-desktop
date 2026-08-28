@@ -7,6 +7,8 @@ import sharp from 'sharp'
  * 仅限制并发，避免大批量转图时打满 CPU 影响系统响应。
  */
 sharp.concurrency(Math.max(2, Math.floor(cpus().length / 2)))
+// 批量处理的都是不同文件，像素缓存命中率几乎为零，关掉可回收几十 MB 常驻内存。
+sharp.cache(false)
 
 const JPEG_EXTENSIONS = new Set(['.jpg', '.jpeg'])
 

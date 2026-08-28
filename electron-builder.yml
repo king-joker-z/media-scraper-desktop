@@ -1,5 +1,7 @@
 appId: com.mediascraper.desktop
 productName: Media Scraper
+# 最大压缩（NSIS 使用 LZMA 固实压缩）：安装包体积更小，代价是构建略慢
+compression: maximum
 directories:
   buildResources: build
 files:

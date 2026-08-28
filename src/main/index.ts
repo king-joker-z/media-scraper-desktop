@@ -28,6 +28,7 @@ import {
   deleteToTrash,
   dirSizeBytes,
   diskFreeBytes,
+  fileMtimeMs,
   fileSize,
   isDirectory,
   listDirNames,
@@ -81,6 +82,8 @@ const opLogDir = join(app.getPath('userData'), 'op-logs')
 const renameJournalPath = join(app.getPath('userData'), 'rename-journal.json')
 /** 合并断点续传工作目录的统一前缀（merge.mjs mergeWorkDir 约定） */
 const MERGE_TEMP_PREFIX = 'msd-merge-'
+/** 断点目录老化阈值：超过 7 天未修改视为已放弃续传，启动时自动回收磁盘 */
+const MERGE_TEMP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 // 回收站删除注入（F1）：用户数据删除默认走系统回收站，可在设置改回永久删除
 setTrashImpl((target) => shell.trashItem(target))
@@ -123,6 +126,39 @@ const cleanMergeTempDirs = async (settings: AppSettings): Promise<number> => {
             const size = await dirSizeBytes(target)
             await permanentDelete(target).catch(() => {})
             return size
+          })
+      )
+    })
+  )
+  return results.flat().reduce((sum, size) => sum + size, 0)
+}
+
+/**
+ * 只清理超过 maxAgeMs 未修改的合并断点目录（崩溃/取消后用户已放弃续传的残留），
+ * 近期断点保留以支持断点续传。返回释放的字节数。
+ */
+const cleanStaleMergeTempDirs = async (
+  settings: AppSettings,
+  maxAgeMs: number
+): Promise<number> => {
+  const cutoff = Date.now() - maxAgeMs
+  const results = await Promise.all(
+    mergeTempRoots(settings).map(async (root) => {
+      const entries = await listDirNames(root).catch(() => [] as string[])
+      return Promise.all(
+        entries
+          .filter((name) => name.startsWith(MERGE_TEMP_PREFIX))
+          .map(async (name) => {
+            const target = join(root, name)
+            try {
+              const mtimeMs = await fileMtimeMs(target)
+              if (mtimeMs > cutoff) return 0
+              const size = await dirSizeBytes(target)
+              await permanentDelete(target).catch(() => {})
+              return size
+            } catch {
+              return 0
+            }
           })
       )
     })
@@ -1487,6 +1523,12 @@ app.whenReady().then(async () => {
   // 初始化 FFmpeg 进程池大小
   const initSettings = await settingsStore.get()
   setPoolSize(initSettings.ffmpegPoolSize)
+
+  // 磁盘兜底回收（不阻塞窗口创建）：
+  // 1. 截帧缓存整目录清理——正常退出时 before-quit 已清，这里只兜住强杀/崩溃的残留；
+  // 2. 超过 7 天未动的合并断点目录视为放弃续传，自动回收（近期断点保留）。
+  void permanentDelete(framesRoot).catch(() => {})
+  void cleanStaleMergeTempDirs(initSettings, MERGE_TEMP_MAX_AGE_MS).catch(() => {})
 
   // 上次崩溃遗留的重命名临时文件按 journal 续跑收尾（S8）
   await recoverRenameJournal(renameJournalPath).catch(() => null)
