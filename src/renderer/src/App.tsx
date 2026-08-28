@@ -17,7 +17,10 @@ import ErrorBanner from './components/ErrorBanner'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
 import ConfirmDialog from './components/ConfirmDialog'
+import CursorTrail from './components/CursorTrail'
+import Magnetic from './components/Magnetic'
 import { prunePlayPositions } from './utils/media'
+import { useSpotlightHover } from './utils/spotlight'
 import { applyBackgroundAppearance, applyTheme, DEFAULT_BACKGROUND_APPEARANCE } from './utils/theme'
 import { basenameOf } from './utils/format'
 import type { AppModule } from '../../shared/types'
@@ -242,6 +245,8 @@ function TaskLayer(): React.JSX.Element {
 }
 
 function App(): React.JSX.Element {
+  // 全局卡片聚光光斑坐标跟踪（Vercel 式 spotlight hover），零渲染开销
+  useSpotlightHover()
   // null = 显示模块选择页（首次启动 / 主动返回）
   const [module, setModule] = useState<AppModule | null>(null)
   const [page, setPage] = useState<PageKey>('clean')
@@ -555,32 +560,37 @@ function App(): React.JSX.Element {
         </div>
         <div id="module-choice" className="module-cards">
           {(Object.keys(MODULE_META) as AppModule[]).map((key) => (
-            <button
-              key={key}
-              className={`module-card module-card-${key}`}
-              onClick={() => switchModule(key)}
-            >
-              <span className="module-card-icon">
-                <Icon name={MODULE_META[key].icon} size={38} />
-              </span>
-              <span className="module-card-kicker">
-                {key === 'video' ? 'VIDEO DESK' : 'COMIC DESK'}
-              </span>
-              <span className="module-card-name">{MODULE_META[key].name}</span>
-              <span className="module-card-desc">
-                {key === 'video'
-                  ? '为本地视频完成清理、合并、命名与归档。'
-                  : '将章节整理为 EPUB / PDF，并持续增量追更。'}
-              </span>
-              <span className="module-card-capabilities" aria-hidden="true">
-                {key === 'video' ? '清理 · 合并 · 重命名 · 归档' : '章节合并 · EPUB / PDF · 漫画库'}
-              </span>
-              <span className="module-card-enter">
-                进入{MODULE_META[key].name} <span aria-hidden="true">→</span>
-              </span>
-            </button>
+            <Magnetic key={key}>
+              <button
+                data-spotlight=""
+                className={`module-card module-card-${key}`}
+                onClick={() => switchModule(key)}
+              >
+                <span className="module-card-icon">
+                  <Icon name={MODULE_META[key].icon} size={38} />
+                </span>
+                <span className="module-card-kicker">
+                  {key === 'video' ? 'VIDEO DESK' : 'COMIC DESK'}
+                </span>
+                <span className="module-card-name">{MODULE_META[key].name}</span>
+                <span className="module-card-desc">
+                  {key === 'video'
+                    ? '为本地视频完成清理、合并、命名与归档。'
+                    : '将章节整理为 EPUB / PDF，并持续增量追更。'}
+                </span>
+                <span className="module-card-capabilities" aria-hidden="true">
+                  {key === 'video'
+                    ? '清理 · 合并 · 重命名 · 归档'
+                    : '章节合并 · EPUB / PDF · 漫画库'}
+                </span>
+                <span className="module-card-enter">
+                  进入{MODULE_META[key].name} <span aria-hidden="true">→</span>
+                </span>
+              </button>
+            </Magnetic>
           ))}
         </div>
+        <CursorTrail />
       </div>
     )
   }
@@ -660,6 +670,7 @@ function App(): React.JSX.Element {
           {navItems.map((item) => (
             <button
               key={item.key}
+              data-spotlight=""
               className={`nav-item ${page === item.key ? 'active' : ''}`}
               aria-current={page === item.key ? 'page' : undefined}
               onClick={() => navigateToPage(item.key)}
@@ -690,6 +701,7 @@ function App(): React.JSX.Element {
         </div>
       )}
       <TaskLayer />
+      <CursorTrail />
       <AppToaster />
       {pendingNavigation && (
         <ConfirmDialog

@@ -516,6 +516,14 @@ test('invalid palette falls back to ocean', () => {
   assert.equal(normalizeSettings({ themePalette: 'unknown' }).themePalette, 'ocean')
 })
 
+test('cursorEffects 光标动效白名单归一化，未知值回退 particles', () => {
+  assert.equal(normalizeSettings({}).cursorEffects, 'particles')
+  assert.equal(normalizeSettings({ cursorEffects: 'ribbon' }).cursorEffects, 'ribbon')
+  assert.equal(normalizeSettings({ cursorEffects: 'off' }).cursorEffects, 'off')
+  assert.equal(normalizeSettings({ cursorEffects: 'sparkle' }).cursorEffects, 'particles')
+  assert.equal(normalizeSettings({ cursorEffects: 42 }).cursorEffects, 'particles')
+})
+
 test('normalizeSettings filters malformed providers and models', () => {
   const normalized = normalizeSettings({
     aiProviders: [

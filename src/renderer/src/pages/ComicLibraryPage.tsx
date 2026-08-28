@@ -150,7 +150,7 @@ function ComicLibraryPage({
           metaHeight={122}
           thumbnailRatio={3 / 4}
           renderItem={(comic, style) => (
-            <article key={comic.relDir} className="comic-card" style={style}>
+            <article key={comic.relDir} data-spotlight="" className="comic-card" style={style}>
               <button
                 className="comic-card-main"
                 onClick={() => void openComic(comic.relDir, comic.merged!.outputName)}

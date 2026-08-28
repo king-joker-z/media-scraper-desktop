@@ -162,6 +162,9 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 /** 媒体库浏览密度：舒展 / 标准 / 紧凑 */
 export type LibraryDensity = 'comfortable' | 'standard' | 'compact'
 
+/** 光标动效模式：关闭 / 粒子光点拖尾 / 霓虹线条拖尾 */
+export type CursorEffectsMode = 'off' | 'particles' | 'ribbon'
+
 /** 强调色方案：仅改变品牌色与交互强调，不改变内容层级 */
 export type BackgroundFit = 'cover' | 'contain'
 
@@ -242,6 +245,8 @@ export interface AppSettings {
   customAccent: string
   /** 工作台背景图片与材质参数 */
   backgroundAppearance: BackgroundAppearance
+  /** 光标动效（粒子 / 霓虹拖尾，点击附带迸溅效果；系统减少动态时自动关闭） */
+  cursorEffects: CursorEffectsMode
   /** 媒体库海报墙的显示密度 */
   libraryDensity: LibraryDensity
   aiProviders: AiProviderConfig[]

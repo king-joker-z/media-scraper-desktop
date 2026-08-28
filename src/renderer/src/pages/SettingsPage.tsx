@@ -4,6 +4,7 @@ import type {
   AiProviderConfig,
   AppSettings,
   BackgroundAppearance,
+  CursorEffectsMode,
   StorageCategory,
   StorageStats,
   ThemeMode,
@@ -37,6 +38,12 @@ const THEME_TABS: { key: ThemeMode; label: string }[] = [
   { key: 'system', label: '跟随系统' },
   { key: 'light', label: '浅色' },
   { key: 'dark', label: '深色' }
+]
+
+const CURSOR_EFFECT_TABS: { key: CursorEffectsMode; label: string; description: string }[] = [
+  { key: 'particles', label: '粒子光点', description: '最轻最灵动' },
+  { key: 'ribbon', label: '霓虹拖尾', description: '线条感更强' },
+  { key: 'off', label: '关闭', description: '不要任何轨迹' }
 ]
 
 const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }[] = [
@@ -88,8 +95,20 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'appearance',
     label: '外观',
-    description: '主题、强调色与工作台背景',
-    keywords: ['主题', '外观', '背景', '颜色', '色板', '磨砂', '图片']
+    description: '主题、强调色、工作台背景与光标动效',
+    keywords: [
+      '主题',
+      '外观',
+      '背景',
+      '颜色',
+      '色板',
+      '磨砂',
+      '图片',
+      '光标',
+      '鼠标',
+      '动效',
+      '轨迹'
+    ]
   },
   {
     id: 'ai',
@@ -165,7 +184,8 @@ function SettingsPage(): React.JSX.Element {
       // HMR 时预加载层可能短暂仍返回旧版设置结构，渲染端先兜底以确保设置页可打开。
       const nextSettings: AppSettings = {
         ...next,
-        backgroundAppearance: next.backgroundAppearance ?? DEFAULT_BACKGROUND_APPEARANCE
+        backgroundAppearance: next.backgroundAppearance ?? DEFAULT_BACKGROUND_APPEARANCE,
+        cursorEffects: next.cursorEffects ?? 'particles'
       }
       setSettings(nextSettings)
       setCustomAccent(nextSettings.customAccent || '#1687d9')
@@ -536,6 +556,7 @@ function SettingsPage(): React.JSX.Element {
           {PALETTE_OPTIONS.map((palette) => (
             <button
               key={palette.key}
+              data-spotlight=""
               className={`palette-option ${settings.themePalette === palette.key ? 'active' : ''}`}
               aria-pressed={settings.themePalette === palette.key}
               onClick={() => {
@@ -704,6 +725,28 @@ function SettingsPage(): React.JSX.Element {
               完整显示
             </button>
           </div>
+        </div>
+      </section>
+
+      <section className="settings-card" hidden={!isGroupActive('appearance')}>
+        <h2>光标动效</h2>
+        <p className="muted">
+          指针移动时跟随强调色轨迹，点击任意位置附带光点迸溅；跟随当前主题强调色。
+          系统开启「减少动态效果」时会自动停用。卡片悬停光斑与磁吸效果始终启用。
+        </p>
+        <div className="mode-tabs cursor-effect-tabs" role="tablist" aria-label="光标动效模式">
+          {CURSOR_EFFECT_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              className={`mode-tab ${settings.cursorEffects === tab.key ? 'active' : ''}`}
+              role="tab"
+              aria-selected={settings.cursorEffects === tab.key}
+              onClick={() => persist({ cursorEffects: tab.key })}
+            >
+              <span>{tab.label}</span>
+              <small>{tab.description}</small>
+            </button>
+          ))}
         </div>
       </section>
 

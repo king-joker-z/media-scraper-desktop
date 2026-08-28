@@ -155,6 +155,8 @@ export const DEFAULT_SETTINGS = {
     surfaceOpacity: 35,
     fit: 'cover'
   },
+  // 光标动效默认开粒子模式；系统「减少动态」时渲染端会强制关闭
+  cursorEffects: 'particles',
   libraryDensity: 'standard',
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
     ...preset,
@@ -366,6 +368,9 @@ export function normalizeSettings(raw) {
       : DEFAULT_SETTINGS.themePalette,
     customAccent: normalizeCustomAccent(input.customAccent),
     backgroundAppearance: normalizeBackgroundAppearance(input.backgroundAppearance),
+    cursorEffects: ['off', 'particles', 'ribbon'].includes(input.cursorEffects)
+      ? input.cursorEffects
+      : DEFAULT_SETTINGS.cursorEffects,
     libraryDensity: ['comfortable', 'standard', 'compact'].includes(input.libraryDensity)
       ? input.libraryDensity
       : DEFAULT_SETTINGS.libraryDensity,
