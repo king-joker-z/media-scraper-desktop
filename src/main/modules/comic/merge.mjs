@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import sharp from 'sharp'
 import { scanComic } from './scan.mjs'
 import { appendEpubFile, createEpubFile, verifyEpubFile } from './epub.mjs'
@@ -8,6 +8,7 @@ import {
   createStagingPath,
   discardStagedFile,
   fileSize,
+  moveWithCollision,
   pathExists,
   readBinaryFile,
   removeEmptyDirs,
@@ -15,6 +16,7 @@ import {
   writeBinaryFile
 } from '../../core/fs-ops.mjs'
 import {
+  COMIC_FAILED_DIR_NAME,
   COMIC_STATE_NAME,
   LEGACY_COMIC_COVER_NAME,
   chapterDisplayName,
@@ -487,11 +489,30 @@ export async function mergeComics(
     done: !result.cancelled,
     cancelled: result.cancelled
   })
-  result.results.forEach((entry, index) => {
+  for (let index = 0; index < result.results.length; index += 1) {
+    const entry = result.results[index]
     if (!entry.ok && !entry.cancelled) {
-      report.failed.push({ target: relDirs[index], error: entry.error ?? '未知错误' })
+      const target = relDirs[index]
+      const sourcePath = join(root, target)
+      let movedTo = null
+      let moveError = null
+      if (await pathExists(sourcePath)) {
+        try {
+          const failDir = join(root, COMIC_FAILED_DIR_NAME)
+          const destination = await moveWithCollision(sourcePath, failDir)
+          movedTo = relative(root, destination)
+        } catch (err) {
+          moveError = err instanceof Error ? err.message : String(err)
+        }
+      }
+      report.failed.push({
+        target,
+        error: entry.error ?? '未知错误',
+        movedTo,
+        moveError
+      })
     }
-  })
+  }
   report.durationMs = Date.now() - startedAt
   return report
 }

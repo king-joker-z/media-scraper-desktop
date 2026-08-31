@@ -17,6 +17,11 @@ export const COMIC_IMAGE_EXTENSIONS = new Set([
 /** 合并清单文件名（隐藏文件，扫描整体跳过） */
 export const COMIC_STATE_NAME = '.comic-merge.json'
 
+/** 合并失败目录名：工作区根目录下的可见文件夹，扫描时整体跳过 */
+export const COMIC_FAILED_DIR_NAME = '合并失败'
+
+export const isComicFailedDirName = (name) => String(name ?? '').trim() === COMIC_FAILED_DIR_NAME
+
 /** 历史隐藏封面名：仅用于兼容旧工作区迁移。 */
 export const LEGACY_COMIC_COVER_NAME = '.comic-cover.jpg'
 

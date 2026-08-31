@@ -733,11 +733,20 @@ export interface ComicMergeItem {
   repairedPages: number
 }
 
+export interface ComicMergeFailedItem {
+  target: string
+  error: string
+  /** 失败目录移动到的相对路径（相对工作区根目录）；未移动时为 null */
+  movedTo: string | null
+  /** 移动到「合并失败」目录失败时的错误信息；成功或未移动时为 null */
+  moveError: string | null
+}
+
 export interface ComicMergeReport {
   taskId: string | null
   cancelled: boolean
   format: ComicFormat
   merged: ComicMergeItem[]
-  failed: { target: string; error: string }[]
+  failed: ComicMergeFailedItem[]
   durationMs: number
 }

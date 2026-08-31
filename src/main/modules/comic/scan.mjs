@@ -8,6 +8,7 @@ import {
   compareComicNames,
   diffComicChapters,
   isComicCoverName,
+  isComicFailedDirName,
   isComicImage,
   sortComicChapters
 } from '../../../shared/comic-rules.mjs'
@@ -132,7 +133,13 @@ export async function scanComic(root, relDir, { light = false } = {}) {
 export async function scanComicWorkspace(root, { light = false } = {}) {
   const entries = await readdir(root, { withFileTypes: true })
   const comicDirs = entries
-    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !isHiddenName(entry.name))
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        !entry.isSymbolicLink() &&
+        !isHiddenName(entry.name) &&
+        !isComicFailedDirName(entry.name)
+    )
     .map((entry) => entry.name)
     .sort(compareComicNames)
 

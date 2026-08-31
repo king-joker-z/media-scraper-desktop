@@ -1,4 +1,14 @@
-import { mkdtemp, mkdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+  mkdtemp,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -249,6 +259,55 @@ test('漫画改名支持名称交换，且不留下临时目录', async () => {
   })
 })
 
+test('漫画改名：目标被未参与改名的目录占用时前置拒绝，不进入暂存', async () => {
+  await withTempDir(async (root) => {
+    await mkdir(join(root, '漫画1', '第1话'), { recursive: true })
+    await mkdir(join(root, '漫画1_副本', '第1话'), { recursive: true })
+    await writeFile(join(root, '漫画1', '第1话', '1.png'), TINY_PNG)
+    await writeFile(join(root, '漫画1_副本', '第1话', '2.png'), TINY_PNG)
+
+    // 模拟「正则去掉 _副本」场景：漫画1 未改动不参与改名，副本项必须前置拒绝而非暂存后失败
+    const report = await renameComicDirectories(
+      root,
+      [{ relDir: '漫画1_副本', newName: '漫画1' }],
+      { taskCenter: createTaskCenter(), taskId: 'comic-rename-occupied', concurrency: 1 }
+    )
+    assert.equal(report.renamedCount, 0)
+    assert.equal(report.failed.length, 1)
+    assert.equal(report.failed[0].target, '漫画1_副本')
+    assert.match(report.failed[0].error, /已被未参与改名的漫画占用/)
+    // 两个原目录都保持不动（未经历暂存/提交的破坏）
+    assert.equal(await readFile(join(root, '漫画1', '第1话', '1.png'), 'utf8'), TINY_PNG.toString())
+    assert.equal(
+      await readFile(join(root, '漫画1_副本', '第1话', '2.png'), 'utf8'),
+      TINY_PNG.toString()
+    )
+  })
+})
+
+test('漫画改名：目标名称重复只报一次错误，不重复进入暂存提交', async () => {
+  await withTempDir(async (root) => {
+    await mkdir(join(root, '漫画A', '第1话'), { recursive: true })
+    await mkdir(join(root, '漫画B', '第1话'), { recursive: true })
+    await writeFile(join(root, '漫画A', '第1话', '1.png'), TINY_PNG)
+    await writeFile(join(root, '漫画B', '第1话', '2.png'), TINY_PNG)
+
+    const report = await renameComicDirectories(
+      root,
+      [
+        { relDir: '漫画A', newName: '同名' },
+        { relDir: '漫画B', newName: '同名' }
+      ],
+      { taskCenter: createTaskCenter(), taskId: 'comic-rename-dup', concurrency: 1 }
+    )
+    // 先到的那项成功，重复项只在前置校验报一次「目标名称重复」，不会在提交阶段再失败
+    assert.equal(report.renamedCount, 1)
+    assert.equal(report.failed.length, 1)
+    assert.match(report.failed[0].error, /目标名称重复/)
+    assert.deepEqual((await readdir(root)).sort(), ['同名', '漫画B'].sort())
+  })
+})
+
 test('原样 EPUB 合并完成后立即释放源图句柄，Windows 可立刻改名和删除', async () => {
   await withTempDir(async (root) => {
     const comic = join(root, '句柄释放漫画')
@@ -487,5 +546,48 @@ test('漫画合并：仅 EOI 后多余字节的 jpg，原样模式不触发修�
     const image = Object.keys(files).find((name) => /^OEBPS\/images\/p\d+\.jpg$/.test(name))
     // 尾部垃圾解码器普遍宽容，保留源字节以维持原样模式「零重编码」语义
     assert.equal(Buffer.compare(files[image], source), 0)
+  })
+})
+
+test('漫画合并：合并失败时将漫画目录移入「合并失败」文件夹，且扫描自动忽略该文件夹', async () => {
+  await withTempDir(async (root) => {
+    const successComic = join(root, '成功漫画')
+    const failComic = join(root, '失败漫画')
+    await mkdir(join(successComic, '第1话'), { recursive: true })
+    await mkdir(join(failComic, '第1话'), { recursive: true })
+    await writeFile(join(successComic, '第1话', '1.png'), TINY_PNG)
+    // 写入一个无法解码的非图片坏文件作为 png，触发合并失败
+    await writeFile(join(failComic, '第1话', '1.png'), Buffer.from('NOT_A_VALID_IMAGE_DATA'))
+
+    const taskCenter = createTaskCenter()
+    const report = await mergeComics(root, {
+      relDirs: ['成功漫画', '失败漫画'],
+      format: 'epub',
+      taskCenter,
+      taskId: 'comic-fail-move',
+      concurrency: 2
+    })
+
+    assert.equal(report.merged.length, 1)
+    assert.equal(report.merged[0].name, '成功漫画')
+    assert.equal(report.failed.length, 1)
+    assert.equal(report.failed[0].target, '失败漫画')
+    assert.equal(report.failed[0].movedTo, join('合并失败', '失败漫画'))
+
+    // 验证原路径已不存在，失败漫画已被移入「合并失败/失败漫画」
+    const originalExists = await readdir(root)
+    assert.ok(!originalExists.includes('失败漫画'))
+    assert.ok(originalExists.includes('合并失败'))
+    assert.ok(originalExists.includes('成功漫画'))
+
+    const failedEntries = await readdir(join(root, '合并失败'))
+    assert.deepEqual(failedEntries, ['失败漫画'])
+
+    // 扫描工作区时，「合并失败」文件夹被排除，只扫描出「成功漫画」
+    const scan = await scanComicWorkspace(root)
+    assert.deepEqual(
+      scan.comics.map((c) => c.name),
+      ['成功漫画']
+    )
   })
 })

@@ -677,10 +677,15 @@ function ComicMergePage({
           )}
           {report.failed.length > 0 && (
             <div className="comic-report-list">
+              <p className="warning-text">
+                ⚠️ 合并失败的漫画已移入工作区下的「合并失败」文件夹，处理好后拖回根目录即可重试。
+              </p>
               {report.failed.map((item) => (
                 <div key={item.target} className="comic-chapter-row">
                   <span className="danger-text">
                     {item.target}：{item.error}
+                    {item.movedTo ? `（已移至 ${item.movedTo}）` : ''}
+                    {item.moveError ? `（移动失败：${item.moveError}）` : ''}
                   </span>
                 </div>
               ))}

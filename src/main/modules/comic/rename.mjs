@@ -2,10 +2,12 @@ import { basename, dirname, join } from 'node:path'
 import { readComicState } from './scan.mjs'
 import { directRename, listDirNames, pathExists, writeAtomicTextFile } from '../../core/fs-ops.mjs'
 import {
+  COMIC_FAILED_DIR_NAME,
   COMIC_STATE_NAME,
   LEGACY_COMIC_COVER_NAME,
   comicCoverName,
-  comicOutputName
+  comicOutputName,
+  isComicFailedDirName
 } from '../../../shared/comic-rules.mjs'
 import {
   ILLEGAL_NAME_RE,
@@ -27,6 +29,8 @@ const validateName = (root, name) => {
   if (ILLEGAL_NAME_RE.test(value)) return '包含非法字符 \\ / : * ? " < > | 或控制字符'
   if (WINDOWS_RESERVED_NAME_RE.test(value)) return 'Windows 保留设备名，不可用作文件夹名'
   if (TRAILING_DOT_SPACE_RE.test(value)) return '名称末尾不能是点号或空格'
+  if (isComicFailedDirName(value))
+    return `「${COMIC_FAILED_DIR_NAME}」为系统保留目录名，不可用作漫画名`
   if (value.length > MAX_STEM_LENGTH) return `名称超长（>${MAX_STEM_LENGTH} 字符）`
   const paths = [
     join(root, value, comicOutputName(value, 'epub')),
@@ -114,8 +118,10 @@ export async function renameComicDirectories(
     valid.push({ relDir, newName })
   }
 
-  // 目标名称重复（大小写不敏感）与目录占用冲突同样按单项失败处理，其余继续执行。
+  // 目标名称重复（大小写不敏感）按单项失败处理；重复项必须同时移出后续流程，
+  // 否则会进入暂存并在提交阶段以「目标目录已存在」再失败一次，同一项报两条错误。
   const names = new Map()
+  const deduped = []
   for (const { relDir, newName } of valid) {
     const key = nameKey(newName)
     if (names.has(key)) {
@@ -123,14 +129,20 @@ export async function renameComicDirectories(
       continue
     }
     names.set(key, relDir)
+    deduped.push({ relDir, newName })
   }
 
   // 只需检查名称占用；扫描层/IPC 已确保传入项是一级漫画目录。
+  // 占用者本身也在改名清单内（暂存阶段会被移走）时才允许落位，支持 A↔B 交换；
+  // 占用者不参与改名（如未勾选的同名目录）必须前置拒绝，不能等暂存后提交才发现冲突。
+  const stagingKeys = new Set(
+    deduped.filter((item) => item.relDir !== item.newName).map((item) => nameKey(item.relDir))
+  )
   const existingByKey = new Map((await listDirNames(root)).map((name) => [nameKey(name), name]))
   const active = []
-  for (const { relDir, newName } of valid) {
+  for (const { relDir, newName } of deduped) {
     const occupant = existingByKey.get(nameKey(newName))
-    if (occupant && !names.has(nameKey(newName)) && nameKey(occupant) !== nameKey(relDir)) {
+    if (occupant && nameKey(occupant) !== nameKey(relDir) && !stagingKeys.has(nameKey(occupant))) {
       invalid.push({ target: relDir, error: `目标目录「${newName}」已被未参与改名的漫画占用` })
       continue
     }
