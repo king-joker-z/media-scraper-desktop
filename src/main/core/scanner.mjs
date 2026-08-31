@@ -102,84 +102,99 @@ const PROGRESS_EVERY = 200
 // 默认子目录并发深度：大目录树（如数万文件的 NAS）并行遍历子目录可 3-5x 提速
 const DEFAULT_WALK_CONCURRENCY = 4
 
-/**
- * 并发目录遍历：同一层目录的子目录并行递归，stat 批量并发。
- * 使用 lane 模式（与 TaskCenter 一致）避免子目录数过多时一次性 spawn 无限 Promise。
- */
-async function walk(root, current, records, skipped, state) {
-  const entries = await readdir(current, { withFileTypes: true })
-
-  // 先分类：子目录需递归，文件直接 stat
-  const subdirs = []
-  const files = []
-  for (const entry of entries) {
-    if (isHiddenName(entry.name)) {
-      skipped.push(relative(root, join(current, entry.name)))
-      continue
-    }
-    // 不跟随符号链接或 Windows junction：否则表面位于工作区内的路径会实际指向工作区外，
-    // 进而使后续清理、移动等操作突破用户选择的目录边界。
-    if (entry.isSymbolicLink()) {
-      skipped.push(relative(root, join(current, entry.name)))
-      continue
-    }
-    if (entry.isDirectory()) subdirs.push(entry)
-    else if (entry.isFile()) files.push(entry)
-  }
-
-  // 文件批量 stat（批内并发）
-  for (let i = 0; i < files.length; i += WALK_BATCH) {
-    const batch = files.slice(i, i + WALK_BATCH)
-    await Promise.all(
-      batch.map(async (entry) => {
-        const fullPath = join(current, entry.name)
-        try {
-          const info = await stat(fullPath)
-          const relativePath = relative(root, fullPath)
-          records.push({
-            path: fullPath,
-            relativePath,
-            dir: dirname(relativePath),
-            name: entry.name,
-            kind: classifyPath(fullPath),
-            size: info.size,
-            mtimeMs: info.mtimeMs
-          })
-          state.scanned += 1
-          if (state.scanned % PROGRESS_EVERY === 0) state.onProgress?.(state.scanned)
-        } catch {
-          // 无权限/已消失的文件跳过，不中断整体扫描
-        }
-      })
-    )
-  }
-
-  // 子目录并发递归：lane 模式限流，防止万级子目录一次性铺开
-  const concurrency = Math.min(state.concurrency, subdirs.length)
-  if (concurrency <= 1) {
-    for (const dir of subdirs) await walk(root, join(current, dir.name), records, skipped, state)
-    return
-  }
-  let cursor = 0
-  const lane = async () => {
-    while (cursor < subdirs.length) {
-      const index = cursor
-      cursor += 1
-      await walk(root, join(current, subdirs[index].name), records, skipped, state)
-    }
-  }
-  await Promise.all(Array.from({ length: concurrency }, lane))
+const abortError = () => Object.assign(new Error('扫描已取消'), { name: 'AbortError' })
+const throwIfAborted = (signal) => {
+  if (signal?.aborted) throw abortError()
 }
 
-/** 单次全量遍历：产出文件记录与隐藏项；onProgress(已发现文件数) 可选 */
-async function walkWorkspace(root, onProgress, { concurrency = DEFAULT_WALK_CONCURRENCY } = {}) {
+/**
+ * 单次全量遍历：目录队列由固定数量 worker 消费，因此任意目录深度的并发读取数
+ * 始终不超过 concurrency（不再是每层各自开 concurrency 条 lane）。
+ */
+async function walkWorkspace(
+  root,
+  onProgress,
+  { concurrency = DEFAULT_WALK_CONCURRENCY, signal, onDirectoryStart, onDirectoryFinish } = {}
+) {
   const records = []
   const skipped = []
-  await walk(root, root, records, skipped, {
-    scanned: 0,
-    onProgress,
-    concurrency: Math.max(1, concurrency)
-  })
+  const directories = [root]
+  let scanned = 0
+  let activeDirectories = 0
+  const waiters = new Set()
+  const wakeWorkers = () => {
+    for (const resolve of waiters) resolve()
+    waiters.clear()
+  }
+  const waitForDirectory = () =>
+    new Promise((resolve) => {
+      waiters.add(resolve)
+    })
+  const worker = async () => {
+    while (true) {
+      throwIfAborted(signal)
+      const current = directories.shift()
+      if (!current) {
+        if (activeDirectories === 0) return
+        await waitForDirectory()
+        continue
+      }
+      activeDirectories += 1
+      onDirectoryStart?.(current)
+      try {
+        const entries = await readdir(current, { withFileTypes: true })
+        const files = []
+        for (const entry of entries) {
+          throwIfAborted(signal)
+          const fullPath = join(current, entry.name)
+          if (isHiddenName(entry.name) || entry.isSymbolicLink()) {
+            skipped.push(relative(root, fullPath))
+          } else if (entry.isDirectory()) {
+            directories.push(fullPath)
+            wakeWorkers()
+          } else if (entry.isFile()) {
+            files.push(entry)
+          }
+        }
+        for (let index = 0; index < files.length; index += WALK_BATCH) {
+          throwIfAborted(signal)
+          const batch = files.slice(index, index + WALK_BATCH)
+          await Promise.all(
+            batch.map(async (entry) => {
+              throwIfAborted(signal)
+              const fullPath = join(current, entry.name)
+              try {
+                const info = await stat(fullPath)
+                throwIfAborted(signal)
+                const relativePath = relative(root, fullPath)
+                records.push({
+                  path: fullPath,
+                  relativePath,
+                  dir: dirname(relativePath),
+                  name: entry.name,
+                  kind: classifyPath(fullPath),
+                  size: info.size,
+                  mtimeMs: info.mtimeMs
+                })
+                scanned += 1
+                if (scanned % PROGRESS_EVERY === 0) onProgress?.(scanned)
+              } catch (error) {
+                if (error?.name === 'AbortError') throw error
+                // 无权限/已消失的文件跳过，不中断整体扫描
+              }
+            })
+          )
+        }
+      } finally {
+        activeDirectories -= 1
+        onDirectoryFinish?.(current)
+        wakeWorkers()
+      }
+    }
+  }
+  const workers = Math.max(1, concurrency)
+  await Promise.all(Array.from({ length: workers }, worker))
+  throwIfAborted(signal)
   return { records, skippedHidden: skipped }
 }
 
@@ -222,7 +237,20 @@ const fingerprintOf = (records) => {
  * 用于页面切换时的“无变化不重扫”判定。
  * 遍历结果会短暂暂存：紧随其后的 createScanPlan 直接复用，不再二次遍历。
  */
-export async function computeFingerprint(root, { onProgress, concurrency } = {}) {
+export async function computeFingerprint(root, { onProgress, concurrency, signal, ...hooks } = {}) {
+  throwIfAborted(signal)
+  // 已取消的请求绝不能加入共享缓存，否则会把中止结果传播给其他调用方。
+  if (signal) {
+    const { records, skippedHidden } = await walkWorkspace(root, onProgress, {
+      concurrency,
+      signal,
+      ...hooks
+    })
+    const fingerprint = fingerprintOf(records)
+    walkStash.set(root, { at: Date.now(), fingerprint, records, skippedHidden })
+    trimCache(walkStash, WALK_STASH_MAX)
+    return fingerprint
+  }
   const cached = fingerprintCache.get(root)
   if (cached) return cached.promise
 
@@ -259,7 +287,8 @@ export function invalidateScanCache() {
  * - 其他文件一律删除候选；
  * - 保留项在子目录中的生成上移预览（跨平台：以 dirname 判断而非字符串 '/'）。
  */
-export async function createScanPlan(root, { onProgress, concurrency } = {}) {
+export async function createScanPlan(root, { onProgress, concurrency, signal, ...hooks } = {}) {
+  throwIfAborted(signal)
   let records
   let skippedHidden
   let fingerprint
@@ -270,7 +299,7 @@ export async function createScanPlan(root, { onProgress, concurrency } = {}) {
     walkStash.delete(root)
   } else {
     walkStash.delete(root)
-    const walked = await walkWorkspace(root, onProgress, { concurrency })
+    const walked = await walkWorkspace(root, onProgress, { concurrency, signal, ...hooks })
     records = walked.records
     skippedHidden = walked.skippedHidden
     fingerprint = fingerprintOf(records)

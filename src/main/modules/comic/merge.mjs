@@ -1,6 +1,7 @@
 import { join, relative } from 'node:path'
+import { createHash } from 'node:crypto'
 import sharp from 'sharp'
-import { scanComic } from './scan.mjs'
+import { COMIC_STATE_PENDING_NAME, scanComic } from './scan.mjs'
 import { appendEpubFile, createEpubFile, verifyEpubFile } from './epub.mjs'
 import { appendPdf, createPdf, verifyPdfFile } from './pdf.mjs'
 import {
@@ -149,13 +150,13 @@ async function preparePage(absPath, { format, raw }) {
  * 合并单部漫画。
  * @param {string} root 工作区
  * @param {string} relDir 漫画相对目录
- * @param {{format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, signal?: AbortSignal, onProgress?: (progress: {completedPages: number, totalPages: number, current?: string}) => void}} options
+ * @param {{format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, signal?: AbortSignal, onProgress?: (progress: {completedPages: number, totalPages: number, current?: string}) => void, writeState?: (path: string, content: string) => Promise<void>}} options
  * @returns {Promise<import('../../../shared/types').ComicMergeItem>}
  */
 export async function mergeOneComic(
   root,
   relDir,
-  { format, raw = false, rebuild = false, signal, onProgress }
+  { format, raw = false, rebuild = false, signal, onProgress, writeState = writeAtomicTextFile }
 ) {
   const comic = await scanComic(root, relDir)
   const comicDir = join(root, relDir)
@@ -197,6 +198,7 @@ export async function mergeOneComic(
   let sourceBytes = 0
   let outputBytes = 0
   let repairedPages = 0
+  let stagedOutputPath = null
   if (format === 'epub') {
     const stagingPath = createStagingPath(outputPath)
     const streamChapters = chaptersToProcess.map((chapter) => ({
@@ -284,8 +286,7 @@ export async function mergeOneComic(
         phase: '正在校验 EPUB 结构并安全替换产物'
       })
       await verifyEpubFile(stagingPath, expectedPages)
-      await commitStagedFile(stagingPath, outputPath)
-      outputBytes = await fileSize(outputPath)
+      stagedOutputPath = stagingPath
     } catch (error) {
       await discardStagedFile(stagingPath)
       throw error
@@ -341,8 +342,7 @@ export async function mergeOneComic(
       })
       await writeBinaryFile(stagingPath, bytes)
       await verifyPdfFile(stagingPath, expectedPages)
-      await commitStagedFile(stagingPath, outputPath)
-      outputBytes = await fileSize(outputPath)
+      stagedOutputPath = stagingPath
     } catch (error) {
       await discardStagedFile(stagingPath)
       throw error
@@ -380,8 +380,27 @@ export async function mergeOneComic(
     })),
     updatedAt: new Date().toISOString()
   }
-  // 清单在产物校验、事务提交都成功后才更新，避免清单指向半成品。
-  await writeAtomicTextFile(join(comicDir, COMIC_STATE_NAME), JSON.stringify(newState, null, 2))
+  if (!stagedOutputPath) throw new Error('漫画产物暂存文件缺失')
+  // marker 先持久化“已验证暂存产物 + 目标摘要 + 新清单”。若 commit 后写清单失败，
+  // 下次扫描只在目标摘要匹配时补写清单，不会把旧产物误认为已增量追加。
+  outputBytes = await fileSize(stagedOutputPath)
+  newState.outputBytes = outputBytes
+  const outputHash = createHash('sha256').update(await readBinaryFile(stagedOutputPath)).digest('hex')
+  const markerPath = join(comicDir, COMIC_STATE_PENDING_NAME)
+  await writeAtomicTextFile(
+    markerPath,
+    JSON.stringify({ version: 1, outputName, outputHash, state: newState }, null, 2)
+  )
+  try {
+    await commitStagedFile(stagedOutputPath, outputPath)
+    outputBytes = await fileSize(outputPath)
+    await writeState(join(comicDir, COMIC_STATE_NAME), JSON.stringify(newState, null, 2))
+    await discardStagedFile(markerPath)
+  } catch (error) {
+    // 已提交的产物保留 marker，留待下次扫描按摘要安全恢复清单。
+    if (await pathExists(stagedOutputPath)) await discardStagedFile(stagedOutputPath)
+    throw error
+  }
 
   return {
     relDir,

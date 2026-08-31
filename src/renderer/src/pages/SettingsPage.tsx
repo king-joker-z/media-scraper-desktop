@@ -166,6 +166,8 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
   const [diagnostics, setDiagnostics] = useState<PerformanceDiagnostics | null>(null)
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false)
   const [diagnosticsNotice, setDiagnosticsNotice] = useState('')
+  const [mergeTempDraft, setMergeTempDraft] = useState('')
+  const [mergeTempNotice, setMergeTempNotice] = useState('')
   const [activeGroup, setActiveGroup] = useState('appearance')
   const settingsSearchRef = useRef<HTMLInputElement>(null)
 
@@ -201,6 +203,7 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
         performanceMode: next.performanceMode ?? appearanceDefaults.performanceMode
       }
       setSettings(nextSettings)
+      setMergeTempDraft(nextSettings.mergeTempCustomPath)
       setCustomAccent(nextSettings.customAccent || '#1687d9')
       applyBackgroundAppearance(nextSettings.backgroundAppearance)
       applyPerformanceMode(nextSettings.performanceMode)
@@ -278,7 +281,7 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
     )
   }
 
-  const persist = async (patch: Partial<AppSettings>): Promise<void> => {
+  const persist = async (patch: Partial<AppSettings>): Promise<boolean> => {
     // 主题色板先乐观写入本地状态，避免 IPC 往返期间仍由默认海洋蓝按钮显示为选中。
     // 主进程返回归一化结果后再覆盖，非法配置仍会被安全回退。
     setSettings((current) => (current ? { ...current, ...patch } : current))
@@ -294,12 +297,40 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
       const next = await window.api.getSettings()
       setSettings(next)
       applyTheme(next.theme, next.themePalette, next.customAccent)
-      return
+      return false
     }
     setSaved(true)
     // 连续快速操作（如拖滑杆）时清除上一个定时器，提示停留时间从最后一次操作起算
     clearTimeout(savedTimerRef.current)
     savedTimerRef.current = setTimeout(() => setSaved(false), 1500)
+    return true
+  }
+
+  const selectMergeTempDirectory = async (): Promise<void> => {
+    setMergeTempNotice('')
+    try {
+      const selected = await window.api.selectMergeTempDirectory()
+      if (selected) setMergeTempDraft(selected)
+    } catch (error) {
+      setMergeTempNotice(`目录不可用：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  const saveMergeTempDirectory = async (): Promise<void> => {
+    const path = mergeTempDraft.trim()
+    if (!path) {
+      setMergeTempNotice('请先选择或输入一个绝对目录。')
+      return
+    }
+    try {
+      if (!(await persist({ mergeTempLocation: 'custom', mergeTempCustomPath: path }))) {
+        setMergeTempNotice('保存失败，请检查目录权限。')
+        return
+      }
+      setMergeTempNotice('自定义临时目录已保存。')
+    } catch {
+      setMergeTempNotice('保存失败，请检查目录权限。')
+    }
   }
 
   const editing: AiProviderConfig =
@@ -903,18 +934,35 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
             <button
               key={key}
               className={`mode-tab ${settings.mergeTempLocation === key ? 'active' : ''}`}
-              onClick={() => persist({ mergeTempLocation: key })}
+              onClick={() => {
+                setMergeTempNotice('')
+                void persist({ mergeTempLocation: key })
+              }}
             >
               {label}
             </button>
           ))}
         </div>
         {settings.mergeTempLocation === 'custom' && (
-          <input
-            value={settings.mergeTempCustomPath}
-            placeholder="请输入绝对路径，例如 D:\\MediaTemp"
-            onChange={(event) => persist({ mergeTempCustomPath: event.target.value })}
-          />
+          <div className="model-add">
+            <input
+              value={mergeTempDraft}
+              placeholder="输入绝对路径，例如 D:\\MediaTemp"
+              onChange={(event) => setMergeTempDraft(event.target.value)}
+            />
+            <button className="secondary" type="button" onClick={() => void selectMergeTempDirectory()}>
+              选择目录
+            </button>
+            <button type="button" onClick={() => void saveMergeTempDirectory()}>
+              保存目录
+            </button>
+          </div>
+        )}
+        {settings.mergeTempLocation === 'custom' && (
+          <p className="muted">
+            路径在保存时验证可写；仅切换到自定义模式不会创建目录或写入草稿。
+            {mergeTempNotice && <span className="notice-inline"> {mergeTempNotice}</span>}
+          </p>
         )}
         <p className="muted">
           转码片段并行数（GPU 完整流水线最高 2 路，仍受全局 FFmpeg 进程池限制）。

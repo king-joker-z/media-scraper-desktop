@@ -149,6 +149,8 @@ declare global {
       getAppVersion: () => Promise<string>
       onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void
       getSettings: () => Promise<AppSettings>
+      /** 选择并预检一个可写的合并临时目录；不会自动保存设置。 */
+      selectMergeTempDirectory: () => Promise<string | null>
       /** 设置变更时推送最新归一化配置，常驻页面用于同步展示状态。 */
       onSettingsChange: (callback: (settings: AppSettings) => void) => () => void
       /** 打开系统对话框并导入背景图到应用私有目录 */

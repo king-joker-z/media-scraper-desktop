@@ -27,9 +27,9 @@ import {
   verifyEpubFile
 } from '../src/main/modules/comic/epub.mjs'
 import { appendPdf, createPdf, verifyPdfFile } from '../src/main/modules/comic/pdf.mjs'
-import { deleteComicSources, mergeComics } from '../src/main/modules/comic/merge.mjs'
+import { deleteComicSources, mergeComics, mergeOneComic } from '../src/main/modules/comic/merge.mjs'
 import { renameComicDirectories } from '../src/main/modules/comic/rename.mjs'
-import { scanComicWorkspace } from '../src/main/modules/comic/scan.mjs'
+import { COMIC_STATE_PENDING_NAME, scanComicWorkspace } from '../src/main/modules/comic/scan.mjs'
 
 // sharp 生成真实 1x1 PNG：与生产端同一解码链路，避免手写 base64 图的兼容性差异
 const TINY_PNG = await sharp({
@@ -439,6 +439,49 @@ test('漫画合并：首次全量 EPUB 后新增章节可增量追加并更新�
 
     const state = JSON.parse(await readFile(join(comic, '.comic-merge.json'), 'utf8'))
     assert.equal(state.chapters.length, 2)
+  })
+})
+
+test('漫画增量：产物提交后清单写入失败会由 marker 恢复', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '事务恢复漫画')
+    await mkdir(join(comic, '第1话'), { recursive: true })
+    await writeFile(join(comic, '第1话', '1.png'), TINY_PNG)
+    const taskCenter = createTaskCenter()
+    await mergeComics(root, {
+      relDirs: ['事务恢复漫画'],
+      format: 'epub',
+      taskCenter,
+      taskId: 'comic-transaction-first',
+      concurrency: 1
+    })
+    await mkdir(join(comic, '第2话'), { recursive: true })
+    await writeFile(join(comic, '第2话', '1.png'), TINY_PNG)
+    await assert.rejects(
+      () =>
+        mergeOneComic(root, '事务恢复漫画', {
+          format: 'epub',
+          writeState: async () => {
+            throw new Error('模拟清单写入失败')
+          }
+        }),
+      /模拟清单写入失败/
+    )
+    await readFile(join(comic, COMIC_STATE_PENDING_NAME))
+    const recovered = (await scanComicWorkspace(root)).comics[0]
+    assert.equal(recovered.merged.chapters.length, 2)
+    assert.equal(recovered.newChapters.length, 0)
+    await assert.rejects(() => readFile(join(comic, COMIC_STATE_PENDING_NAME)))
+  })
+})
+
+test('漫画轻量刷新仍递归统计嵌套章节页', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '嵌套章节')
+    await mkdir(join(comic, '第1话', '分镜'), { recursive: true })
+    await writeFile(join(comic, '第1话', '分镜', '1.png'), TINY_PNG)
+    const scanned = await scanComicWorkspace(root, { light: true })
+    assert.equal(scanned.comics[0].chapters[0].images.length, 1)
   })
 })
 

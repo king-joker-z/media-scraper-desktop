@@ -163,6 +163,8 @@ const api = {
     return () => ipcRenderer.removeListener('update:status', listener)
   },
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
+  selectMergeTempDirectory: (): Promise<string | null> =>
+    ipcRenderer.invoke('settings:select-merge-temp-directory'),
   onSettingsChange: (callback: (settings: AppSettings) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, settings: AppSettings): void => callback(settings)
     ipcRenderer.on('settings:changed', listener)

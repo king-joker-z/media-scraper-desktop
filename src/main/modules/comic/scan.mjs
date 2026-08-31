@@ -1,6 +1,7 @@
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { recoverStagedOutputs } from '../../core/fs-ops.mjs'
+import { createHash } from 'node:crypto'
+import { discardStagedFile, pathExists, recoverStagedOutputs, writeAtomicTextFile } from '../../core/fs-ops.mjs'
 import {
   COMIC_STATE_NAME,
   LEGACY_COMIC_COVER_NAME,
@@ -23,31 +24,29 @@ import {
  */
 
 const SCAN_LANES = 4
+export const COMIC_STATE_PENDING_NAME = '.comic-merge.pending.json'
 
 const isHiddenName = (name) => name.startsWith('.')
 
-const pathExists = async (target) => {
-  try {
-    await stat(target)
-    return true
-  } catch {
-    return false
-  }
-}
-
 /**
  * 递归收集目录内图片（相对漫画目录的正斜杠路径，自然排序；隐藏项跳过）。
- * light=true 时只统计传入目录的直接图片（不递归子目录）：漫画章节通常是扁平的，
- * 轻量刷新场景下结果与全量一致但快得多；嵌套章节的精确列表由合并前的全量扫描补齐。
+ * 不再提供会影响章节差异判断的不完整 light 扫描：嵌套目录也是有效章节页，
+ * 因此每次扫描都递归收集图片，避免把已有章节误判为“新章节”后重复追加。
  */
-async function collectImages(comicDir, relDir, comicName, { light = false } = {}) {
+const throwIfAborted = (signal) => {
+  if (signal?.aborted) throw new Error('扫描已取消')
+}
+
+async function collectImages(comicDir, relDir, comicName, { signal } = {}) {
   const out = []
   const walk = async (current) => {
+    throwIfAborted(signal)
     const entries = await readdir(join(comicDir, current), { withFileTypes: true })
     for (const entry of entries) {
+      throwIfAborted(signal)
       if (isHiddenName(entry.name) || entry.isSymbolicLink()) continue
       const rel = current ? `${current}/${entry.name}` : entry.name
-      if (!light && entry.isDirectory()) await walk(rel)
+      if (entry.isDirectory()) await walk(rel)
       else if (
         entry.isFile() &&
         isComicImage(entry.name) &&
@@ -73,11 +72,45 @@ export async function readComicState(comicDir) {
   }
 }
 
-/** 扫描单部漫画（light=true 时跳过子目录递归，仅用于快速刷新列表） */
-export async function scanComic(root, relDir, { light = false } = {}) {
+const sha256File = async (path) => createHash('sha256').update(await readFile(path)).digest('hex')
+
+/**
+ * 产物安全替换后、清单落盘前若进程退出，pending marker 带有产物摘要与完整新清单。
+ * 只有目标产物确实匹配已校验暂存产物时才提交清单，杜绝旧产物被误标为已追加。
+ */
+export async function recoverComicStateTransaction(comicDir) {
+  const markerPath = join(comicDir, COMIC_STATE_PENDING_NAME)
+  try {
+    const marker = JSON.parse(await readFile(markerPath, 'utf8'))
+    if (
+      marker?.version !== 1 ||
+      typeof marker.outputHash !== 'string' ||
+      typeof marker.outputName !== 'string' ||
+      !marker.state ||
+      marker.state.outputName !== marker.outputName
+    ) {
+      return false
+    }
+    const outputPath = join(comicDir, marker.outputName)
+    if (!(await pathExists(outputPath)) || (await sha256File(outputPath)) !== marker.outputHash) {
+      await discardStagedFile(markerPath)
+      return false
+    }
+    await writeAtomicTextFile(join(comicDir, COMIC_STATE_NAME), JSON.stringify(marker.state, null, 2))
+    await discardStagedFile(markerPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 扫描单部漫画（始终递归章节目录，确保与合并判断使用同一完整快照） */
+export async function scanComic(root, relDir, { signal } = {}) {
+  throwIfAborted(signal)
   const comicDir = join(root, relDir)
   // 扫描前恢复上次断电/进程被终止时遗留的安全替换备份。
   await recoverStagedOutputs(comicDir)
+  await recoverComicStateTransaction(comicDir)
   const entries = await readdir(comicDir, { withFileTypes: true })
 
   const chapterDirs = entries
@@ -97,7 +130,7 @@ export async function scanComic(root, relDir, { light = false } = {}) {
   const chapters = []
   if (flatImages.length > 0) chapters.push({ name: '', relDir: '', images: flatImages })
   for (const dir of chapterDirs) {
-    const images = await collectImages(comicDir, dir, relDir, { light })
+    const images = await collectImages(comicDir, dir, relDir, { signal })
     if (images.length > 0) chapters.push({ name: dir, relDir: dir, images })
   }
   const sorted = sortComicChapters(chapters)
@@ -130,7 +163,8 @@ export async function scanComic(root, relDir, { light = false } = {}) {
 }
 
 /** 扫描漫画工作区：一级子文件夹逐部解析（车道并发 4，目录读很轻快）。 */
-export async function scanComicWorkspace(root, { light = false } = {}) {
+export async function scanComicWorkspace(root, { signal } = {}) {
+  throwIfAborted(signal)
   const entries = await readdir(root, { withFileTypes: true })
   const comicDirs = entries
     .filter(
@@ -147,11 +181,13 @@ export async function scanComicWorkspace(root, { light = false } = {}) {
   let cursor = 0
   const worker = async () => {
     while (cursor < comicDirs.length) {
+      throwIfAborted(signal)
       const relDir = comicDirs[cursor]
       cursor += 1
       try {
-        comics.push(await scanComic(root, relDir, { light }))
-      } catch {
+        comics.push(await scanComic(root, relDir, { signal }))
+      } catch (error) {
+        if (signal?.aborted) throw error
         // 单部漫画读取失败（权限/竞态删除）跳过，不阻断整体
       }
     }

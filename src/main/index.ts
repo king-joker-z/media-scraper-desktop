@@ -11,6 +11,7 @@ import {
 import { basename, dirname, extname, join } from 'path'
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
+import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
@@ -57,6 +58,7 @@ import { getOpLogDetail, listOpLogs, writeOpLog } from './core/op-log.mjs'
 import { isMediaPathAllowed, mediaUrlPathToLocal } from './core/media-path.mjs'
 import { assertRegisteredRoot, assertSafeFileName, resolveInsideRoot } from './core/path-guard.mjs'
 import { isMergeOutputName } from '../shared/merge-rules.mjs'
+import { isAllowedMainFrameNavigation } from '../shared/navigation-rules.mjs'
 import { probeGpuCapability } from './core/nvenc.mjs'
 import {
   captureAt,
@@ -439,6 +441,8 @@ const cancelSlot = (slot: string): void => {
 
 // AbortController 型互斥槽（合并/流水线不走 TaskCenter 的取消协议）
 const abortSlots = new Map<string, AbortController>()
+/** 只读扫描不占独占操作槽，但工作区切换与退出时必须可统一中止。 */
+const scanControllers = new Set<AbortController>()
 
 async function runExclusiveAbort<T>(
   slot: string,
@@ -479,9 +483,11 @@ const cancelTask = (taskId: string): boolean => {
  */
 async function trackScan<T>(
   label: string,
-  fn: (onProgress: (scanned: number) => void) => Promise<T>
+  fn: (signal: AbortSignal, onProgress: (scanned: number) => void) => Promise<T>
 ): Promise<T> {
   const taskId = newTaskId('scan')
+  const controller = new AbortController()
+  scanControllers.add(controller)
   const emit = (type: TaskEvent['type'], current?: string): void =>
     emitTask(taskId, label, { type, current })
   let started = false
@@ -494,8 +500,12 @@ async function trackScan<T>(
     if (started) emit('progress', `已发现 ${scanned} 个文件`)
   }
   try {
-    return await fn(onProgress)
+    return await fn(controller.signal, onProgress)
   } catch (error) {
+    if (controller.signal.aborted) {
+      emit('cancelled', '扫描已取消')
+      throw new Error('扫描已取消')
+    }
     const message = error instanceof Error ? error.message : String(error)
     // 失败必须带终态，避免进度卡因只收到 item-error 而永久停在“进行中”。
     emitTask(taskId, label, { type: 'item-error', current: '扫描失败', error: message })
@@ -505,12 +515,15 @@ async function trackScan<T>(
     throw error
   } finally {
     clearTimeout(timer)
-    if (started && !failed) emit('done')
+    scanControllers.delete(controller)
+    if (started && !failed && !controller.signal.aborted) emit('done')
   }
 }
 
 /** 注册工作区：media:// 白名单 + 最近工作区持久化；视频模块附加目录监控重建 */
 const registerWorkspace = async (root: string, module: AppModule = 'video'): Promise<void> => {
+  // 已发起的扫描读取的是旧工作区快照，切换后没有继续完成的价值，也不能回写新页面。
+  for (const controller of scanControllers) controller.abort()
   const settings = await settingsStore.get()
   if (module === 'comic') {
     setComicRoot(root)
@@ -656,8 +669,16 @@ function createWindow(theme: AppSettings['theme']): void {
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
+  const appEntryUrl =
+    is.dev && process.env['ELECTRON_RENDERER_URL']
+      ? process.env['ELECTRON_RENDERER_URL']
+      : pathToFileURL(join(__dirname, '../renderer/index.html')).toString()
+  mainWindow.webContents.on('will-navigate', (event, target) => {
+    if (isAllowedMainFrameNavigation(target, appEntryUrl)) return
+    event.preventDefault()
+  })
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    mainWindow.loadURL(appEntryUrl)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -679,8 +700,8 @@ function registerIpcHandlers(): void {
   ipcMain.handle('workspace:scan-plan', async (_event, root: string) => {
     const safeRoot = requireVideoRoot(root)
     const settings = await settingsStore.get()
-    return trackScan('扫描工作区', (onProgress) =>
-      createScanPlan(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
+    return trackScan('扫描工作区', (signal, onProgress) =>
+      createScanPlan(safeRoot, { onProgress, concurrency: settings.scanConcurrency, signal })
     )
   })
   // 指纹仅为已登记工作区的只读 UI 刷新提示，不可借由 IPC 遍历任意本地目录。
@@ -692,11 +713,20 @@ function registerIpcHandlers(): void {
       safeRoot = requireComicRoot(root)
     }
     const settings = await settingsStore.get()
-    return trackScan('检查工作区变化', (onProgress) =>
-      computeFingerprint(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
+    return trackScan('检查工作区变化', (signal, onProgress) =>
+      computeFingerprint(safeRoot, { onProgress, concurrency: settings.scanConcurrency, signal })
     )
   })
   ipcMain.handle('settings:get', async () => settingsStore.get())
+  ipcMain.handle('settings:select-merge-temp-directory', async () => {
+    const result = await dialog.showOpenDialog({
+      title: '选择合并临时目录',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    await ensureWritableDirectory(result.filePaths[0])
+    return result.filePaths[0]
+  })
   ipcMain.handle('background:select-image', async () => {
     const result = await dialog.showOpenDialog({
       title: '选择工作台背景图片',
@@ -743,7 +773,9 @@ function registerIpcHandlers(): void {
     const current = await settingsStore.get()
     const tempLocation = patch.mergeTempLocation ?? current.mergeTempLocation
     const customTempPath = String(patch.mergeTempCustomPath ?? current.mergeTempCustomPath).trim()
-    if (tempLocation === 'custom') {
+    // 选择“自定义”只切换模式，目录值作为草稿由用户选择/保存后才校验并落盘。
+    // 合并执行前仍会对空路径与可写性做最终检查。
+    if (tempLocation === 'custom' && customTempPath && patch.mergeTempCustomPath !== undefined) {
       if (!customTempPath) throw new Error('请先选择可写的合并临时目录')
       try {
         await ensureWritableDirectory(customTempPath)
@@ -817,7 +849,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('poster:list', async (_event, root: string) => {
     const safeRoot = requireVideoRoot(root)
     const settings = await settingsStore.get()
-    return trackScan('扫描视频列表', (onProgress) =>
+    return trackScan('扫描视频列表', (_signal, onProgress) =>
       listPosterVideos(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
     )
   })
@@ -1098,7 +1130,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('nfo:plan', async (_event, root: string) => {
     const safeRoot = requireVideoRoot(root)
     const settings = await settingsStore.get()
-    return trackScan('生成归档计划', (onProgress) =>
+    return trackScan('生成归档计划', (_signal, onProgress) =>
       createNfoPlan(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
     )
   })
@@ -1137,7 +1169,7 @@ function registerIpcHandlers(): void {
     const settings = await settingsStore.get()
     // 排除本产品生成的合并产物和未提交暂存件，避免半成品再次参与合并。
     const videos = (
-      await trackScan<PosterVideoItem[]>('扫描视频列表', (onProgress) =>
+      await trackScan<PosterVideoItem[]>('扫描视频列表', (_signal, onProgress) =>
         listPosterVideos(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
       )
     ).filter((v) => !isMergeOutputName(v.name) && !isStagedOutputName(v.name))
@@ -1420,7 +1452,9 @@ function registerIpcHandlers(): void {
 
   // ---------- 漫画模块 ----------
   ipcMain.handle('comic:scan', async (_event, root: string, options: { light?: boolean } = {}) =>
-    trackScan('扫描漫画工作区', async () => scanComicWorkspace(requireComicRoot(root), options))
+    trackScan('扫描漫画工作区', async (signal) =>
+      scanComicWorkspace(requireComicRoot(root), { ...options, signal })
+    )
   )
   ipcMain.handle(
     'comic:merge',
@@ -1720,6 +1754,7 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   quitting = true
   void (async () => {
+    for (const controller of scanControllers) controller.abort()
     if (taskCenter.hasActive() || abortSlots.size > 0) {
       taskCenter.cancelAll()
       for (const controller of abortSlots.values()) controller.abort()

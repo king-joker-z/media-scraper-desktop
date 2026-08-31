@@ -10,6 +10,7 @@ import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes, formatDuration } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
+import { useWorkspaceRequestVersion } from '../utils/useWorkspaceRequestVersion'
 
 type SortKey = 'name' | 'size' | 'duration'
 type OrientationFilter = 'all' | Orientation
@@ -43,6 +44,7 @@ function LibraryPage({
   const [playing, setPlaying] = useState<MergeVideoItem | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const requests = useWorkspaceRequestVersion(workspace)
 
   useEffect(() => {
     window.api
@@ -53,17 +55,21 @@ function LibraryPage({
 
   const refresh = async (): Promise<void> => {
     if (!workspace) return
+    const requestWorkspace = workspace
+    const requestVersion = requests.begin()
     setLoading(true)
     setError('')
     try {
       const data = await window.api.scanMergeVideos(workspace)
+      if (!requests.isCurrent(requestVersion, requestWorkspace)) return
       setVideos(data.videos)
       setSelectedPaths(new Set())
       setLoaded(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (requests.isCurrent(requestVersion, requestWorkspace))
+        setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (requests.isCurrent(requestVersion, requestWorkspace)) setLoading(false)
     }
   }
 

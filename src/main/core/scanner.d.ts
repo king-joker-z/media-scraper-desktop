@@ -10,8 +10,10 @@ declare module './scanner.mjs' {
   export function predictMoves(keep: KeepItem[], skippedHidden: string[]): MoveItem[]
   export interface ScanOptions {
     onProgress?: (scanned: number) => void
-    /** 子目录并发遍历数（默认 4，大目录树可适当调高） */
+    /** 全局目录遍历并发数（默认 4，任意目录深度共享此上限） */
     concurrency?: number
+    /** 取消递归扫描；取消后 promise 以 AbortError 拒绝。 */
+    signal?: AbortSignal
   }
   export function createScanPlan(root: string, options?: ScanOptions): Promise<ScanPlan>
   export function computeFingerprint(root: string, options?: ScanOptions): Promise<string>

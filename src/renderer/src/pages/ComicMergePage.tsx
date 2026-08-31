@@ -11,6 +11,7 @@ import ErrorBanner from '../components/ErrorBanner'
 import { formatBytes, joinPath } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
+import { useWorkspaceRequestVersion } from '../utils/useWorkspaceRequestVersion'
 
 /** 漫画状态徽标 */
 function comicBadge(comic: Comic): { text: string; tone: 'muted' | 'ok' | 'warn' | 'new' } {
@@ -170,6 +171,7 @@ function ComicMergePage({
   const [comicPage, setComicPage] = useState(0)
   // 删除确认绑定合并时的工作区，阻止切换目录后按相对路径误删。
   const reportWorkspaceRef = useRef<string | null>(null)
+  const requests = useWorkspaceRequestVersion(workspace)
 
   // 启动时读取记忆的格式偏好
   useEffect(() => {
@@ -180,16 +182,19 @@ function ComicMergePage({
   }, [])
 
   /**
-   * 扫描漫画工作区。light=true 只读目录名与单层图片计数（不递归子目录），
-   * 用于重命名/删源完成后的刷新与自动刷新；合并前必须用全量扫描（light=false）。
+   * 扫描漫画工作区。为保证嵌套章节页的差异判断准确，任何刷新都做完整扫描；
+   * light 参数仅保留 IPC 兼容，不再降低扫描完整性。
    */
   const scan = async (light = false): Promise<void> => {
     if (!workspace) return
+    const requestWorkspace = workspace
+    const requestVersion = requests.begin()
     setLoading(true)
     setError('')
     setNotice('')
     try {
       const next = await window.api.scanComics(workspace, { light })
+      if (!requests.isCurrent(requestVersion, requestWorkspace)) return
       setResult(next)
       setComicNames(Object.fromEntries(next.comics.map((comic) => [comic.relDir, comic.name])))
       // 默认勾选：未合并 + 有新章节可更新的（内容已变化需人工决策，不默认勾）
@@ -207,9 +212,10 @@ function ComicMergePage({
       setReport(null)
       setComicPage(0)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (requests.isCurrent(requestVersion, requestWorkspace))
+        setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (requests.isCurrent(requestVersion, requestWorkspace)) setLoading(false)
     }
   }
 

@@ -4,6 +4,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
 import { formatBytes } from '../utils/format'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
+import { useWorkspaceRequestVersion } from '../utils/useWorkspaceRequestVersion'
 
 const SUMMARY_LABELS: Record<string, string> = {
   videos: '视频',
@@ -35,6 +36,7 @@ function CleanPage({
   const [error, setError] = useState('')
   // 删除方式（回收站/永久删除），仅用于文案提示
   const [toTrash, setToTrash] = useState(true)
+  const requests = useWorkspaceRequestVersion(workspace)
 
   useEffect(() => {
     window.api
@@ -45,20 +47,24 @@ function CleanPage({
 
   const scan = async (): Promise<void> => {
     if (!workspace) return
+    const requestWorkspace = workspace
+    const requestVersion = requests.begin()
     setLoading(true)
     setError('')
     setReport(null)
     try {
       const next = await window.api.scanPlan(workspace)
+      if (!requests.isCurrent(requestVersion, requestWorkspace)) return
       setPlan(next)
       // pendingPick 默认选中第一个候选，用户可改
       const defaults: PosterPicks = {}
       for (const pending of next.pendingPick) defaults[pending.video] = pending.candidates[0]
       setPicks(defaults)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (requests.isCurrent(requestVersion, requestWorkspace))
+        setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (requests.isCurrent(requestVersion, requestWorkspace)) setLoading(false)
     }
   }
 

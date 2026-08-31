@@ -289,3 +289,52 @@ test('scan plan is read-only and never touches the filesystem', async () => {
     }
   )
 })
+
+test('目录遍历并发是跨层级的全局上限', async () => {
+  await withFixture(
+    Object.fromEntries(
+      Array.from({ length: 24 }, (_, index) => [
+        join(`level-${index % 4}`, `nested-${index}`, 'video.mp4'),
+        'v'
+      ])
+    ),
+    async (root) => {
+      let active = 0
+      let peak = 0
+      await createScanPlan(root, {
+        concurrency: 3,
+        onDirectoryStart: () => {
+          active += 1
+          peak = Math.max(peak, active)
+        },
+        onDirectoryFinish: () => {
+          active -= 1
+        }
+      })
+      assert.ok(peak <= 3, `峰值 ${peak} 超过全局上限`)
+      assert.ok(peak > 1, '应实际并行处理多个目录')
+    }
+  )
+})
+
+test('扫描收到 AbortSignal 后拒绝且不产生计划', async () => {
+  await withFixture(
+    Object.fromEntries(Array.from({ length: 30 }, (_, index) => [join(`d-${index}`, 'v.mp4'), 'v'])),
+    async (root) => {
+      const controller = new AbortController()
+      let started = 0
+      await assert.rejects(
+        () =>
+          createScanPlan(root, {
+            concurrency: 2,
+            signal: controller.signal,
+            onDirectoryStart: () => {
+              started += 1
+              if (started === 2) controller.abort()
+            }
+          }),
+        /扫描已取消/
+      )
+    }
+  )
+})

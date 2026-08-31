@@ -27,6 +27,7 @@ import WorkbenchEmptyState from '../components/WorkbenchEmptyState'
 import WorkbenchHeader from '../components/WorkbenchHeader'
 import { buildRenameComparisonRows, type RenameRuleStep } from '../components/rename-comparison'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
+import { useWorkspaceRequestVersion } from '../utils/useWorkspaceRequestVersion'
 
 type Mode = 'seq' | 'regex' | 'ai' | 'ext'
 
@@ -86,6 +87,7 @@ function RenamePage({
   const [confirming, setConfirming] = useState(false)
   const [report, setReport] = useState<RenameReport | null>(null)
   const [error, setError] = useState('')
+  const requests = useWorkspaceRequestVersion(workspace)
 
   useEffect(() => {
     let disposed = false
@@ -112,6 +114,8 @@ function RenamePage({
 
   const refresh = async (): Promise<void> => {
     if (!workspace) return
+    const requestWorkspace = workspace
+    const requestVersion = requests.begin()
     setLoading(true)
     setError('')
     setReport(null)
@@ -122,12 +126,15 @@ function RenamePage({
     setProbes({})
     setPreflight({})
     try {
-      setVideos(await window.api.listPosterVideos(workspace))
+      const nextVideos = await window.api.listPosterVideos(workspace)
+      if (!requests.isCurrent(requestVersion, requestWorkspace)) return
+      setVideos(nextVideos)
       setLoaded(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (requests.isCurrent(requestVersion, requestWorkspace))
+        setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (requests.isCurrent(requestVersion, requestWorkspace)) setLoading(false)
     }
   }
 
