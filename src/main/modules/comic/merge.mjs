@@ -21,6 +21,7 @@ import {
   comicCoverName,
   comicOutputName
 } from '../../../shared/comic-rules.mjs'
+import { needsJpegRepair } from '../../../shared/jpeg-guard.mjs'
 
 /**
  * 漫画合并执行：
@@ -28,6 +29,9 @@ import {
  * - 增量更新：清单存在且仅新增章节时，新章节按顺序追加到既有产物末尾（原页面不重编码）；
  * - 图片优化（默认）：宽度 >1600 缩至 1600，统一转 mozjpeg q85（质量/体积平衡）；
  *   原样模式：不重编码不改尺寸（PDF 仅支持 jpg/png 直嵌，其他格式转码 jpg q92）；
+ * - 坏 JPEG 自动修复：结构异常（libjpeg「extraneous bytes before marker」等，sharp 默认
+ *   failOn='warning' 会直接抛错）或内容非 JPEG 的 .jpg 页，自动宽容解码转码为干净 JPEG，
+ *   避免整本合并失败或坏图原样进入 EPUB/PDF；修复页数计入合并结果 repairedPages；
  * - 产物写在漫画目录内（<漫画名>.<格式>），清单 .comic-merge.json 记录章节快照供下次更新检测；
  * - 删源（deleteComicSources）：删除已合并图片并清理空章节目录，保留产物/清单/隐藏封面。
  */
@@ -48,40 +52,93 @@ const extOf = (name) => {
   return index < 0 ? '' : name.slice(index + 1).toLowerCase()
 }
 
+const isJpegExt = (ext) => ext === 'jpg' || ext === 'jpeg'
+
+// sharp 0.35 默认 failOn='warning'：libjpeg 对「标记前有多余字节」等坏 JPEG 告警会直接抛错，
+// 导致漫画合并整本失败。此正则识别这类可宽容解码修复的错误（严格解码失败时降级重试）。
+const isRepairableJpegError = (error) =>
+  /VipsJpeg|Corrupt JPEG data|extraneous bytes|Premature end of JPEG/i.test(
+    String(error?.message ?? error)
+  )
+
 /**
- * 图片预处理：读入 → （可选）缩放/转码 → { data, width, height, ext }。
+ * 经 sharp 编码为 JPEG。宽容模式（failOn:'none'）让 libjpeg 跳过垃圾字节完成解码，
+ * 相当于把结构异常的坏图修复为干净 JPEG（像素与严格解码一致，见 test/jpeg-guard.test.mjs）。
+ * @param {Buffer} buffer
+ * @param {{quality: number, maxWidth?: number, tolerant?: boolean}} options
+ */
+async function encodeToJpeg(buffer, { quality, maxWidth = 0, tolerant = false }) {
+  const options = { limitInputPixels: false }
+  if (tolerant) options.failOn = 'none'
+  let pipeline = sharp(buffer, options)
+  const metadata = await pipeline.metadata()
+  if (maxWidth > 0 && (metadata.width ?? 0) > maxWidth) {
+    pipeline = pipeline.resize({ width: maxWidth, withoutEnlargement: true })
+  }
+  if (metadata.hasAlpha) pipeline = pipeline.flatten({ background: '#ffffff' })
+  const { data, info } = await pipeline
+    .jpeg({ quality, mozjpeg: true })
+    .toBuffer({ resolveWithObject: true })
+  return { data, width: info.width, height: info.height, ext: 'jpg' }
+}
+
+/**
+ * 严格解码，命中坏 JPEG（libjpeg 告警级，sharp 默认 failOn='warning' 会抛错）时
+ * 降级为宽容解码修复。
+ * @returns {{data: Buffer, width: number, height: number, ext: string, repaired: boolean}}
+ */
+async function encodeWithRepair(buffer, { quality, maxWidth = 0 }) {
+  try {
+    return { ...(await encodeToJpeg(buffer, { quality, maxWidth })), repaired: false }
+  } catch (error) {
+    if (isRepairableJpegError(error)) {
+      return {
+        ...(await encodeToJpeg(buffer, { quality, maxWidth, tolerant: true })),
+        repaired: true
+      }
+    }
+    throw error
+  }
+}
+
+/**
+ * 图片预处理：读入 → （可选）缩放/转码 → { data, width, height, ext, repaired }。
+ * - 优化模式（默认）：统一重编码，坏 JPEG 自动走宽容解码修复；
+ * - 原样模式：jpg/png 尽量保留源字节；结构异常的 jpg/jpeg 转码修复，
+ *   避免把 libjpeg 无法正常解码的坏图直接塞进 EPUB/PDF（阅读器渲染异常）。
+ * 此函数只在当前页生命周期内保留 Buffer，绝不累积整章/整书图片。
  * @param {string} absPath
  * @param {{format: 'epub'|'pdf', raw: boolean}} options
  */
 async function preparePage(absPath, { format, raw }) {
   const buffer = await readBinaryFile(absPath)
   const sourceExt = extOf(absPath)
-  // sharp 默认像素上限约 2.68 亿，条漫长图可能超限，关闭限制（本地可信文件）。
-  // 此函数只在当前页生命周期内保留 Buffer，绝不累积整章/整书图片。
-  const image = sharp(buffer, { limitInputPixels: false })
 
   if (raw && (format === 'epub' || PDF_DIRECT_EXTS.has(sourceExt))) {
-    const metadata = await image.metadata()
+    if (isJpegExt(sourceExt) && needsJpegRepair(buffer)) {
+      return {
+        ...(await encodeToJpeg(buffer, { quality: RAW_JPEG_QUALITY, tolerant: true })),
+        repaired: true,
+        sourceBytes: buffer.length
+      }
+    }
+    const metadata = await sharp(buffer, { limitInputPixels: false }).metadata()
     return {
       data: buffer,
       width: metadata.width ?? 0,
       height: metadata.height ?? 0,
       ext: sourceExt === 'jpeg' ? 'jpg' : sourceExt,
-      sourceBytes: buffer.length
+      sourceBytes: buffer.length,
+      repaired: false
     }
   }
 
   const quality = raw ? RAW_JPEG_QUALITY : OPT_JPEG_QUALITY
-  let pipeline = sharp(buffer, { limitInputPixels: false })
-  const metadata = await pipeline.metadata()
-  if (!raw && (metadata.width ?? 0) > OPT_MAX_WIDTH) {
-    pipeline = pipeline.resize({ width: OPT_MAX_WIDTH, withoutEnlargement: true })
-  }
-  if (metadata.hasAlpha) pipeline = pipeline.flatten({ background: '#ffffff' })
-  const { data, info } = await pipeline
-    .jpeg({ quality, mozjpeg: true })
-    .toBuffer({ resolveWithObject: true })
-  return { data, width: info.width, height: info.height, ext: 'jpg', sourceBytes: buffer.length }
+  const page = await encodeWithRepair(buffer, {
+    quality,
+    maxWidth: raw ? 0 : OPT_MAX_WIDTH
+  })
+  return { ...page, sourceBytes: buffer.length }
 }
 
 /**
@@ -135,6 +192,7 @@ export async function mergeOneComic(
   // PDF 受 pdf-lib 限制仍需完整序列化，故仅在 PDF 分支保留逐页预处理数组。
   let sourceBytes = 0
   let outputBytes = 0
+  let repairedPages = 0
   if (format === 'epub') {
     const stagingPath = createStagingPath(outputPath)
     const streamChapters = chaptersToProcess.map((chapter) => ({
@@ -146,8 +204,32 @@ export async function mergeOneComic(
         ? state.chapters.reduce((sum, chapter) => sum + chapter.images.length, 0)
         : 0) + streamChapters.reduce((sum, chapter) => sum + chapter.pages.length, 0)
     const prepareStreamPage = async ({ path }) => {
-      // 原样 EPUB 无须读入图片；sharp 仅读取元数据，yazl 在写入时按需流式读取源文件。
+      // 原样 EPUB 通常无须读入图片：sharp 仅读取元数据，yazl 在写入时按需流式读取源文件。
+      // 但结构异常的 jpg/jpeg 必须检出并转码修复，否则坏图会原样进入 EPUB（阅读器渲染异常）。
       if (raw) {
+        const ext = extOf(path)
+        if (isJpegExt(ext)) {
+          const buffer = await readBinaryFile(path)
+          if (needsJpegRepair(buffer)) {
+            const page = await encodeToJpeg(buffer, {
+              quality: RAW_JPEG_QUALITY,
+              tolerant: true
+            })
+            repairedPages += 1
+            sourceBytes += buffer.length
+            return { ...page, sourceBytes: buffer.length, repaired: true }
+          }
+          const metadata = await sharp(buffer, { limitInputPixels: false }).metadata()
+          sourceBytes += buffer.length
+          return {
+            sourcePath: path,
+            width: metadata.width ?? 0,
+            height: metadata.height ?? 0,
+            ext,
+            sourceBytes: buffer.length,
+            repaired: false
+          }
+        }
         const metadata = await sharp(path, { limitInputPixels: false }).metadata()
         const source = await fileSize(path)
         sourceBytes += source
@@ -155,12 +237,14 @@ export async function mergeOneComic(
           sourcePath: path,
           width: metadata.width ?? 0,
           height: metadata.height ?? 0,
-          ext: extOf(path),
-          sourceBytes: source
+          ext,
+          sourceBytes: source,
+          repaired: false
         }
       }
       const page = await preparePage(path, { format, raw })
       sourceBytes += page.sourceBytes ?? page.data.length
+      repairedPages += page.repaired ? 1 : 0
       return page
     }
     try {
@@ -211,6 +295,7 @@ export async function mergeOneComic(
         const page = await preparePage(join(comicDir, image), { format, raw })
         pages.push(page)
         sourceBytes += page.sourceBytes ?? page.data.length
+        repairedPages += page.repaired ? 1 : 0
         onProgress?.({
           completedPages: pages.length,
           totalPages: processedPageCount,
@@ -253,13 +338,10 @@ export async function mergeOneComic(
   const mayWriteCover = !(await pathExists(coverPath)) || comic.merged?.coverName === coverName
   let managedCoverName = comic.merged?.coverName
   if (mode === 'full' && comic.chapters[0]?.images[0] && mayWriteCover) {
-    const cover = await sharp(join(comicDir, comic.chapters[0].images[0]), {
-      limitInputPixels: false
-    })
-      .resize({ width: COVER_WIDTH, withoutEnlargement: true })
-      .jpeg({ quality: 78, mozjpeg: true })
-      .toBuffer()
-    await writeBinaryFile(coverPath, cover)
+    const coverBuffer = await readBinaryFile(join(comicDir, comic.chapters[0].images[0]))
+    // 封面同源图：坏 JPEG 同样宽容解码修复，否则首图异常会导致整本合并失败
+    const cover = await encodeWithRepair(coverBuffer, { quality: 78, maxWidth: COVER_WIDTH })
+    await writeBinaryFile(coverPath, cover.data)
     managedCoverName = coverName
     // 旧版隐藏封面不再使用，成功写入可见封面后删除，避免目录中保留两份。
     await discardStagedFile(join(comicDir, LEGACY_COMIC_COVER_NAME))
@@ -291,7 +373,8 @@ export async function mergeOneComic(
     chapters: chaptersToProcess.length,
     images: chaptersToProcess.reduce((sum, chapter) => sum + chapter.images.length, 0),
     bytes: outputBytes,
-    sourceBytes
+    sourceBytes,
+    repairedPages
   }
 }
 

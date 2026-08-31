@@ -534,6 +534,12 @@ function ComicMergePage({
                     <span className="muted">
                       {item.mode === 'update' ? '（增量追加）' : '（全量）'} · {item.chapters} 章 ·{' '}
                       {item.images} 图
+                      {item.repairedPages > 0 && (
+                        <>
+                          {' '}
+                          · <span className="warn-text">修复 {item.repairedPages} 页损坏图</span>
+                        </>
+                      )}
                     </span>
                   </span>
                   <span className="muted">

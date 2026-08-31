@@ -729,6 +729,8 @@ export interface ComicMergeItem {
   bytes: number
   /** 本次合并的源图片总体积（字节，删源确认用） */
   sourceBytes: number
+  /** 结构异常、经自动转码修复的页数（坏 JPEG，0 表示全部正常） */
+  repairedPages: number
 }
 
 export interface ComicMergeReport {

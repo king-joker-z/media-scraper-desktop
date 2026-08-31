@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { unzipSync } from 'fflate'
 import { PDFDocument } from 'pdf-lib'
 import sharp from 'sharp'
 import { createTaskCenter } from '../src/main/core/task-center.mjs'
@@ -37,6 +38,25 @@ const withTempDir = async (fn) => {
 }
 
 const page = { data: TINY_PNG, width: 1, height: 1, ext: 'png' }
+
+/**
+ * 构造「SOS 标记前夹带 16128 字节垃圾」的坏 JPEG（复刻用户报障
+ * 「Corrupt JPEG data: 16128 extraneous bytes before marker 0xda」场景）。
+ * 该图在 sharp 默认 failOn='warning' 下解码会直接抛错。
+ */
+const corruptJpeg = async () => {
+  const clean = await sharp({
+    create: { width: 4, height: 4, channels: 3, background: { r: 200, g: 50, b: 50 } }
+  })
+    .jpeg()
+    .toBuffer()
+  const sosIdx = clean.indexOf(Buffer.from([0xff, 0xda]))
+  return Buffer.concat([
+    clean.subarray(0, sosIdx),
+    Buffer.alloc(16128, 0x5a),
+    clean.subarray(sosIdx)
+  ])
+}
 
 test('漫画扫描跳过指向工作区外的符号链接目录', async () => {
   await withTempDir(async (root) => {
@@ -360,5 +380,112 @@ test('漫画合并：首次全量 EPUB 后新增章节可增量追加并更新�
 
     const state = JSON.parse(await readFile(join(comic, '.comic-merge.json'), 'utf8'))
     assert.equal(state.chapters.length, 2)
+  })
+})
+
+test('漫画合并：坏 JPEG（SOS 前垃圾字节）优化模式自动修复，整本不失败', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '坏图修复漫画')
+    const chapter = join(comic, '第1话')
+    await mkdir(chapter, { recursive: true })
+    await writeFile(join(chapter, '1.jpg'), await corruptJpeg())
+    await writeFile(join(chapter, '2.png'), TINY_PNG)
+    const taskCenter = createTaskCenter()
+
+    const report = await mergeComics(root, {
+      relDirs: ['坏图修复漫画'],
+      format: 'epub',
+      taskCenter,
+      taskId: 'comic-repair-opt',
+      concurrency: 1
+    })
+    assert.equal(report.failed.length, 0)
+    assert.equal(report.merged[0].repairedPages, 1)
+    const epubBytes = await readFile(join(comic, '坏图修复漫画.epub'))
+    assert.equal(countEpubPages(epubBytes), 2)
+    // 书内图片已是可正常解码的干净 JPEG（不再携带垃圾字节）
+    const files = unzipSync(epubBytes)
+    const image = Object.keys(files).find((name) => /^OEBPS\/images\/p\d+\.jpg$/.test(name))
+    const meta = await sharp(files[image]).metadata()
+    assert.equal(meta.width, 4)
+  })
+})
+
+test('漫画合并：原样 EPUB 遇坏 JPEG 自动转码修复，坏图不原样入书', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '原样坏图修复')
+    const chapter = join(comic, '第1话')
+    await mkdir(chapter, { recursive: true })
+    await writeFile(join(chapter, '1.jpg'), await corruptJpeg())
+    const taskCenter = createTaskCenter()
+
+    const report = await mergeComics(root, {
+      relDirs: ['原样坏图修复'],
+      format: 'epub',
+      raw: true,
+      taskCenter,
+      taskId: 'comic-repair-raw-epub',
+      concurrency: 1
+    })
+    assert.equal(report.failed.length, 0)
+    assert.equal(report.merged[0].repairedPages, 1)
+    const files = unzipSync(await readFile(join(comic, '原样坏图修复.epub')))
+    const image = Object.keys(files).find((name) => /^OEBPS\/images\/p\d+\.jpg$/.test(name))
+    const meta = await sharp(files[image]).metadata()
+    assert.equal(meta.width, 4)
+  })
+})
+
+test('漫画合并：原样 PDF 遇坏 JPEG 自动修复，PDF 页数正确', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '原样坏图PDF')
+    const chapter = join(comic, '第1话')
+    await mkdir(chapter, { recursive: true })
+    await writeFile(join(chapter, '1.jpg'), await corruptJpeg())
+    const taskCenter = createTaskCenter()
+
+    const report = await mergeComics(root, {
+      relDirs: ['原样坏图PDF'],
+      format: 'pdf',
+      raw: true,
+      taskCenter,
+      taskId: 'comic-repair-raw-pdf',
+      concurrency: 1
+    })
+    assert.equal(report.failed.length, 0)
+    assert.equal(report.merged[0].repairedPages, 1)
+    const doc = await PDFDocument.load(await readFile(join(comic, '原样坏图PDF.pdf')))
+    assert.equal(doc.getPageCount(), 1)
+  })
+})
+
+test('漫画合并：仅 EOI 后多余字节的 jpg，原样模式不触发修复（保留源字节）', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, '尾部垃圾保留')
+    const chapter = join(comic, '第1话')
+    await mkdir(chapter, { recursive: true })
+    const clean = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 10, g: 20, b: 30 } }
+    })
+      .jpeg()
+      .toBuffer()
+    const source = Buffer.concat([clean, Buffer.from('EXTRA-AFTER-EOI')])
+    await writeFile(join(chapter, '1.jpg'), source)
+    const taskCenter = createTaskCenter()
+
+    const report = await mergeComics(root, {
+      relDirs: ['尾部垃圾保留'],
+      format: 'epub',
+      raw: true,
+      taskCenter,
+      taskId: 'comic-trailing-raw',
+      concurrency: 1
+    })
+    assert.equal(report.failed.length, 0)
+    assert.equal(report.merged[0].repairedPages, 0)
+    const files = unzipSync(await readFile(join(comic, '尾部垃圾保留.epub')))
+    const image = Object.keys(files).find((name) => /^OEBPS\/images\/p\d+\.jpg$/.test(name))
+    // 尾部垃圾解码器普遍宽容，保留源字节以维持原样模式「零重编码」语义
+    assert.equal(Buffer.compare(files[image], source), 0)
   })
 })

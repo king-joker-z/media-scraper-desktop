@@ -1510,6 +1510,9 @@ h2 {
 .danger-text {
   color: var(--danger);
 }
+.warn-text {
+  color: var(--warning);
+}
 .danger-button {
   background: var(--danger);
 }
