@@ -3,6 +3,7 @@ import './assets/component-enhancements.css'
 import './assets/task-island.css'
 import './assets/rename-comparison.css'
 import './assets/workbench.css'
+import './assets/platform.css'
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'

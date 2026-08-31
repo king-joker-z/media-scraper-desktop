@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 function WorkbenchEmptyState({
   title,
   description,
@@ -7,10 +9,12 @@ function WorkbenchEmptyState({
   description: string
   action?: React.ReactNode
 }): React.JSX.Element {
+  const titleId = useId()
+
   return (
-    <section className="empty workbench-empty" aria-labelledby="workbench-empty-title">
+    <section className="empty workbench-empty" aria-labelledby={titleId}>
       <span className="workbench-empty-mark" aria-hidden="true" />
-      <h2 id="workbench-empty-title">{title}</h2>
+      <h2 id={titleId}>{title}</h2>
       <p>{description}</p>
       {action && <div className="workbench-empty-action">{action}</div>}
     </section>

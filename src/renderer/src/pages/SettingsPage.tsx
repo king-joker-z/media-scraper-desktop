@@ -134,7 +134,7 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   }
 ]
 
-function SettingsPage(): React.JSX.Element {
+function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   // 色彩选择器使用本地值驱动，防止异步 settings IPC 回包短暂覆盖刚选中的颜色。
   const [customAccent, setCustomAccent] = useState('#1687d9')
@@ -172,6 +172,7 @@ function SettingsPage(): React.JSX.Element {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (!active) return
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
         event.preventDefault()
         settingsSearchRef.current?.focus()
@@ -179,7 +180,7 @@ function SettingsPage(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [active])
 
   useEffect(() => {
     let disposed = false
@@ -474,6 +475,7 @@ function SettingsPage(): React.JSX.Element {
       <div className="settings-navigation" aria-label="设置导航">
         <label className="settings-search" aria-label="查找设置项">
           <input
+            id="settings-search"
             ref={settingsSearchRef}
             type="search"
             value={settingsQuery}

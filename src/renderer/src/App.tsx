@@ -21,7 +21,12 @@ import CursorTrail from './components/CursorTrail'
 import Magnetic from './components/Magnetic'
 import { prunePlayPositions } from './utils/media'
 import { useSpotlightHover } from './utils/spotlight'
-import { applyBackgroundAppearance, applyTheme, DEFAULT_BACKGROUND_APPEARANCE } from './utils/theme'
+import {
+  applyBackgroundAppearance,
+  applyPlatformAppearance,
+  applyTheme,
+  DEFAULT_BACKGROUND_APPEARANCE
+} from './utils/theme'
 import { basenameOf } from './utils/format'
 import type { AppModule } from '../../shared/types'
 
@@ -265,6 +270,7 @@ function App(): React.JSX.Element {
   // 启动初始化：应用主题、恢复上次模块与双工作区（media:// 白名单同步注册）、
   // 请求系统通知权限、清理过期播放进度缓存
   useEffect(() => {
+    applyPlatformAppearance()
     window.api
       .getSettings()
       .then(async (settings) => {
@@ -368,7 +374,9 @@ function App(): React.JSX.Element {
       if (hasModifier && event.key.toLowerCase() === 'f') {
         event.preventDefault()
         const search = document.querySelector<HTMLElement>(
-          '#library-search, .comic-search input, .comic-search'
+          page === 'settings'
+            ? '#settings-search'
+            : '#library-search, .comic-search input, .comic-search'
         )
         if (search) {
           search.focus()
@@ -379,7 +387,7 @@ function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [page])
 
   const refreshRecents = useCallback((): void => {
     window.api
@@ -537,7 +545,7 @@ function App(): React.JSX.Element {
         />
       )
     },
-    { key: 'settings', element: <SettingsPage /> }
+    { key: 'settings', element: <SettingsPage active={page === 'settings'} /> }
   ]
 
   // 模块选择页：启动（未记忆模块）或主动切换时展示

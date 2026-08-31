@@ -1,3 +1,4 @@
+import * as Dialog from '@radix-ui/react-dialog'
 import { useRef } from 'react'
 import { mediaUrl, touchPlayPosition } from '../utils/media'
 
@@ -42,38 +43,37 @@ function VideoModal({
   }
 
   return (
-    <div className="dialog-overlay" onClick={close}>
-      <div
-        className="detail-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`播放视频：${title}`}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="detail-header">
-          <b>{title}</b>
-          <button className="chip-remove" aria-label="关闭视频播放器" onClick={close}>
-            关闭
-          </button>
-        </div>
-        <video
-          ref={videoRef}
-          src={mediaUrl(path)}
-          controls
-          autoPlay
-          className="detail-player"
-          onLoadedMetadata={() => {
-            if (storageKey && videoRef.current) {
-              const saved = Number(localStorage.getItem(storageKey) ?? 0)
-              if (saved > 0 && saved < videoRef.current.duration - 5) {
-                videoRef.current.currentTime = saved
+    <Dialog.Root open onOpenChange={(open) => !open && close()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Content className="detail-modal" aria-label={`播放视频：${title}`}>
+          <div className="detail-header">
+            <Dialog.Title>{title}</Dialog.Title>
+            <Dialog.Close asChild>
+              <button className="chip-remove" aria-label="关闭视频播放器">
+                关闭
+              </button>
+            </Dialog.Close>
+          </div>
+          <video
+            ref={videoRef}
+            src={mediaUrl(path)}
+            controls
+            autoPlay
+            className="detail-player"
+            onLoadedMetadata={() => {
+              if (storageKey && videoRef.current) {
+                const saved = Number(localStorage.getItem(storageKey) ?? 0)
+                if (saved > 0 && saved < videoRef.current.duration - 5) {
+                  videoRef.current.currentTime = saved
+                }
               }
-            }
-          }}
-          onPause={savePosition}
-        />
-      </div>
-    </div>
+            }}
+            onPause={savePosition}
+          />
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 

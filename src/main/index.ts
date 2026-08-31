@@ -1,4 +1,13 @@
-import { app, shell, BrowserWindow, dialog, ipcMain, Notification, protocol } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  Notification,
+  protocol
+} from 'electron'
 import { basename, dirname, extname, join } from 'path'
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
@@ -543,15 +552,36 @@ function setupAutoUpdate(): void {
   autoUpdater.checkForUpdates().catch(() => {})
 }
 
-function createWindow(theme: string): void {
+function resolveWindowTheme(theme: AppSettings['theme'] | undefined): 'dark' | 'light' {
+  return theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors)
+    ? 'dark'
+    : 'light'
+}
+
+function syncWindowChrome(window: BrowserWindow, theme: AppSettings['theme'] | undefined): void {
+  const resolvedTheme = resolveWindowTheme(theme)
+  const isDark = resolvedTheme === 'dark'
+  window.setBackgroundColor(isDark ? '#1c1c1e' : '#f5f6f8')
+  if (process.platform === 'win32') {
+    window.setTitleBarOverlay({
+      color: isDark ? '#101828' : '#f4f6fa',
+      symbolColor: isDark ? '#f9fafb' : '#182230',
+      height: 36
+    })
+  }
+}
+
+function createWindow(theme: AppSettings['theme']): void {
+  const resolvedTheme = resolveWindowTheme(theme)
   const mainWindow = new BrowserWindow({
     width: 1240,
     height: 820,
-    minWidth: 1024,
-    minHeight: 700,
+    // 兼容 Windows 分屏与高 DPI 小尺寸窗口；渲染端在 980px 以下会切换为紧凑布局。
+    minWidth: 900,
+    minHeight: 640,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: theme === 'dark' ? '#1c1c1e' : '#f5f6f8',
+    backgroundColor: resolvedTheme === 'dark' ? '#1c1c1e' : '#f5f6f8',
     title: 'Media Scraper',
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 } }
@@ -560,8 +590,8 @@ function createWindow(theme: string): void {
             // Windows 使用系统标题栏按钮；高 DPI 和多显示器缩放由系统原生绘制处理。
             titleBarStyle: 'hidden',
             titleBarOverlay: {
-              color: theme === 'dark' ? '#101828' : '#f4f6fa',
-              symbolColor: theme === 'dark' ? '#f9fafb' : '#182230',
+              color: resolvedTheme === 'dark' ? '#101828' : '#f4f6fa',
+              symbolColor: resolvedTheme === 'dark' ? '#f9fafb' : '#182230',
               height: 36
             }
           }
@@ -694,6 +724,7 @@ function registerIpcHandlers(): void {
     const updated = await settingsStore.update(patch)
     // 运行时同步 FFmpeg 进程池大小
     if (updated.ffmpegPoolSize) setPoolSize(updated.ffmpegPoolSize)
+    for (const window of BrowserWindow.getAllWindows()) syncWindowChrome(window, updated.theme)
     sendSettingsChange(updated)
     return updated
   })
@@ -1626,11 +1657,24 @@ app.whenReady().then(async () => {
   registerIpcHandlers()
   setupAutoUpdate()
   const settings = await settingsStore.get().catch(() => null)
-  createWindow(settings?.theme === 'dark' ? 'dark' : 'light')
+  createWindow(settings?.theme ?? 'system')
+  nativeTheme.on('updated', () => {
+    void settingsStore
+      .get()
+      .then((current) => {
+        if (current.theme !== 'system') return
+        for (const window of BrowserWindow.getAllWindows()) syncWindowChrome(window, current.theme)
+      })
+      .catch(() => {})
+  })
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0)
-      createWindow(settings?.theme === 'dark' ? 'dark' : 'light')
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void settingsStore
+        .get()
+        .then((current) => createWindow(current.theme))
+        .catch(() => {})
+    }
   })
 })
 

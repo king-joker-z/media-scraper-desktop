@@ -17,6 +17,12 @@ export const DEFAULT_BACKGROUND_APPEARANCE: BackgroundAppearance = {
   fit: 'cover'
 }
 
+/** 标记运行平台，让 Windows 标题栏安全区可在 CSS 中提供确定的回退值。 */
+export function applyPlatformAppearance(): void {
+  const root = document.documentElement
+  root.dataset.platform = /Windows/i.test(navigator.userAgent) ? 'win32' : 'other'
+}
+
 /** 将背景图片和材质参数映射为 CSS 变量，避免高频调节导致 React 树重渲染。 */
 export function applyBackgroundAppearance(appearance?: BackgroundAppearance): void {
   const next = appearance ?? DEFAULT_BACKGROUND_APPEARANCE
