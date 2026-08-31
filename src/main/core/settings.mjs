@@ -102,11 +102,14 @@ export const THEME_PALETTE_OPTIONS = [
   'custom'
 ]
 const DEFAULT_NVENC_ENABLED = process.platform === 'win32'
+const DEFAULT_CURSOR_EFFECTS = process.platform === 'win32' ? 'off' : 'particles'
+const DEFAULT_PERFORMANCE_MODE = process.platform === 'win32' ? 'reduced' : 'standard'
+const DEFAULT_TASK_CONCURRENCY = process.platform === 'win32' ? 3 : DEFAULT_CONCURRENCY
 
 /** 最近工作区最多记忆条数 */
 export const MAX_RECENT_WORKSPACES = 8
 
-export const DEFAULT_SCAN_CONCURRENCY = 4
+export const DEFAULT_SCAN_CONCURRENCY = process.platform === 'win32' ? 2 : 4
 export const MIN_SCAN_CONCURRENCY = 1
 export const MAX_SCAN_CONCURRENCY = 16
 
@@ -117,7 +120,8 @@ export const clampScanConcurrency = (value) => {
 }
 
 // 与 ffmpeg-pool.mjs 的默认池大小保持一致：按核数自适应（低配机 2，上限 4）。
-export const DEFAULT_FFMPEG_POOL_SIZE = Math.min(4, Math.max(2, Math.floor(cpus().length / 2)))
+export const DEFAULT_FFMPEG_POOL_SIZE =
+  process.platform === 'win32' ? 2 : Math.min(4, Math.max(2, Math.floor(cpus().length / 2)))
 export const MIN_FFMPEG_POOL_SIZE = 1
 export const MAX_FFMPEG_POOL_SIZE = 8
 
@@ -137,7 +141,7 @@ const normalizeMergeTempLocation = (value) =>
   ['source-disk', 'system', 'custom'].includes(value) ? value : 'source-disk'
 
 export const DEFAULT_SETTINGS = {
-  concurrency: DEFAULT_CONCURRENCY,
+  concurrency: DEFAULT_TASK_CONCURRENCY,
   scanConcurrency: DEFAULT_SCAN_CONCURRENCY,
   ffmpegPoolSize: DEFAULT_FFMPEG_POOL_SIZE,
   nvencEnabled: DEFAULT_NVENC_ENABLED,
@@ -155,8 +159,10 @@ export const DEFAULT_SETTINGS = {
     surfaceOpacity: 35,
     fit: 'cover'
   },
-  // 光标动效默认开粒子模式；系统「减少动态」时渲染端会强制关闭
-  cursorEffects: 'particles',
+  // Windows 默认关闭全屏 Canvas；macOS 保持粒子效果。显式用户设置永远优先。
+  cursorEffects: DEFAULT_CURSOR_EFFECTS,
+  // Windows 合成器在大图、模糊与任务并发叠加时更易掉帧，新安装默认降低视觉效果。
+  performanceMode: DEFAULT_PERFORMANCE_MODE,
   libraryDensity: 'standard',
   aiProviders: PROVIDER_PRESETS.map((preset) => ({
     ...preset,
@@ -379,6 +385,10 @@ export function normalizeSettings(raw) {
     ].includes(input.cursorEffects)
       ? input.cursorEffects
       : DEFAULT_SETTINGS.cursorEffects,
+    performanceMode:
+      input.performanceMode === 'standard' || input.performanceMode === 'reduced'
+        ? input.performanceMode
+        : DEFAULT_SETTINGS.performanceMode,
     libraryDensity: ['comfortable', 'standard', 'compact'].includes(input.libraryDensity)
       ? input.libraryDensity
       : DEFAULT_SETTINGS.libraryDensity,

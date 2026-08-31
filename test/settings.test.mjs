@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   activeProvider,
   createSettingsStore,
+  DEFAULT_SETTINGS,
   DEFAULT_PROMPT_TEMPLATE,
   normalizeSettings
 } from '../src/main/core/settings.mjs'
@@ -29,7 +30,7 @@ test('returns defaults when the settings file does not exist', async () => {
   await withTempDir(async (dir) => {
     const store = createSettingsStore(join(dir, 'settings.json'))
     const settings = await store.get()
-    assert.equal(settings.concurrency, 5)
+    assert.equal(settings.concurrency, DEFAULT_SETTINGS.concurrency)
     assert.equal(settings.activeProviderId, 'openrouter')
     assert.equal(settings.themePalette, 'ocean')
     const ids = settings.aiProviders.map((p) => p.id)
@@ -222,8 +223,8 @@ test('recovers from .bak backup when main file is corrupted', async () => {
     await writeFile(file, '{broken')
     const recovered = createSettingsStore(file)
     const settings = await recovered.load()
-    // 从 .bak 恢复：concurrency 应为 update 前的值（5），activeProviderId 为 openrouter
-    assert.equal(settings.concurrency, 5)
+    // 从 .bak 恢复：concurrency 应为更新前的平台默认值，activeProviderId 为 openrouter
+    assert.equal(settings.concurrency, DEFAULT_SETTINGS.concurrency)
     assert.equal(settings.activeProviderId, 'openrouter')
   })
 })
@@ -516,13 +517,28 @@ test('invalid palette falls back to ocean', () => {
   assert.equal(normalizeSettings({ themePalette: 'unknown' }).themePalette, 'ocean')
 })
 
-test('cursorEffects 光标动效白名单归一化，未知值回退 particles', () => {
-  assert.equal(normalizeSettings({}).cursorEffects, 'particles')
+test('cursorEffects 光标动效白名单归一化，未知值回退平台默认值', () => {
+  assert.equal(normalizeSettings({}).cursorEffects, DEFAULT_SETTINGS.cursorEffects)
   for (const effect of ['ribbon', 'sparkles', 'comets', 'confetti', 'ripples', 'off']) {
     assert.equal(normalizeSettings({ cursorEffects: effect }).cursorEffects, effect)
   }
-  assert.equal(normalizeSettings({ cursorEffects: 'sparkle' }).cursorEffects, 'particles')
-  assert.equal(normalizeSettings({ cursorEffects: 42 }).cursorEffects, 'particles')
+  assert.equal(
+    normalizeSettings({ cursorEffects: 'sparkle' }).cursorEffects,
+    DEFAULT_SETTINGS.cursorEffects
+  )
+  assert.equal(
+    normalizeSettings({ cursorEffects: 42 }).cursorEffects,
+    DEFAULT_SETTINGS.cursorEffects
+  )
+})
+
+test('performanceMode 保留用户选择并回退平台默认值', () => {
+  assert.equal(normalizeSettings({ performanceMode: 'standard' }).performanceMode, 'standard')
+  assert.equal(normalizeSettings({ performanceMode: 'reduced' }).performanceMode, 'reduced')
+  assert.equal(
+    normalizeSettings({ performanceMode: 'high' }).performanceMode,
+    DEFAULT_SETTINGS.performanceMode
+  )
 })
 
 test('normalizeSettings filters malformed providers and models', () => {

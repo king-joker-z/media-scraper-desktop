@@ -166,6 +166,9 @@ export type LibraryDensity = 'comfortable' | 'standard' | 'compact'
 export type CursorEffectsMode =
   'off' | 'particles' | 'ribbon' | 'sparkles' | 'comets' | 'confetti' | 'ripples'
 
+/** 视觉性能档：标准保留完整外观，降低效果会移除高成本装饰。 */
+export type PerformanceMode = 'standard' | 'reduced'
+
 /** 强调色方案：仅改变品牌色与交互强调，不改变内容层级 */
 export type BackgroundFit = 'cover' | 'contain'
 
@@ -248,6 +251,8 @@ export interface AppSettings {
   backgroundAppearance: BackgroundAppearance
   /** 光标动效（粒子 / 霓虹拖尾，点击附带迸溅效果；系统减少动态时自动关闭） */
   cursorEffects: CursorEffectsMode
+  /** 降低背景模糊、阴影与装饰动画；Windows 新安装默认开启。 */
+  performanceMode: PerformanceMode
   /** 媒体库海报墙的显示密度 */
   libraryDensity: LibraryDensity
   aiProviders: AiProviderConfig[]
@@ -506,6 +511,19 @@ export interface GpuCapability {
   checkedAt: number
   nvenc: { available: boolean; reason?: string }
   cudaPipeline: { available: boolean; reason?: string }
+}
+
+/** 仅供本机排障查看的 Chromium GPU 状态；不采集、不上传。 */
+export interface PerformanceDiagnostics {
+  collectedAt: number
+  platform: string
+  gpuFeatureStatus: Record<string, string>
+  gpus: Array<{
+    deviceName: string
+    vendorId: string
+    deviceId: string
+    driverVersion: string
+  }>
 }
 
 export interface MergeGpuSummary {

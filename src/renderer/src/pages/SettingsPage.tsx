@@ -5,6 +5,7 @@ import type {
   AppSettings,
   BackgroundAppearance,
   CursorEffectsMode,
+  PerformanceDiagnostics,
   StorageCategory,
   StorageStats,
   ThemeMode,
@@ -14,9 +15,11 @@ import OperationTimeline from '../components/OperationTimeline'
 import { formatBytes } from '../utils/format'
 import {
   applyBackgroundAppearance,
+  applyPerformanceMode,
   applyTheme,
   DEFAULT_BACKGROUND_APPEARANCE
 } from '../utils/theme'
+import { getPlatformAppearanceDefaults } from '../utils/appearance-defaults'
 import { mediaUrl } from '../utils/media'
 
 const BUILT_IN_PROVIDER_IDS = new Set([
@@ -160,6 +163,9 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
   const [cleaning, setCleaning] = useState<StorageCategory | null>(null)
   const [storageNotice, setStorageNotice] = useState('')
   const [settingsQuery, setSettingsQuery] = useState('')
+  const [diagnostics, setDiagnostics] = useState<PerformanceDiagnostics | null>(null)
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false)
+  const [diagnosticsNotice, setDiagnosticsNotice] = useState('')
   const [activeGroup, setActiveGroup] = useState('appearance')
   const settingsSearchRef = useRef<HTMLInputElement>(null)
 
@@ -186,15 +192,18 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
     let disposed = false
     const applySettings = (next: AppSettings): void => {
       if (disposed) return
-      // HMR 时预加载层可能短暂仍返回旧版设置结构，渲染端先兜底以确保设置页可打开。
+      // HMR 时预加载层可能短暂仍返回旧版设置结构，渲染端以同平台值兜底，避免覆盖主进程默认。
+      const appearanceDefaults = getPlatformAppearanceDefaults()
       const nextSettings: AppSettings = {
         ...next,
         backgroundAppearance: next.backgroundAppearance ?? DEFAULT_BACKGROUND_APPEARANCE,
-        cursorEffects: next.cursorEffects ?? 'particles'
+        cursorEffects: next.cursorEffects ?? appearanceDefaults.cursorEffects,
+        performanceMode: next.performanceMode ?? appearanceDefaults.performanceMode
       }
       setSettings(nextSettings)
       setCustomAccent(nextSettings.customAccent || '#1687d9')
       applyBackgroundAppearance(nextSettings.backgroundAppearance)
+      applyPerformanceMode(nextSettings.performanceMode)
       // 设置广播只刷新数据；用户正在编辑的非当前平台必须保持选中，不能因为
       // 任一保存操作就被强制跳回当前使用的平台。首次加载或平台被删除时才回退。
       setEditingId((currentId) =>
@@ -236,6 +245,28 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
       setStorageNotice('清理失败')
     } finally {
       setCleaning(null)
+    }
+  }
+
+  const loadDiagnostics = async (): Promise<void> => {
+    setDiagnosticsBusy(true)
+    setDiagnosticsNotice('')
+    try {
+      setDiagnostics(await window.api.getPerformanceDiagnostics())
+    } catch (error) {
+      setDiagnosticsNotice(`读取失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setDiagnosticsBusy(false)
+    }
+  }
+
+  const copyDiagnostics = async (): Promise<void> => {
+    if (!diagnostics) return
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2))
+      setDiagnosticsNotice('诊断信息已复制到剪贴板，仅包含 GPU 与功能状态。')
+    } catch {
+      setDiagnosticsNotice('复制失败，请手动选择下方内容。')
     }
   }
 
@@ -777,6 +808,35 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
       </section>
 
       <section className="settings-card" hidden={!isGroupActive('performance')}>
+        <h2>视觉性能</h2>
+        <p className="muted">
+          降低视觉效果会关闭高成本背景模糊、重阴影和装饰动画；不会影响任务进度、媒体播放或键盘操作。
+        </p>
+        <div className="mode-tabs" role="group" aria-label="视觉性能模式">
+          <button
+            className={`mode-tab ${settings.performanceMode === 'reduced' ? 'active' : ''}`}
+            aria-pressed={settings.performanceMode === 'reduced'}
+            onClick={() => {
+              applyPerformanceMode('reduced')
+              void persist({ performanceMode: 'reduced' })
+            }}
+          >
+            降低视觉效果（推荐 Windows）
+          </button>
+          <button
+            className={`mode-tab ${settings.performanceMode === 'standard' ? 'active' : ''}`}
+            aria-pressed={settings.performanceMode === 'standard'}
+            onClick={() => {
+              applyPerformanceMode('standard')
+              void persist({ performanceMode: 'standard' })
+            }}
+          >
+            完整视觉效果
+          </button>
+        </div>
+      </section>
+
+      <section className="settings-card" hidden={!isGroupActive('performance')}>
         <h2>扫描并发</h2>
         <p className="muted">目录遍历的子目录并行数（1–16，默认 4）。NAS 或大目录树建议调高。</p>
         <div className="slider-row">
@@ -880,6 +940,40 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
             实验性完整 GPU 流水线（NVDEC + CUDA 缩放/补边 + NVENC；失败按段降级）
           </span>
         </label>
+      </section>
+
+      <section className="settings-card" hidden={!isGroupActive('performance')}>
+        <h2>本机图形诊断</h2>
+        <p className="muted">
+          仅在你点击读取时返回当前 GPU 和 Chromium
+          功能状态；不写入设置、不上传网络，可用于排查渲染卡顿。
+        </p>
+        <div className="settings-inline-actions">
+          <button
+            className="secondary"
+            onClick={() => void loadDiagnostics()}
+            disabled={diagnosticsBusy}
+          >
+            {diagnosticsBusy ? '读取中…' : '读取图形状态'}
+          </button>
+          <button
+            className="secondary"
+            onClick={() => void copyDiagnostics()}
+            disabled={!diagnostics}
+          >
+            复制诊断
+          </button>
+        </div>
+        {diagnosticsNotice && (
+          <p className="notice-inline" role="status">
+            {diagnosticsNotice}
+          </p>
+        )}
+        {diagnostics && (
+          <pre className="performance-diagnostics" tabIndex={0}>
+            {JSON.stringify(diagnostics, null, 2)}
+          </pre>
+        )}
       </section>
 
       <section

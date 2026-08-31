@@ -73,6 +73,7 @@ import type {
   MergeSourceItem,
   MergeVideoItem,
   NfoPlanItem,
+  PerformanceDiagnostics,
   PosterPicks,
   PosterVideoItem,
   RenamePairInput,
@@ -94,6 +95,37 @@ const renameJournalPath = join(app.getPath('userData'), 'rename-journal.json')
 const MERGE_TEMP_PREFIX = 'msd-merge-'
 /** 断点目录老化阈值：超过 7 天未修改视为已放弃续传，启动时自动回收磁盘 */
 const MERGE_TEMP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
+/** 返回最小化的 GPU 排障快照；仅响应用户在设置页的主动请求，不落盘也不上传。 */
+const getPerformanceDiagnostics = async (): Promise<PerformanceDiagnostics> => {
+  const gpuFeatureStatus = Object.fromEntries(
+    Object.entries(app.getGPUFeatureStatus()).map(([name, status]) => [name, String(status)])
+  )
+  try {
+    const gpuInfo: unknown = await app.getGPUInfo('basic')
+    const gpuDevice =
+      gpuInfo && typeof gpuInfo === 'object'
+        ? (gpuInfo as Record<string, unknown>).gpuDevice
+        : undefined
+    const rawGpus = Array.isArray(gpuDevice) ? gpuDevice : []
+    return {
+      collectedAt: Date.now(),
+      platform: process.platform,
+      gpuFeatureStatus,
+      gpus: rawGpus.map((gpu) => {
+        const device = gpu && typeof gpu === 'object' ? (gpu as Record<string, unknown>) : {}
+        return {
+          deviceName: String(device.deviceName ?? ''),
+          vendorId: String(device.vendorId ?? ''),
+          deviceId: String(device.deviceId ?? ''),
+          driverVersion: String(device.driverVersion ?? '')
+        }
+      })
+    }
+  } catch {
+    return { collectedAt: Date.now(), platform: process.platform, gpuFeatureStatus, gpus: [] }
+  }
+}
 
 // 回收站删除注入（F1）：用户数据删除默认走系统回收站，可在设置改回永久删除
 setTrashImpl((target) => shell.trashItem(target))
@@ -1131,6 +1163,7 @@ function registerIpcHandlers(): void {
     }
   })
   ipcMain.handle('gpu:capability', async () => probeGpuCapability(resolveFfmpegPath()))
+  ipcMain.handle('performance:diagnostics', getPerformanceDiagnostics)
   ipcMain.handle(
     'merge:execute',
     async (_event, root: string, items: MergeVideoItem[], outputName: string) => {

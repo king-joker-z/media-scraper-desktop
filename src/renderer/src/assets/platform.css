@@ -274,3 +274,62 @@ textarea {
     outline-width: 3px;
   }
 }
+
+/* Windows 默认使用此档；用户可在设置中恢复完整效果。
+ * 统一在根节点收口，避免各页面分别判断平台并遗漏重绘成本较高的磨砂层。 */
+:root[data-performance-mode='reduced'] {
+  --workspace-background-blur: 0px !important;
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 8%);
+  --shadow-pop: 0 4px 12px rgb(16 24 40 / 12%);
+  --shadow-float: 0 4px 12px rgb(16 24 40 / 12%);
+}
+
+:root[data-performance-mode='reduced'] .workspace-with-background,
+:root[data-performance-mode='reduced'] .workspace-with-background::before,
+:root[data-performance-mode='reduced'] .workspace-with-background::after,
+:root[data-performance-mode='reduced'] .sidebar,
+:root[data-performance-mode='reduced'] .page-header,
+:root[data-performance-mode='reduced'] .settings-card,
+:root[data-performance-mode='reduced'] .dialog,
+:root[data-performance-mode='reduced'] .detail-modal,
+:root[data-performance-mode='reduced'] .poster-detail-modal,
+:root[data-performance-mode='reduced'] .command-palette {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 仅冻结工作区内容树；任务岛和任务中心是 app-shell 的同级子树，因此保留各组件原有反馈时长。 */
+:root[data-performance-mode='reduced'] .workspace-with-background,
+:root[data-performance-mode='reduced']
+  .workspace-with-background
+  > :is(.sidebar, .content, .module-picker-drag, .module-picker-intro, .module-cards, .drop-overlay),
+:root[data-performance-mode='reduced']
+  .workspace-with-background
+  > :is(.sidebar, .content, .module-picker-drag, .module-picker-intro, .module-cards, .drop-overlay)
+  * {
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
+  animation-delay: 0ms !important;
+}
+
+:root[data-performance-mode='reduced'] [data-spotlight]::before,
+:root[data-task-busy='true'] [data-spotlight]::before {
+  display: none !important;
+}
+
+/* 批量处理期间优先让 Chromium 合成资源服务于列表、进度和视频渲染。 */
+:root[data-task-busy='true'] .cursor-trail-canvas {
+  display: none;
+}
+
+.performance-diagnostics {
+  max-height: 280px;
+  padding: 10px;
+  overflow: auto;
+  color: var(--label-secondary);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  background: var(--fill-quaternary);
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+}

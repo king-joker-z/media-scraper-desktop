@@ -23,10 +23,12 @@ import { prunePlayPositions } from './utils/media'
 import { useSpotlightHover } from './utils/spotlight'
 import {
   applyBackgroundAppearance,
+  applyPerformanceMode,
   applyPlatformAppearance,
   applyTheme,
   DEFAULT_BACKGROUND_APPEARANCE
 } from './utils/theme'
+import { getPlatformAppearanceDefaults } from './utils/appearance-defaults'
 import { basenameOf } from './utils/format'
 import type { AppModule } from '../../shared/types'
 
@@ -241,6 +243,18 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }): React.JSX
  */
 function TaskLayer(): React.JSX.Element {
   const feed = useTaskFeed()
+  const isBusy = feed.activeTasks.length > 0
+
+  // 任务事件只重渲此浮层；根属性让 CSS/Canvas 在重负载期间暂停纯装饰效果。
+  useEffect(() => {
+    const root = document.documentElement
+    if (isBusy) root.dataset.taskBusy = 'true'
+    else delete root.dataset.taskBusy
+    return () => {
+      delete root.dataset.taskBusy
+    }
+  }, [isBusy])
+
   return (
     <>
       <TaskIsland feed={feed} />
@@ -274,9 +288,11 @@ function App(): React.JSX.Element {
     window.api
       .getSettings()
       .then(async (settings) => {
-        // HMR 时预加载层可能暂时保留旧版返回值；缺少新外观字段时回退默认背景，避免阻断启动。
+        // HMR 时预加载层可能暂时保留旧版返回值；缺少新外观字段时使用同平台兜底，避免覆盖主进程默认。
+        const appearanceDefaults = getPlatformAppearanceDefaults()
         const backgroundAppearance = settings.backgroundAppearance ?? DEFAULT_BACKGROUND_APPEARANCE
         applyTheme(settings.theme, settings.themePalette, settings.customAccent || '#1687d9')
+        applyPerformanceMode(settings.performanceMode ?? appearanceDefaults.performanceMode)
         applyBackgroundAppearance(backgroundAppearance)
         setRecents({
           video: settings.recentWorkspaces,

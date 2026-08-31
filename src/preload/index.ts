@@ -19,6 +19,7 @@ import type {
   NfoReport,
   OpLogDetail,
   OpLogSummary,
+  PerformanceDiagnostics,
   PosterBatchSaveReport,
   PosterCaptureOptions,
   PosterPicks,
@@ -98,6 +99,8 @@ const api = {
   executeMerge: (root: string, items: MergeVideoItem[], outputName: string): Promise<MergeResult> =>
     ipcRenderer.invoke('merge:execute', root, items, outputName),
   getGpuCapability: (): Promise<GpuCapability> => ipcRenderer.invoke('gpu:capability'),
+  getPerformanceDiagnostics: (): Promise<PerformanceDiagnostics> =>
+    ipcRenderer.invoke('performance:diagnostics'),
   deleteMergeSources: (
     root: string,
     items: MergeSourceItem[]

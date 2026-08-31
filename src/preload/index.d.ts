@@ -19,6 +19,7 @@ import type {
   NfoReport,
   OpLogDetail,
   OpLogSummary,
+  PerformanceDiagnostics,
   PosterBatchSaveReport,
   PosterCaptureOptions,
   PosterPicks,
@@ -91,6 +92,8 @@ declare global {
         outputName: string
       ) => Promise<MergeResult>
       getGpuCapability: () => Promise<GpuCapability>
+      /** 本机 GPU 状态快照，仅在设置页用户主动查看时读取。 */
+      getPerformanceDiagnostics: () => Promise<PerformanceDiagnostics>
       deleteMergeSources: (
         root: string,
         items: MergeSourceItem[]

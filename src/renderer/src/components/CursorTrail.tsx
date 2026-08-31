@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { CursorEffectsMode } from '../../../shared/types'
+import { getPlatformAppearanceDefaults } from '../utils/appearance-defaults'
 
 /**
  * 光标动效层（单 Canvas）：
@@ -15,6 +16,7 @@ import type { CursorEffectsMode } from '../../../shared/types'
  */
 
 const MAX_PARTICLES = 220
+const REDUCED_MAX_PARTICLES = 70
 const MAX_RIPPLES = 14
 const RIBBON_MAX_POINTS = 26
 const RIBBON_LIFE_MS = 420
@@ -140,6 +142,8 @@ function CursorTrail(): React.JSX.Element {
 
     let mode: CursorEffectsMode = 'particles'
     let enabled = true
+    let isReduced = false
+    let isTaskBusy = false
     let rafId = 0
     let running = false
     let lastFrameAt = 0
@@ -177,7 +181,7 @@ function CursorTrail(): React.JSX.Element {
     }
 
     const resize = (): void => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const dpr = Math.min(window.devicePixelRatio || 1, isReduced ? 1 : 2)
       viewportWidth = window.innerWidth
       viewportHeight = window.innerHeight
       canvas.width = Math.round(viewportWidth * dpr)
@@ -188,8 +192,10 @@ function CursorTrail(): React.JSX.Element {
     }
     resize()
 
+    const particleLimit = (): number => (isReduced ? REDUCED_MAX_PARTICLES : MAX_PARTICLES)
+
     const addParticle = (particle: Particle): void => {
-      if (particles.length < MAX_PARTICLES) particles.push(particle)
+      if (particles.length < particleLimit()) particles.push(particle)
     }
 
     const spawnTrailParticle = (x: number, y: number): void => {
@@ -270,7 +276,7 @@ function CursorTrail(): React.JSX.Element {
     }
 
     const spawnBurst = (x: number, y: number): void => {
-      for (let i = 0; i < 14 && particles.length < MAX_PARTICLES; i += 1) {
+      for (let i = 0; i < 14 && particles.length < particleLimit(); i += 1) {
         const angle = Math.random() * Math.PI * 2
         const speed = randomBetween(60, 220)
         addParticle({
@@ -322,7 +328,7 @@ function CursorTrail(): React.JSX.Element {
       const spacing = PATH_SPACING[mode]
       if (!spacing) return
       pendingDistance += distance
-      while (pendingDistance >= spacing && particles.length < MAX_PARTICLES) {
+      while (pendingDistance >= spacing && particles.length < particleLimit()) {
         pendingDistance -= spacing
         if (mode === 'particles') spawnTrailParticle(x, y)
         if (mode === 'sparkles') spawnSparkle(x, y)
@@ -511,7 +517,7 @@ function CursorTrail(): React.JSX.Element {
     }
 
     const onPointerMove = (event: PointerEvent): void => {
-      if (!enabled || mode === 'off') return
+      if (!enabled || isTaskBusy || mode === 'off') return
       if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
       const now = performance.now()
       const distance = pointer.has
@@ -540,7 +546,7 @@ function CursorTrail(): React.JSX.Element {
     }
 
     const onPointerDown = (event: PointerEvent): void => {
-      if (!enabled || mode === 'off') return
+      if (!enabled || isTaskBusy || mode === 'off') return
       if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
       lastPointerAt = performance.now()
       if (mode === 'ripples') {
@@ -560,7 +566,7 @@ function CursorTrail(): React.JSX.Element {
     }
 
     const syncMode = (next: CursorEffectsMode | undefined): void => {
-      const resolved: CursorEffectsMode = next ?? 'particles'
+      const resolved = next ?? getPlatformAppearanceDefaults().cursorEffects
       if (resolved !== mode) {
         mode = resolved
         stopLoop()
@@ -573,6 +579,23 @@ function CursorTrail(): React.JSX.Element {
       if (!enabled) {
         stopLoop()
         clearAll()
+      }
+    }
+
+    const syncPerformanceState = (): void => {
+      const root = document.documentElement
+      const nextReduced = root.dataset.performanceMode === 'reduced'
+      const nextTaskBusy = root.dataset.taskBusy === 'true'
+      if (isReduced !== nextReduced) {
+        isReduced = nextReduced
+        resize()
+      }
+      if (isTaskBusy !== nextTaskBusy) {
+        isTaskBusy = nextTaskBusy
+        if (isTaskBusy) {
+          stopLoop()
+          clearAll()
+        }
       }
     }
 
@@ -593,8 +616,20 @@ function CursorTrail(): React.JSX.Element {
     })
     themeObserver.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-palette', 'data-theme', 'style']
+      attributeFilter: [
+        'data-palette',
+        'data-theme',
+        'data-performance-mode',
+        'data-task-busy',
+        'style'
+      ]
     })
+    const performanceObserver = new MutationObserver(syncPerformanceState)
+    performanceObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-performance-mode', 'data-task-busy']
+    })
+    syncPerformanceState()
 
     window.addEventListener('pointermove', onPointerMove, { passive: true })
     window.addEventListener('pointerdown', onPointerDown, { passive: true })
@@ -607,6 +642,7 @@ function CursorTrail(): React.JSX.Element {
       clearAll()
       unsubscribeSettings()
       themeObserver.disconnect()
+      performanceObserver.disconnect()
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('resize', resize)

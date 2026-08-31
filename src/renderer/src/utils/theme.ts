@@ -1,5 +1,11 @@
-import type { BackgroundAppearance, ThemeMode, ThemePalette } from '../../../shared/types'
+import type {
+  BackgroundAppearance,
+  PerformanceMode,
+  ThemeMode,
+  ThemePalette
+} from '../../../shared/types'
 import { mediaUrl } from './media'
+import { getPlatformAppearanceDefaults } from './appearance-defaults'
 
 /**
  * 应用外观到根节点：明暗模式与强调色分离，主题色切换不影响内容与风险色语义。
@@ -21,6 +27,13 @@ export const DEFAULT_BACKGROUND_APPEARANCE: BackgroundAppearance = {
 export function applyPlatformAppearance(): void {
   const root = document.documentElement
   root.dataset.platform = /Windows/i.test(navigator.userAgent) ? 'win32' : 'other'
+}
+
+/** 将视觉性能档集中标记在根节点，CSS 与装饰层可无状态读取。 */
+export function applyPerformanceMode(
+  mode: PerformanceMode = getPlatformAppearanceDefaults().performanceMode
+): void {
+  document.documentElement.dataset.performanceMode = mode
 }
 
 /** 将背景图片和材质参数映射为 CSS 变量，避免高频调节导致 React 树重渲染。 */
