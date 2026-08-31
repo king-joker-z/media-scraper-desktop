@@ -34,15 +34,19 @@ const pathExists = async (target) => {
   }
 }
 
-/** 递归收集目录内图片（相对漫画目录的正斜杠路径，自然排序；隐藏项跳过） */
-async function collectImages(comicDir, relDir, comicName) {
+/**
+ * 递归收集目录内图片（相对漫画目录的正斜杠路径，自然排序；隐藏项跳过）。
+ * light=true 时只统计传入目录的直接图片（不递归子目录）：漫画章节通常是扁平的，
+ * 轻量刷新场景下结果与全量一致但快得多；嵌套章节的精确列表由合并前的全量扫描补齐。
+ */
+async function collectImages(comicDir, relDir, comicName, { light = false } = {}) {
   const out = []
   const walk = async (current) => {
     const entries = await readdir(join(comicDir, current), { withFileTypes: true })
     for (const entry of entries) {
       if (isHiddenName(entry.name) || entry.isSymbolicLink()) continue
       const rel = current ? `${current}/${entry.name}` : entry.name
-      if (entry.isDirectory()) await walk(rel)
+      if (!light && entry.isDirectory()) await walk(rel)
       else if (
         entry.isFile() &&
         isComicImage(entry.name) &&
@@ -68,8 +72,8 @@ export async function readComicState(comicDir) {
   }
 }
 
-/** 扫描单部漫画 */
-export async function scanComic(root, relDir) {
+/** 扫描单部漫画（light=true 时跳过子目录递归，仅用于快速刷新列表） */
+export async function scanComic(root, relDir, { light = false } = {}) {
   const comicDir = join(root, relDir)
   // 扫描前恢复上次断电/进程被终止时遗留的安全替换备份。
   await recoverStagedOutputs(comicDir)
@@ -92,7 +96,7 @@ export async function scanComic(root, relDir) {
   const chapters = []
   if (flatImages.length > 0) chapters.push({ name: '', relDir: '', images: flatImages })
   for (const dir of chapterDirs) {
-    const images = await collectImages(comicDir, dir, relDir)
+    const images = await collectImages(comicDir, dir, relDir, { light })
     if (images.length > 0) chapters.push({ name: dir, relDir: dir, images })
   }
   const sorted = sortComicChapters(chapters)
@@ -125,7 +129,7 @@ export async function scanComic(root, relDir) {
 }
 
 /** 扫描漫画工作区：一级子文件夹逐部解析（车道并发 4，目录读很轻快）。 */
-export async function scanComicWorkspace(root) {
+export async function scanComicWorkspace(root, { light = false } = {}) {
   const entries = await readdir(root, { withFileTypes: true })
   const comicDirs = entries
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !isHiddenName(entry.name))
@@ -139,7 +143,7 @@ export async function scanComicWorkspace(root) {
       const relDir = comicDirs[cursor]
       cursor += 1
       try {
-        comics.push(await scanComic(root, relDir))
+        comics.push(await scanComic(root, relDir, { light }))
       } catch {
         // 单部漫画读取失败（权限/竞态删除）跳过，不阻断整体
       }

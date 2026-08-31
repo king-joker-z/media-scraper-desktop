@@ -110,7 +110,7 @@ declare global {
         failed: { target: string; error: string }[]
       }>
       cancelDedupeDelete: () => Promise<void>
-      scanComics: (root: string) => Promise<ComicScanResult>
+      scanComics: (root: string, options?: { light?: boolean }) => Promise<ComicScanResult>
       mergeComics: (
         root: string,
         relDirs: string[],

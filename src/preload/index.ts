@@ -118,7 +118,8 @@ const api = {
     failed: { target: string; error: string }[]
   }> => ipcRenderer.invoke('dedupe:delete', root, relativePaths),
   cancelDedupeDelete: (): Promise<void> => ipcRenderer.invoke('dedupe:cancel'),
-  scanComics: (root: string): Promise<ComicScanResult> => ipcRenderer.invoke('comic:scan', root),
+  scanComics: (root: string, options?: { light?: boolean }): Promise<ComicScanResult> =>
+    ipcRenderer.invoke('comic:scan', root, options),
   mergeComics: (
     root: string,
     relDirs: string[],

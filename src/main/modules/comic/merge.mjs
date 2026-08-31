@@ -43,6 +43,8 @@ const RAW_JPEG_QUALITY = 92
 const COVER_WIDTH = 400
 
 const PDF_DIRECT_EXTS = new Set(['jpg', 'jpeg', 'png'])
+/** PDF 单本内页级转码并发：pdf-lib 仍需整本驻留，故不并行多本；页级并行只多占用在途页 Buffer */
+const PDF_PAGE_CONCURRENCY = 4
 const throwIfAborted = (signal) => {
   if (signal?.aborted) throw new Error('已取消')
 }
@@ -288,22 +290,36 @@ export async function mergeOneComic(
     }
   } else {
     // pdf-lib 仍需完整序列化，但避免额外保留章节嵌套数组；超大书建议使用 EPUB。
-    const pages = []
+    // 单本内页级转码并行（sharp 转码是 CPU 密集的耗时大头）：pages 按索引填充，
+    // 最终顺序与串行完全一致，仅同时驻留在途页 Buffer（上限 PDF_PAGE_CONCURRENCY）。
+    const pageSources = []
     for (const chapter of chaptersToProcess) {
-      for (const image of chapter.images) {
-        if (signal?.aborted) throw new Error('已取消')
-        const page = await preparePage(join(comicDir, image), { format, raw })
-        pages.push(page)
+      for (const image of chapter.images) pageSources.push(join(comicDir, image))
+    }
+    const pages = new Array(pageSources.length)
+    let pageCursor = 0
+    let processedCount = 0
+    const pageLane = async () => {
+      while (pageCursor < pageSources.length && !signal?.aborted) {
+        const index = pageCursor
+        pageCursor += 1
+        const page = await preparePage(pageSources[index], { format, raw })
+        pages[index] = page
         sourceBytes += page.sourceBytes ?? page.data.length
         repairedPages += page.repaired ? 1 : 0
+        processedCount += 1
         onProgress?.({
-          completedPages: pages.length,
+          completedPages: processedCount,
           totalPages: processedPageCount,
           current: comic.name,
           phase: '正在处理 PDF 页面'
         })
       }
     }
+    await Promise.all(
+      Array.from({ length: Math.min(PDF_PAGE_CONCURRENCY, pageSources.length) }, pageLane)
+    )
+    if (signal?.aborted) throw new Error('已取消')
     const expectedPages =
       (mode === 'update'
         ? state.chapters.reduce((sum, chapter) => sum + chapter.images.length, 0)
@@ -406,16 +422,25 @@ export async function mergeComics(
     return report
   }
 
-  // 预先扫描一次以获得稳定的页数总量；这让数千页长漫画能显示实际页进度，而非只显示“第几本”。
+  // 预先扫描以获得稳定的页数总量；这让数千页长漫画能显示实际页进度，而非只显示“第几本”。
+  // 扫描本身也是大量目录 I/O，车道并发 4 缩短「准备」阶段等待，取消从任务创建前就生效。
   const plans = []
-  // 扫描本身也是大量目录 I/O；顺序预扫描既避免抢占资源管理器，又使取消从任务创建前就生效。
-  for (const relDir of relDirs) {
-    throwIfAborted(signal)
-    const comic = await scanComic(root, relDir)
-    const update = !rebuild && comic.merged?.format === format
-    const chapters = update ? comic.newChapters : comic.chapters
-    plans.push({ relDir, total: chapters.reduce((sum, chapter) => sum + chapter.images.length, 0) })
+  let scanCursor = 0
+  const scanLane = async () => {
+    while (scanCursor < relDirs.length) {
+      throwIfAborted(signal)
+      const relDir = relDirs[scanCursor]
+      scanCursor += 1
+      const comic = await scanComic(root, relDir)
+      const update = !rebuild && comic.merged?.format === format
+      const chapters = update ? comic.newChapters : comic.chapters
+      plans.push({
+        relDir,
+        total: chapters.reduce((sum, chapter) => sum + chapter.images.length, 0)
+      })
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(4, relDirs.length) }, scanLane))
   const totalPages = plans.reduce((sum, plan) => sum + plan.total, 0)
   const completedByComic = new Map()
   const reportProgress = (relDir, progress) => {
@@ -433,9 +458,10 @@ export async function mergeComics(
     taskId,
     label: format === 'epub' ? '合并漫画（EPUB）' : '合并漫画（PDF）',
     items: relDirs,
-    // 单部漫画内部已经顺序处理图片；同时处理多部超大漫画会争抢磁盘与内存。
-    // EPUB 至多 2 本并行，PDF 强制单本，优先保证 Windows 的稳定性。
-    concurrency: format === 'pdf' ? 1 : Math.min(2, concurrency),
+    // 单部漫画内部已做页级并行转码；同时并行多部超大 PDF 会成倍放大 pdf-lib 的全量内存占用。
+    // EPUB 至多 4 本并行（sharp 转码是 CPU 密集，多本并行充分利用多核）；
+    // PDF 保持单本并行（页级并行已提速），优先保证 Windows 的稳定性。
+    concurrency: format === 'pdf' ? 1 : Math.min(4, concurrency),
     signal,
     worker: async (relDir, signal) => {
       if (signal?.aborted) throw new Error('已取消')

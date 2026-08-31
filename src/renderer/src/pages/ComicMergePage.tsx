@@ -1,6 +1,10 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import type { Comic, ComicFormat, ComicMergeReport, ComicScanResult } from '../../../shared/types'
-import { chapterDisplayName } from '../../../shared/comic-rules.mjs'
+import {
+  chapterDisplayName,
+  comicCoverName,
+  comicOutputName
+} from '../../../shared/comic-rules.mjs'
 import { applyRegexRules } from '../../../shared/rename-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
@@ -28,6 +32,7 @@ const ComicListItem = memo(function ComicListItem({
   checked,
   rebuild,
   mutating,
+  scanning,
   name,
   regexActive,
   workspace,
@@ -40,6 +45,8 @@ const ComicListItem = memo(function ComicListItem({
   checked: boolean
   rebuild: boolean
   mutating: boolean
+  /** 扫描进行中：禁止输入名称，避免扫描结果覆盖正在编辑的草稿 */
+  scanning: boolean
   name: string
   regexActive: boolean
   workspace: string
@@ -84,7 +91,7 @@ const ComicListItem = memo(function ComicListItem({
                 ? '正在显示批量替换预览；清空“正则查找”后可逐项编辑。'
                 : '可直接编辑漫画名称'
             }
-            disabled={mutating || regexActive}
+            disabled={scanning || mutating || regexActive}
             onClick={(event) => event.preventDefault()}
             onChange={(event) => onNameChange(comic.relDir, event.target.value)}
           />
@@ -125,6 +132,8 @@ const ComicListItem = memo(function ComicListItem({
   )
 })
 
+const COMIC_PAGE_SIZE = 100
+
 /**
  * 漫画合并：扫描漫画工作区 → 勾选漫画 → 选格式（EPUB/PDF）→ 执行 → 报告 → 删除源图。
  * 已合并且有新章节的漫画走增量追加；章节内容变化的需要勾选「全量重建」。
@@ -158,6 +167,7 @@ function ComicMergePage({
   const [comicNames, setComicNames] = useState<Record<string, string>>({})
   const [regexPattern, setRegexPattern] = useState('')
   const [regexReplacement, setRegexReplacement] = useState('')
+  const [comicPage, setComicPage] = useState(0)
   // 删除确认绑定合并时的工作区，阻止切换目录后按相对路径误删。
   const reportWorkspaceRef = useRef<string | null>(null)
 
@@ -169,13 +179,17 @@ function ComicMergePage({
       .catch(() => {})
   }, [])
 
-  const scan = async (): Promise<void> => {
+  /**
+   * 扫描漫画工作区。light=true 只读目录名与单层图片计数（不递归子目录），
+   * 用于重命名/删源完成后的刷新与自动刷新；合并前必须用全量扫描（light=false）。
+   */
+  const scan = async (light = false): Promise<void> => {
     if (!workspace) return
     setLoading(true)
     setError('')
     setNotice('')
     try {
-      const next = await window.api.scanComics(workspace)
+      const next = await window.api.scanComics(workspace, { light })
       setResult(next)
       setComicNames(Object.fromEntries(next.comics.map((comic) => [comic.relDir, comic.name])))
       // 默认勾选：未合并 + 有新章节可更新的（内容已变化需人工决策，不默认勾）
@@ -191,6 +205,7 @@ function ComicMergePage({
         )
       )
       setReport(null)
+      setComicPage(0)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -198,21 +213,27 @@ function ComicMergePage({
     }
   }
 
-  useWorkspaceSync(workspace, active, scan)
+  // 页面可见时的自动刷新只需目录名/清单（轻量），手动“刷新”按钮保持全量。
+  useWorkspaceSync(workspace, active, () => scan(true))
+
+  // 输入框保持高优先级即时响应，正则预览/关键词过滤降为低优先级派生计算：
+  // 数百部漫画时每次按键的全量正则替换与过滤不阻塞渲染，避免 Windows 上输入卡顿。
+  const deferredRegexPattern = useDeferredValue(regexPattern)
+  const deferredKeyword = useDeferredValue(keyword)
 
   // 正则仅作为实时预览叠加在手工名称草稿之上：不会因输入过程改写草稿，清空查找条件即可恢复。
   const { previewNames, regexError } = useMemo(() => {
     const drafts = comicNames
-    if (!regexPattern || !result) return { previewNames: drafts, regexError: '' }
+    if (!deferredRegexPattern || !result) return { previewNames: drafts, regexError: '' }
     try {
       // 提前构造以识别非法表达式；实际替换仍复用共享规则。
-      new RegExp(regexPattern, 'g')
+      new RegExp(deferredRegexPattern, 'g')
       return {
         previewNames: Object.fromEntries(
           (result?.comics ?? []).map((comic) => [
             comic.relDir,
             applyRegexRules(drafts[comic.relDir] ?? comic.name, [
-              { pattern: regexPattern, replacement: regexReplacement, flags: 'g' }
+              { pattern: deferredRegexPattern, replacement: regexReplacement, flags: 'g' }
             ])
           ])
         ),
@@ -221,17 +242,36 @@ function ComicMergePage({
     } catch {
       return { previewNames: drafts, regexError: '正则表达式无效，当前不会应用替换。' }
     }
-  }, [comicNames, regexPattern, regexReplacement, result])
+  }, [comicNames, deferredRegexPattern, regexReplacement, result])
 
   const comics = useMemo(() => {
     const list = result?.comics ?? []
-    const key = keyword.trim().toLowerCase()
+    const key = deferredKeyword.trim().toLowerCase()
     return key
       ? list.filter((comic) =>
           (previewNames[comic.relDir] ?? comic.name).toLowerCase().includes(key)
         )
       : list
-  }, [result, keyword, previewNames])
+  }, [result, deferredKeyword, previewNames])
+
+  // 与当前目录名不同的条目数：正则激活时提示“保存名称”实际将改名多少部，避免误提交整批。
+  const changedNameCount = useMemo(
+    () =>
+      (result?.comics ?? []).filter(
+        (comic) => (previewNames[comic.relDir] ?? comic.name).trim() !== comic.relDir
+      ).length,
+    [result, previewNames]
+  )
+
+  // 扫描结果、搜索词、正则预览变化时回到第一页（在各自事件处理器中重置，避免 effect 内 setState）；
+  // 编辑单行名称（comicNames 变化）不重置页码。
+  const pageCount = Math.max(1, Math.ceil(comics.length / COMIC_PAGE_SIZE))
+  const currentComicPage = Math.min(comicPage, pageCount - 1)
+  const pagedComics = useMemo(
+    () =>
+      comics.slice(currentComicPage * COMIC_PAGE_SIZE, (currentComicPage + 1) * COMIC_PAGE_SIZE),
+    [comics, currentComicPage]
+  )
 
   const selectedComics = useMemo(
     () => (result?.comics ?? []).filter((comic) => selected.has(comic.relDir)),
@@ -261,6 +301,46 @@ function ComicMergePage({
     window.api.updateSettings({ comicFormat: next }).catch(() => {})
   }
 
+  /**
+   * 重命名完成后用 from→to 映射就地刷新列表，不触发任何图片扫描。
+   * 章节图片路径相对漫画目录（不含目录名），重命名后无需改动；
+   * 只需同步 relDir/name、名称草稿、勾选/展开状态，以及随漫画名变化的产物/封面文件名。
+   */
+  const applyRenameMapping = useCallback((renamed: Array<{ from: string; to: string }>): void => {
+    const byFrom = new Map(renamed.map((item) => [item.from, item.to]))
+    if (byFrom.size === 0) return
+    setResult((prev) => {
+      if (!prev) return prev
+      const comics = prev.comics.map((comic) => {
+        const to = byFrom.get(comic.relDir)
+        if (!to || to === comic.relDir) return comic
+        const merged = comic.merged
+          ? {
+              ...comic.merged,
+              outputName: comicOutputName(to, comic.merged.format),
+              coverName: comic.merged.coverName ? comicCoverName(to) : undefined
+            }
+          : null
+        const coverRel =
+          comic.merged?.coverName && comic.coverRel === comic.merged.coverName
+            ? comicCoverName(to)
+            : comic.coverRel
+        return { ...comic, relDir: to, name: to, coverRel, merged }
+      })
+      return { ...prev, comics }
+    })
+    setComicNames((prev) => {
+      const next: Record<string, string> = {}
+      for (const [key, value] of Object.entries(prev)) {
+        const to = byFrom.get(key)
+        next[to ?? key] = to ?? value
+      }
+      return next
+    })
+    setSelected((prev) => new Set([...prev].map((relDir) => byFrom.get(relDir) ?? relDir)))
+    setExpanded((prev) => (prev ? (byFrom.get(prev) ?? prev) : prev))
+  }, [])
+
   const renameComics = async (): Promise<void> => {
     if (!result) return
     const items = result.comics
@@ -275,10 +355,22 @@ function ComicMergePage({
     setNotice('')
     try {
       const outcome = await window.api.renameComics(workspace, items)
+      // 校验失败/被占用等单项失败不再阻断整批，失败原因逐项展示，便于定位是哪部漫画的问题。
+      if (outcome.failed.length > 0) {
+        setError(
+          `部分漫画改名失败：${outcome.failed
+            .map((item) => `「${item.target}」${item.error}`)
+            .join('；')}`
+        )
+      } else {
+        setError('')
+      }
       setNotice(
         `已重命名漫画 ${outcome.renamedCount} 部${outcome.failed.length ? `，失败 ${outcome.failed.length} 部` : ''}`
       )
-      await scan()
+      // 改名只涉及目录名，图片/章节结构一个都没变：用主进程返回的 from→to 映射就地更新列表，
+      // 完全跳过扫描（几千页工作区也不会发生任何目录遍历）。失败项保持原名，不影响其他项。
+      if (outcome.items.length > 0) applyRenameMapping(outcome.items)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -336,7 +428,7 @@ function ComicMergePage({
       )
       setReport(null)
       reportWorkspaceRef.current = null
-      await scan()
+      await scan(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -367,7 +459,7 @@ function ComicMergePage({
           </button>
           <button
             className="secondary"
-            onClick={scan}
+            onClick={() => void scan()}
             data-command="scan"
             disabled={!workspace || loading || comicMutating}
           >
@@ -450,7 +542,11 @@ function ComicMergePage({
               className="comic-search"
               placeholder={`搜索 ${result.comics.length} 部漫画…`}
               value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
+              onChange={(event) => {
+                setKeyword(event.target.value)
+                setComicPage(0)
+              }}
+              disabled={loading || comicMutating}
             />
           </div>
 
@@ -463,15 +559,21 @@ function ComicMergePage({
               className="comic-search"
               placeholder="正则查找"
               value={regexPattern}
-              onChange={(event) => setRegexPattern(event.target.value)}
-              disabled={comicMutating}
+              onChange={(event) => {
+                setRegexPattern(event.target.value)
+                setComicPage(0)
+              }}
+              disabled={loading || comicMutating}
             />
             <input
               className="comic-search"
               placeholder="替换为（可留空）"
               value={regexReplacement}
-              onChange={(event) => setRegexReplacement(event.target.value)}
-              disabled={comicMutating}
+              onChange={(event) => {
+                setRegexReplacement(event.target.value)
+                setComicPage(0)
+              }}
+              disabled={loading || comicMutating}
             />
             {regexPattern && !regexError && (
               <span className="regex-preview-status">实时预览中</span>
@@ -484,9 +586,10 @@ function ComicMergePage({
               <button
                 className="secondary"
                 onClick={() => void renameComics()}
-                disabled={comicMutating || Boolean(regexError)}
+                disabled={loading || comicMutating || Boolean(regexError)}
+                title={`将把 ${changedNameCount} 部漫画目录改名为预览名称`}
               >
-                保存名称
+                保存名称{changedNameCount > 0 ? `（${changedNameCount} 部）` : ''}
               </button>
             )}
           </div>
@@ -502,13 +605,14 @@ function ComicMergePage({
           {comics.length === 0 && keyword && <p className="muted">没有匹配的漫画。</p>}
 
           <div className="comic-list" tabIndex={0}>
-            {comics.map((comic) => (
+            {pagedComics.map((comic) => (
               <ComicListItem
                 key={comic.relDir}
                 comic={comic}
                 checked={selected.has(comic.relDir)}
                 rebuild={rebuild}
                 mutating={comicMutating}
+                scanning={loading}
                 name={previewNames[comic.relDir] ?? comic.name}
                 regexActive={Boolean(regexPattern)}
                 workspace={workspace}
@@ -519,6 +623,28 @@ function ComicMergePage({
               />
             ))}
           </div>
+          {comics.length > COMIC_PAGE_SIZE && (
+            <nav className="comic-pagination" aria-label="漫画列表分页">
+              <button
+                className="secondary"
+                disabled={currentComicPage === 0}
+                onClick={() => setComicPage((value) => value - 1)}
+              >
+                上一页
+              </button>
+              <span className="muted">
+                第 {currentComicPage + 1} / {pageCount} 页，每页 {COMIC_PAGE_SIZE} 部，共{' '}
+                {comics.length} 部
+              </span>
+              <button
+                className="secondary"
+                disabled={currentComicPage >= pageCount - 1}
+                onClick={() => setComicPage((value) => value + 1)}
+              >
+                下一页
+              </button>
+            </nav>
+          )}
         </section>
       )}
 

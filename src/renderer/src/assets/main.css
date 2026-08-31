@@ -639,6 +639,19 @@ h2 {
   min-height: 168px;
   overflow-y: auto;
 }
+/* 漫画列表分页：固定在列表下方，不参与列表内部滚动；页数多时也不挤压列表空间。 */
+.comic-merge-plan > .comic-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-shrink: 0;
+  padding: 12px 0 2px;
+  font-size: 13px;
+}
+.comic-pagination button {
+  min-width: 76px;
+}
 /* 漫画合并页整页不滚动：页头、工具栏、底栏及各状态卡固定，
  * 仅漫画列表单点内部滚动，避免页面与列表双重滚动条叠在一起。
  * 注意：不得加 overflow: hidden——会破坏页头 sticky 的滚动上下文（页头不再置顶）；

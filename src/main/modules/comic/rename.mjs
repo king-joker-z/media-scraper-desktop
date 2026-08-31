@@ -18,6 +18,9 @@ import {
 const nameKey = (name) => String(name).normalize('NFC').toLocaleLowerCase('en-US')
 const WINDOWS_SAFE_PATH_MAX = 240
 
+/** 暂存/提交/恢复阶段的目录改名并发上限：Windows 上文件锁重试相互独立，有限并发显著缩短批量等待 */
+const STAGE_CONCURRENCY = 4
+
 const validateName = (root, name) => {
   const value = String(name ?? '').trim()
   if (!value) return '名称为空'
@@ -49,68 +52,114 @@ const restoreDir = async (from, to) => {
   if (await pathExists(from)) await moveExact(from, to).catch(() => {})
 }
 
+/** 恢复目录并确认成功：失败时调用方必须上报，避免目录滞留在临时名导致扫描不可见。 */
+const restoreDirChecked = async (from, to) => {
+  if (!(await pathExists(from))) return true
+  try {
+    await moveExact(from, to)
+  } catch {
+    return false
+  }
+  return !(await pathExists(from))
+}
+
+/** 以有限车道并发执行异步任务（index 递增分配）。 */
+async function runLanes(total, laneCount, worker) {
+  let cursor = 0
+  const lane = async () => {
+    while (cursor < total) {
+      const index = cursor
+      cursor += 1
+      await worker(index)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(laneCount, total) }, lane))
+}
+
+/** 锁类错误在 Windows 上可重试后仍失败：给出可行动的提示而非裸英文错误码。 */
+const friendlyRenameError = (error, target) => {
+  if (['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY'].includes(error?.code)) {
+    return new Error(`「${target}」可能正被其他程序占用（文件锁），稍后重试：${error.message}`)
+  }
+  return error
+}
+
 /**
  * 漫画目录改名：全部先改临时目录，再逐项提交关联产物/封面/清单，支持名称交换和仅大小写改名。
- * 单项任一关联文件改名失败会完整回退到原目录，避免 Windows 文件锁留下半完成状态。
+ * 暂存/提交/恢复均为有限并发，避免 Windows 上大批量改名长时间无反馈；
+ * 单项校验失败、被占用或锁冲突只记入失败报告，不阻断其余项（原来是一处失败整批回退）。
  */
 export async function renameComicDirectories(
   root,
   items,
   { taskCenter, taskId, concurrency = 5, onStageProgress }
 ) {
-  const unique = new Map()
+  // 校验阶段：非法/冲突项不阻断整批，直接进入失败报告；只有调用方错误（relDir 越界/重复）整体拒绝。
+  const invalid = []
+  const valid = []
+  const seen = new Set()
   for (const item of items) {
     const relDir = String(item.relDir ?? '')
     const newName = String(item.newName ?? '').trim()
     if (!relDir || basename(relDir) !== relDir || relDir === '.' || relDir === '..') {
       throw new Error('漫画目录必须是工作区一级文件夹')
     }
-    if (unique.has(relDir)) throw new Error(`漫画目录重复：${relDir}`)
+    if (seen.has(relDir)) throw new Error(`漫画目录重复：${relDir}`)
+    seen.add(relDir)
     const error = validateName(root, newName)
-    if (error) throw new Error(`「${relDir}」：${error}`)
-    unique.set(relDir, newName)
+    if (error) {
+      invalid.push({ target: relDir, error })
+      continue
+    }
+    valid.push({ relDir, newName })
   }
 
+  // 目标名称重复（大小写不敏感）与目录占用冲突同样按单项失败处理，其余继续执行。
   const names = new Map()
-  for (const [relDir, newName] of unique) {
+  for (const { relDir, newName } of valid) {
     const key = nameKey(newName)
-    if (names.has(key)) throw new Error(`目标名称重复：${newName}`)
+    if (names.has(key)) {
+      invalid.push({ target: relDir, error: `目标名称重复：${newName}` })
+      continue
+    }
     names.set(key, relDir)
   }
 
   // 只需检查名称占用；扫描层/IPC 已确保传入项是一级漫画目录。
   const existingByKey = new Map((await listDirNames(root)).map((name) => [nameKey(name), name]))
-  for (const [relDir, newName] of unique) {
+  const active = []
+  for (const { relDir, newName } of valid) {
     const occupant = existingByKey.get(nameKey(newName))
-    if (occupant && !unique.has(occupant) && nameKey(occupant) !== nameKey(relDir)) {
-      throw new Error(`目标目录「${newName}」已被未参与改名的漫画占用`)
+    if (occupant && !names.has(nameKey(newName)) && nameKey(occupant) !== nameKey(relDir)) {
+      invalid.push({ target: relDir, error: `目标目录「${newName}」已被未参与改名的漫画占用` })
+      continue
     }
+    if (relDir !== newName) active.push({ relDir, newName })
   }
 
-  // 即使仅修改大小写也必须经过临时名，Windows 才能可靠落位到用户指定的大小写。
-  const active = [...unique].filter(([relDir, newName]) => relDir !== newName)
-  const report = { taskId, cancelled: false, renamedCount: 0, items: [], failed: [] }
+  const report = { taskId, cancelled: false, renamedCount: 0, items: [], failed: invalid }
   if (active.length === 0) return report
 
-  // 暂存阶段串行改名（Windows 上每次都可能撞上文件锁重试，最坏单次数秒），
-  // 此前完全没有进度反馈，批量改名时界面如同卡死；这里持续上报进度。
+  // 暂存阶段：全部先改到唯一临时名，规避 A↔B 交换冲突。即使仅修改大小写也必须经过临时名，
+  // Windows 才能可靠落位到用户指定的大小写。串行时每次改名都可能撞上文件锁重试（最坏单次数秒），
+  // 数百部批量改名会长时间无反馈；车道并发显著缩短等待，单项暂存失败只影响该项。
   const staged = []
-  try {
-    for (const [relDir, newName] of active) {
-      const tempPath = join(root, `.msd-comic-rename-${crypto.randomUUID()}`)
-      onStageProgress?.(staged.length, active.length, `暂存 ${relDir}`)
+  let stageDone = 0
+  const stageErrors = []
+  await runLanes(active.length, STAGE_CONCURRENCY, async (index) => {
+    const { relDir, newName } = active[index]
+    const tempPath = join(root, `.msd-comic-rename-${crypto.randomUUID()}`)
+    onStageProgress?.(stageDone, active.length, `暂存 ${relDir}`)
+    try {
       await moveExact(join(root, relDir), tempPath)
       staged.push({ relDir, newName, tempPath })
+    } catch (error) {
+      stageErrors.push({ target: relDir, error: friendlyRenameError(error, relDir) })
     }
-  } catch (error) {
-    let rolledBack = 0
-    for (const item of staged.reverse()) {
-      onStageProgress?.(rolledBack, staged.length, `回退 ${item.relDir}`)
-      await restoreDir(item.tempPath, join(root, item.relDir))
-      rolledBack += 1
-    }
-    throw error
-  }
+    stageDone += 1
+  })
+  report.failed.push(...stageErrors)
+  if (staged.length === 0) return report
 
   const renameOne = async (item, signal) => {
     if (signal?.aborted) throw new Error('已取消')
@@ -163,22 +212,30 @@ export async function renameComicDirectories(
     }
   }
 
-  // 目录/关联文件改名共享一个工作区，串行提交避免与目标名和文件锁重试相互竞争。
+  // 目标名唯一性已在上方校验，并行提交互不冲突；文件锁重试相互独立，
+  // 串行提交在大批量时明显偏慢，故按车道并发提交（上限 STAGE_CONCURRENCY）。
   const result = await taskCenter.run({
     taskId,
     label: '重命名漫画',
     items: staged,
-    concurrency: Math.min(1, concurrency),
+    concurrency: Math.min(STAGE_CONCURRENCY, concurrency),
     worker: renameOne
   })
   report.cancelled = result.cancelled
   // 未派发、取消或失败的项仍留在临时名：统一回退，保证扫描不会丢失漫画。
   let restored = 0
-  for (const item of staged) {
+  await runLanes(staged.length, STAGE_CONCURRENCY, async (index) => {
+    const item = staged[index]
     onStageProgress?.(restored, staged.length, `恢复 ${item.relDir}`)
-    await restoreDir(item.tempPath, join(root, item.relDir))
+    const ok = await restoreDirChecked(item.tempPath, join(root, item.relDir))
+    if (!ok) {
+      report.failed.push({
+        target: item.relDir,
+        error: '改名失败后恢复原目录未成功，目录暂留在临时名，请手动检查'
+      })
+    }
     restored += 1
-  }
+  })
   result.results.forEach((entry, index) => {
     if (!entry.ok && !entry.cancelled) {
       report.failed.push({ target: staged[index].relDir, error: entry.error ?? '未知错误' })

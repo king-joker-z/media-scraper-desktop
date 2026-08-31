@@ -1332,8 +1332,10 @@ function registerIpcHandlers(): void {
   })
 
   // ---------- 漫画模块 ----------
-  ipcMain.handle('comic:scan', async (_event, root: string) =>
-    trackScan('扫描漫画工作区', async () => scanComicWorkspace(registerComicRootForRead(root)))
+  ipcMain.handle('comic:scan', async (_event, root: string, options: { light?: boolean } = {}) =>
+    trackScan('扫描漫画工作区', async () =>
+      scanComicWorkspace(registerComicRootForRead(root), options)
+    )
   )
   ipcMain.handle(
     'comic:merge',

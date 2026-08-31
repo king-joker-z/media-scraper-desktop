@@ -27,12 +27,12 @@ function ComicLibraryPage({
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
-  const refresh = async (): Promise<void> => {
+  const refresh = async (light = false): Promise<void> => {
     if (!workspace) return
     setLoading(true)
     setError('')
     try {
-      const next = await window.api.scanComics(workspace)
+      const next = await window.api.scanComics(workspace, { light })
       setResult(next)
       setLoaded(true)
     } catch (err) {
@@ -42,8 +42,8 @@ function ComicLibraryPage({
     }
   }
 
-  // 页面可见时对比工作区指纹：有变化自动重扫
-  useWorkspaceSync(workspace, active, refresh)
+  // 页面可见时对比工作区指纹：有变化自动重扫（轻量，只读目录名/清单，不递归每张图）
+  useWorkspaceSync(workspace, active, () => refresh(true))
 
   const allMergedComics = useMemo(
     () => (result?.comics ?? []).filter((comic) => comic.merged),
@@ -95,7 +95,7 @@ function ComicLibraryPage({
             <button
               className="secondary"
               data-command="scan"
-              onClick={refresh}
+              onClick={() => void refresh()}
               disabled={!workspace || loading}
             >
               {loading ? '加载中…' : '刷新书架'}
