@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NfoPlan, NfoReport } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 function NfoPage({
   active,
@@ -50,15 +51,8 @@ function NfoPage({
     }
   }, [workspace])
 
-  // NFO 计划不能依赖通用指纹同步：拖入或选择目录后，页面可见时必须立即生成。
-  // 延后到任务队列执行，避免在 effect 同步阶段更新 React 状态；清理函数会取消已失效的目录任务。
-  useEffect(() => {
-    if (!active || !workspace) return
-    const timer = window.setTimeout(() => {
-      void scan()
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [active, workspace, scan])
+  // 首次可见与工作区切换立即扫描；后续切页只在目录内容实际变化时重建计划。
+  useWorkspaceSync(workspace, active, scan)
 
   // 页面常驻时，旧工作区的计划不可在新目录中展示或继续执行。
   const activePlan = plan?.root === workspace ? plan : null

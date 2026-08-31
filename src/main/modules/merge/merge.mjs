@@ -65,6 +65,16 @@ function runFfmpeg(ffmpegPath, args, { signal, onProgress, totalMs }) {
   })
 }
 
+const WINDOWS_SAFE_PATH_MAX = 240
+
+function validateWindowsPathLengths(paths) {
+  if (process.platform !== 'win32') return null
+  const tooLong = paths.find((path) => path.length > WINDOWS_SAFE_PATH_MAX)
+  return tooLong
+    ? `Windows 兼容路径不能超过 ${WINDOWS_SAFE_PATH_MAX} 个字符，请缩短工作区、文件名或临时目录`
+    : null
+}
+
 /** 判断实际转码失败是否来自 NVENC 设备、驱动或编码会话，而非输入媒体/滤镜/磁盘错误。 */
 function isNvencRuntimeFailure(error) {
   const message = String(error?.message ?? error).toLowerCase()
@@ -249,6 +259,23 @@ export async function mergeVideos({
       : tmpdir()
   let workDir = mergeWorkDir(versionedItems, compatibility.target, activeEncoder, resolvedTempRoot)
   let outputPath
+  const initialPathError = validateWindowsPathLengths([
+    ...versionedItems.map((item) => item.path),
+    workDir,
+    join(workDir, 'concat.txt'),
+    join(outputDir, outputName)
+  ])
+  if (initialPathError) {
+    return {
+      cancelled: false,
+      outputPath: null,
+      verified: false,
+      verifyNote: `合并前检查失败：${initialPathError}`,
+      transcoded: false,
+      videoEncoder: activeEncoder,
+      error: initialPathError
+    }
+  }
   try {
     await ensureDir(workDir)
     outputPath = await ensureUniquePath(join(outputDir, outputName))
@@ -266,6 +293,18 @@ export async function mergeVideos({
   // ffmpeg 只写入同目录隐藏暂存文件；避免 Windows 资源管理器在正式 MP4 尚未落盘时
   // 触发缩略图/索引读取，并在验证通过后才以 rename 原子提交。
   const stagingPath = createStagingPath(outputPath)
+  const finalPathError = validateWindowsPathLengths([outputPath, stagingPath])
+  if (finalPathError) {
+    return {
+      cancelled: false,
+      outputPath: null,
+      verified: false,
+      verifyNote: `合并前检查失败：${finalPathError}`,
+      transcoded: false,
+      videoEncoder: activeEncoder,
+      error: finalPathError
+    }
+  }
   const totalMs = items.reduce((sum, item) => sum + (item.media?.durationMs ?? 0), 0)
   const estimatedBytes = estimateOutputBytes(items, compatibility.compatible)
   // 输出估算可能低于 CRF/CQ 实际大小；每份产物预留 25% + 最少 64MB，避免临界写满。

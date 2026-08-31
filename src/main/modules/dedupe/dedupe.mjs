@@ -166,6 +166,11 @@ export async function findDuplicates(
           cluster = []
           return
         }
+        const exactCopyCounts = new Map()
+        for (const entry of cluster) {
+          const hash = hashByPath.get(entry.video.relativePath)
+          if (hash) exactCopyCounts.set(hash, (exactCopyCounts.get(hash) ?? 0) + 1)
+        }
         const items = cluster
           .map((entry) => ({
             relativePath: entry.video.relativePath,
@@ -174,12 +179,7 @@ export async function findDuplicates(
             size: entry.video.size,
             media: entry.media,
             // 同指纹的完全重复副本数（>1 表示还有完全相同的副本）
-            exactCopies: cluster.filter(
-              (other) =>
-                hashByPath.get(other.video.relativePath) !== undefined &&
-                hashByPath.get(other.video.relativePath) ===
-                  hashByPath.get(entry.video.relativePath)
-            ).length
+            exactCopies: exactCopyCounts.get(hashByPath.get(entry.video.relativePath)) ?? 0
           }))
           .sort((a, b) => b.size - a.size)
         similar.push({ key: resolution, keepRel: items[0].relativePath, items })

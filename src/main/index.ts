@@ -10,7 +10,7 @@ import { computeFingerprint, createScanPlan, IMAGE_EXTENSIONS } from './core/sca
 import { activeProvider, createSettingsStore, pushRecentWorkspace } from './core/settings.mjs'
 import { createTaskCenter } from './core/task-center.mjs'
 import { resolveFfmpegPath } from './core/frames.mjs'
-import { probeMedia, probeMediaCached, resolveFfprobePath } from './core/probe.mjs'
+import { probeMediaCached, resolveFfprobePath } from './core/probe.mjs'
 import { executeCleanPlan, executeDissolveFolders } from './modules/clean/execute.mjs'
 import { executeRename, recoverRenameJournal } from './modules/rename/execute.mjs'
 import { requestAiNames, testAiConnection } from './modules/rename/ai.mjs'
@@ -25,6 +25,7 @@ import {
   cleanMovePartials,
   createFileReadStream,
   ensureDir,
+  ensureWritableDirectory,
   deleteToTrash,
   dirSizeBytes,
   diskFreeBytes,
@@ -196,14 +197,6 @@ const requireVideoRoot = (root: string): string =>
   assertRegisteredRoot(root, workspaceRoot, '视频工作区')
 const requireComicRoot = (root: string): string =>
   assertRegisteredRoot(root, comicRoot, '漫画工作区')
-const registerVideoRootForRead = (root: string): string => {
-  if (!workspaceRoot) setWorkspaceRoot(root)
-  return requireVideoRoot(root)
-}
-const registerComicRootForRead = (root: string): string => {
-  if (!comicRoot) setComicRoot(root)
-  return requireComicRoot(root)
-}
 const requireRelPath = (root: string, relativePath: string): string =>
   resolveInsideRoot(root, relativePath)
 
@@ -622,7 +615,7 @@ function registerIpcHandlers(): void {
     return root
   })
   ipcMain.handle('workspace:scan-plan', async (_event, root: string) => {
-    const safeRoot = registerVideoRootForRead(root)
+    const safeRoot = requireVideoRoot(root)
     const settings = await settingsStore.get()
     return trackScan('扫描工作区', (onProgress) =>
       createScanPlan(safeRoot, { onProgress, concurrency: settings.scanConcurrency })
@@ -685,6 +678,19 @@ function registerIpcHandlers(): void {
     return updated
   })
   ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) => {
+    const current = await settingsStore.get()
+    const tempLocation = patch.mergeTempLocation ?? current.mergeTempLocation
+    const customTempPath = String(patch.mergeTempCustomPath ?? current.mergeTempCustomPath).trim()
+    if (tempLocation === 'custom') {
+      if (!customTempPath) throw new Error('请先选择可写的合并临时目录')
+      try {
+        await ensureWritableDirectory(customTempPath)
+      } catch (error) {
+        throw new Error(
+          `合并临时目录不可写：${error instanceof Error ? error.message : String(error)}`
+        )
+      }
+    }
     const updated = await settingsStore.update(patch)
     // 运行时同步 FFmpeg 进程池大小
     if (updated.ffmpegPoolSize) setPoolSize(updated.ffmpegPoolSize)
@@ -723,6 +729,12 @@ function registerIpcHandlers(): void {
   ipcMain.handle('clean:dissolve-folders', async (_event, plan: ScanPlan) =>
     runExclusive('clean', '解散文件夹', async (taskId) => {
       const safeRoot = requireVideoRoot(plan.root)
+      for (const item of [...plan.keep, ...plan.deleteItems])
+        requireRelPath(safeRoot, item.relativePath)
+      for (const pending of plan.pendingPick) {
+        requireRelPath(safeRoot, pending.video)
+        pending.candidates.forEach((relativePath) => requireRelPath(safeRoot, relativePath))
+      }
       const settings = await settingsStore.get()
       return executeDissolveFolders(
         { ...plan, root: safeRoot },
@@ -873,7 +885,10 @@ function registerIpcHandlers(): void {
       items: relativePaths,
       concurrency: settings.concurrency,
       worker: async (relativePath) => {
-        const info = await probeMedia(requireRelPath(safeRoot, relativePath), resolveFfprobePath())
+        const info = await probeMediaCached(
+          requireRelPath(safeRoot, relativePath),
+          resolveFfprobePath()
+        )
         return {
           relativePath,
           container: info.container,
@@ -1114,6 +1129,19 @@ function registerIpcHandlers(): void {
             })
           emit('start', 0, '准备合并')
           const settings = await settingsStore.get()
+          const configuredTempDirectory =
+            settings.mergeTempLocation === 'system'
+              ? tmpdir()
+              : settings.mergeTempLocation === 'custom' && settings.mergeTempCustomPath
+                ? settings.mergeTempCustomPath
+                : join(safeRoot, '.msd-merge-temp')
+          try {
+            await ensureWritableDirectory(configuredTempDirectory)
+          } catch (error) {
+            throw new Error(
+              `合并临时目录不可写：${error instanceof Error ? error.message : String(error)}`
+            )
+          }
           const result = await mergeVideos({
             items: items.map((item) => ({ path: item.path, name: item.name, media: item.media })),
             outputDir: safeRoot,
@@ -1124,12 +1152,7 @@ function registerIpcHandlers(): void {
             nvencEnabled: settings.nvencEnabled,
             cudaPipelineEnabled: settings.cudaPipelineEnabled,
             mergeTranscodeConcurrency: settings.mergeTranscodeConcurrency,
-            tempDirectory:
-              settings.mergeTempLocation === 'system'
-                ? tmpdir()
-                : settings.mergeTempLocation === 'custom' && settings.mergeTempCustomPath
-                  ? settings.mergeTempCustomPath
-                  : join(safeRoot, '.msd-merge-temp'),
+            tempDirectory: configuredTempDirectory,
             onProgress: (percent, stage) =>
               emit(
                 'progress',
@@ -1333,9 +1356,7 @@ function registerIpcHandlers(): void {
 
   // ---------- 漫画模块 ----------
   ipcMain.handle('comic:scan', async (_event, root: string, options: { light?: boolean } = {}) =>
-    trackScan('扫描漫画工作区', async () =>
-      scanComicWorkspace(registerComicRootForRead(root), options)
-    )
+    trackScan('扫描漫画工作区', async () => scanComicWorkspace(requireComicRoot(root), options))
   )
   ipcMain.handle(
     'comic:merge',
@@ -1519,7 +1540,21 @@ function registerIpcHandlers(): void {
   )
 }
 
+// Windows 双击快捷方式或更新期间重复启动时，共享 userData 会导致设置和任务状态互相覆盖。
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const existing = BrowserWindow.getAllWindows()[0]
+    if (!existing) return
+    if (existing.isMinimized()) existing.restore()
+    existing.focus()
+  })
+}
+
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return
   electronApp.setAppUserModelId('com.mediascraper.desktop')
 
   // 初始化 FFmpeg 进程池大小

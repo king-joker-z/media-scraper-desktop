@@ -30,15 +30,15 @@ export function trackChild(
     let gracefulGraceMs = killGraceMs
     if (process.platform === 'win32' && gracefulQuit === 'ffmpeg') {
       // Windows 上信号会退化为强杀；仅 ffmpeg 支持 stdin q 的跨平台优雅收尾。
-      // ffprobe 等短命令不应因此空等 10 秒并延迟句柄释放。
+      // 即使 stdin 管道已异常关闭，也要保留写入尾部索引的时间，不能 1.5 秒后强杀。
+      gracefulGraceMs = Math.max(killGraceMs, 10_000)
       try {
         if (child.stdin && !child.stdin.destroyed && child.stdin.writable) {
           child.stdin.write('q')
           child.stdin.end()
-          gracefulGraceMs = Math.max(killGraceMs, 10_000)
         }
       } catch {
-        // stdin 不可用则直接走强杀兜底
+        // stdin 不可用时仍等待同样的宽限期，再由下方强杀兜底。
       }
     } else {
       try {

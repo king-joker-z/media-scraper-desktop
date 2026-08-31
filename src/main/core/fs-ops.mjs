@@ -278,6 +278,19 @@ export async function ensureDir(dir) {
   return dir
 }
 
+/** 创建并写入极小临时文件，确认目录不仅存在且当前用户确实可写。 */
+export async function ensureWritableDirectory(dir) {
+  await ensureDir(dir)
+  const probePath = join(dir, `.msd-write-probe-${randomUUID()}`)
+  try {
+    const handle = await open(probePath, 'wx')
+    await handle.close()
+  } finally {
+    await rm(probePath, { force: true }).catch(() => {})
+  }
+  return dir
+}
+
 /** 目标目录所在磁盘剩余空间（字节）。 */
 export async function diskFreeBytes(dir) {
   const stats = await statfs(dir)
@@ -287,7 +300,10 @@ export async function diskFreeBytes(dir) {
 /** 返回目录所在文件系统标识，用于判断临时目录与输出目录是否共享空间池。 */
 export async function fileSystemId(dir) {
   // statfs.type 只代表文件系统类型（如所有 APFS 卷均相同），不能区分具体卷。
-  return String((await stat(dir)).dev)
+  const info = await stat(dir)
+  // 部分 SMB/WebDAV 提供器对所有挂载点回报 dev=0；将它们视为未知且按路径区分，
+  // 让合并空间预检保守采用“双盘”余量，避免错误低估转码峰值。
+  return info.dev === 0 ? `unknown:${resolve(dir)}` : String(info.dev)
 }
 
 /** 读取目录条目名；目录不存在返回空数组。 */

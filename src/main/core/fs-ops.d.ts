@@ -56,4 +56,6 @@ declare module './fs-ops.mjs' {
   /** 恢复正式产物缺失时的 backup，或清理已被正式产物替代的暂存件。 */
   export function recoverStagedOutputs(dir: string): Promise<string[]>
   export function ensureDir(dir: string): Promise<string>
+  /** 确保目录存在且当前进程可创建文件。 */
+  export function ensureWritableDirectory(dir: string): Promise<string>
 }

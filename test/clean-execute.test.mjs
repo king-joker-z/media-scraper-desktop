@@ -55,6 +55,31 @@ test('仅解散文件夹会保留所有可见文件，不删除或标准化 post
   )
 })
 
+test('执行层忽略计划中伪造的绝对路径，始终限制在工作区内', async () => {
+  await withFixture(
+    {
+      'Movie.mp4': 'video',
+      'Orphan.jpg': 'image'
+    },
+    async (root) => {
+      const outside = join(tmpdir(), `msd-outside-${crypto.randomUUID()}.jpg`)
+      await writeFile(outside, 'must remain')
+      try {
+        const plan = await createScanPlan(root)
+        plan.deleteItems[0].path = outside
+        await executeCleanPlan(plan, {
+          taskCenter: createTaskCenter(),
+          taskId: 'test-untrusted-clean-path'
+        })
+        assert.equal(await pathExists(outside), true)
+        assert.equal(await pathExists(join(root, 'Orphan.jpg')), false)
+      } finally {
+        await rm(outside, { force: true })
+      }
+    }
+  )
+})
+
 test('end-to-end: 冻结稿示例树清理后目录结构正确', async () => {
   await withFixture(
     {

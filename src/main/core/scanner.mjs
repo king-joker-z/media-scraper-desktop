@@ -197,6 +197,10 @@ const WALK_STASH_MAX = 8
 // root -> { fingerprint, plan }：指纹未变的重复扫描直接复用计划，各模块共享同一份结果
 const planCache = new Map()
 const PLAN_CACHE_MAX = 8
+// 多个常驻页面同时请求时共享同一次递归 stat；完成后立即失效，保证外部文件变动
+// 会在下一次检查中被发现。
+const fingerprintCache = new Map()
+const FINGERPRINT_CACHE_MAX = 8
 
 const trimCache = (cache, max) => {
   while (cache.size > max) cache.delete(cache.keys().next().value)
@@ -219,18 +223,31 @@ const fingerprintOf = (records) => {
  * 遍历结果会短暂暂存：紧随其后的 createScanPlan 直接复用，不再二次遍历。
  */
 export async function computeFingerprint(root, { onProgress, concurrency } = {}) {
-  const { records, skippedHidden } = await walkWorkspace(root, onProgress, { concurrency })
-  const fingerprint = fingerprintOf(records)
-  walkStash.delete(root)
-  walkStash.set(root, { at: Date.now(), fingerprint, records, skippedHidden })
-  trimCache(walkStash, WALK_STASH_MAX)
-  return fingerprint
+  const cached = fingerprintCache.get(root)
+  if (cached) return cached.promise
+
+  const promise = (async () => {
+    const { records, skippedHidden } = await walkWorkspace(root, onProgress, { concurrency })
+    const fingerprint = fingerprintOf(records)
+    walkStash.delete(root)
+    walkStash.set(root, { at: Date.now(), fingerprint, records, skippedHidden })
+    trimCache(walkStash, WALK_STASH_MAX)
+    return fingerprint
+  })()
+  fingerprintCache.set(root, { promise })
+  trimCache(fingerprintCache, FINGERPRINT_CACHE_MAX)
+  try {
+    return await promise
+  } finally {
+    if (fingerprintCache.get(root)?.promise === promise) fingerprintCache.delete(root)
+  }
 }
 
 /** 强制刷新与测试用：清空扫描缓存 */
 export function invalidateScanCache() {
   walkStash.clear()
   planCache.clear()
+  fingerprintCache.clear()
 }
 
 /**
