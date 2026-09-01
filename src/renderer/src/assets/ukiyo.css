@@ -372,3 +372,522 @@
   height: 0 !important;
   display: none !important;
 }
+
+/* ---------- 模块选择页浮世绘变体：挂轴卷卡片 ---------- */
+:root[data-palette='comic-ukiyo'] .up-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  padding: 84px clamp(28px, 6vw, 96px) 74px;
+}
+:root[data-palette='comic-ukiyo'] .up-intro {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+:root[data-palette='comic-ukiyo'] .up-kicker {
+  margin: 0;
+  font-family: var(--uki-serif);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  color: var(--uki-indigo);
+}
+:root[data-palette='comic-ukiyo'] .up-kicker::before {
+  content: '「';
+  margin-right: 4px;
+}
+:root[data-palette='comic-ukiyo'] .up-kicker::after {
+  content: '」';
+  margin-left: 4px;
+}
+:root[data-palette='comic-ukiyo'] .up-intro h1 {
+  margin: 4px 0;
+  font-family: var(--uki-serif);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--uki-ink);
+}
+:root[data-palette='comic-ukiyo'] .up-desc {
+  margin: 0;
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .up-cards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 32px;
+}
+:root[data-palette='comic-ukiyo'] .up-cards > * {
+  width: min(340px, 84vw);
+}
+:root[data-palette='comic-ukiyo'] .up-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 30px 22px 16px;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  border-radius: 0;
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(39, 80, 110, 0.22);
+  color: var(--uki-ink);
+  text-align: center;
+  font-family: var(--uki-serif);
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+:root[data-palette='comic-ukiyo'] .up-card:hover:not(:disabled) {
+  transform: translateY(-4px);
+  border-color: var(--uki-vermilion);
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(192, 72, 58, 0.5);
+}
+:root[data-palette='comic-ukiyo'] .up-card-seal {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+  border-radius: 3px;
+  font-size: 14px;
+  font-weight: 700;
+  transform: rotate(3deg);
+  opacity: 0.94;
+}
+:root[data-palette='comic-ukiyo'] .up-card-frame {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  background: rgba(39, 80, 110, 0.1);
+  border: 1px solid var(--uki-indigo);
+  color: var(--uki-indigo);
+}
+:root[data-palette='comic-ukiyo'] .up-card-name {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+:root[data-palette='comic-ukiyo'] .up-card-desc {
+  font-size: 12px;
+  line-height: 1.9;
+  color: #6d7c86;
+}
+:root[data-palette='comic-ukiyo'] .up-card-wave {
+  display: block;
+  width: 100%;
+  height: 8px;
+  background: var(--uki-wave) repeat-x;
+  background-size: 20px 8px;
+  opacity: 0.5;
+}
+:root[data-palette='comic-ukiyo'] .up-card-enter {
+  margin: 2px 0 6px;
+  font-size: 13px;
+  letter-spacing: 0.34em;
+  color: var(--uki-indigo);
+}
+
+/* ============================================================
+ * 浮世绘卷通用组件变体：工作区路径卡 / 错误横幅 / 空状态 / 确认框
+ * ============================================================ */
+
+/* ---------- 工作区路径卡：和纸衬线条 ---------- */
+:root[data-palette='comic-ukiyo'] .upc {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px 12px;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(39, 80, 110, 0.18);
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .upc-label {
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: var(--uki-indigo);
+}
+:root[data-palette='comic-ukiyo'] .upc-label::before {
+  content: '◆';
+  margin-right: 8px;
+  font-size: 8px;
+  color: var(--uki-vermilion);
+  vertical-align: 1px;
+}
+:root[data-palette='comic-ukiyo'] .upc-path {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--uki-ink);
+  word-break: break-all;
+}
+:root[data-palette='comic-ukiyo'] .upc-wave {
+  display: block;
+  height: 8px;
+  margin-top: 2px;
+  background: var(--uki-wave) repeat-x;
+  background-size: 20px 8px;
+  opacity: 0.5;
+  text-decoration: none;
+}
+
+/* ---------- 错误横幅：和纸警示 + 朱印---------- */
+:root[data-palette='comic-ukiyo'] .ukiyo-error {
+  align-items: center;
+  gap: 14px;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-vermilion);
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(192, 72, 58, 0.35);
+}
+:root[data-palette='comic-ukiyo'] .eb-seal {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+  border-radius: 3px;
+  font-family: var(--uki-serif);
+  font-size: 14px;
+  font-weight: 700;
+  transform: rotate(3deg);
+}
+:root[data-palette='comic-ukiyo'] .eb-serif {
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .eb-serif b {
+  color: var(--uki-vermilion);
+}
+:root[data-palette='comic-ukiyo'] .ukiyo-error .error-copy {
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  color: var(--uki-indigo);
+}
+
+/* ---------- 空状态：和纸双框待补画面 ---------- */
+:root[data-palette='comic-ukiyo'] .ukiyo-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 44px 24px 36px;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(39, 80, 110, 0.18);
+}
+:root[data-palette='comic-ukiyo'] .ukiyo-empty h2 {
+  margin: 0;
+  font-family: var(--uki-serif);
+  letter-spacing: 0.18em;
+  color: var(--uki-ink);
+}
+:root[data-palette='comic-ukiyo'] .ukiyo-empty p {
+  font-family: var(--uki-serif);
+  color: #6d7c86;
+}
+:root[data-palette='comic-ukiyo'] .we-wave {
+  display: block;
+  width: 120px;
+  height: 8px;
+  background: var(--uki-wave) repeat-x;
+  background-size: 20px 8px;
+  opacity: 0.6;
+  text-decoration: none;
+}
+
+/* ---------- 确认框：朱印衬线 ---------- */
+:root[data-palette='comic-ukiyo'] .ukiyo-dialog {
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo) !important;
+  border-radius: 2px !important;
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(39, 80, 110, 0.3) !important;
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .ukiyo-dialog .dialog-body {
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .cd-wave {
+  display: block;
+  height: 8px;
+  margin: 4px 0 6px;
+  background: var(--uki-wave) repeat-x;
+  background-size: 20px 8px;
+  opacity: 0.5;
+  text-decoration: none;
+}
+:root[data-palette='comic-ukiyo'] .cd-ukiyo-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+:root[data-palette='comic-ukiyo'] .cd-ukiyo-seal {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  transform: rotate(-3deg);
+}
+
+/* ============================================================
+ * 浮世绘卷主体内容变体：去重分组 / 合并片段行 / 漫画库卡 / 合并列表行 / 弹窗
+ * ============================================================ */
+
+/* ---------- 去重分组：和纸双框 ---------- */
+:root[data-palette='comic-ukiyo'] .dg-ukiyo {
+  padding: 0;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(39, 80, 110, 0.18);
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .dg-ukiyo .dg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 16px 6px;
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .dg-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--uki-vermilion);
+  transform: translateY(-1px);
+}
+:root[data-palette='comic-ukiyo'] .dg-ukiyo b {
+  font-size: 14px;
+  color: var(--uki-ink);
+}
+:root[data-palette='comic-ukiyo'] .dg-ukiyo .dg-meta {
+  font-size: 11px;
+  color: #6d7c86;
+}
+:root[data-palette='comic-ukiyo'] .dg-ukiyo .dg-rule {
+  flex: 1;
+  border-top: 1px solid rgba(39, 80, 110, 0.3);
+  text-decoration: none;
+}
+:root[data-palette='comic-ukiyo'] .dg-body {
+  display: grid;
+  gap: 4px;
+  padding: 4px 14px 14px;
+}
+
+/* ---------- 合并片段行：朱印序号 ---------- */
+:root[data-palette='comic-ukiyo'] .merge-row .uv-order {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+  border-radius: 3px;
+  transform: rotate(3deg);
+  font-family: var(--uki-serif);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ---------- 漫画库挂轴卡 ---------- */
+:root[data-palette='comic-ukiyo'] .comic-card.uck-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  box-shadow: inset 0 0 0 6px var(--uki-paper),
+    inset 0 0 0 7px rgba(39, 80, 110, 0.22);
+  font-family: var(--uki-serif);
+  overflow: hidden;
+}
+:root[data-palette='comic-ukiyo'] .uck-frame.comic-card-main {
+  display: grid;
+  gap: 0;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+}
+:root[data-palette='comic-ukiyo'] .uck-thumb {
+  position: relative;
+  display: block;
+  padding: 12px;
+}
+:root[data-palette='comic-ukiyo'] .uck-mat {
+  display: block;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border: 1px solid var(--uki-indigo);
+  background: #20344a;
+}
+:root[data-palette='comic-ukiyo'] .uck-mat img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+:root[data-palette='comic-ukiyo'] .uck-format {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 1px 7px;
+  background: var(--uki-paper);
+  color: var(--uki-indigo);
+  border: 1px solid var(--uki-indigo);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+:root[data-palette='comic-ukiyo'] .uck-seal {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+  border-radius: 3px;
+  transform: rotate(4deg);
+  font-size: 13px;
+  font-weight: 700;
+}
+:root[data-palette='comic-ukiyo'] .uck-meta {
+  display: grid;
+  gap: 3px;
+  padding: 6px 16px 4px;
+  text-align: center;
+}
+:root[data-palette='comic-ukiyo'] .uck-meta b {
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  color: var(--uki-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-palette='comic-ukiyo'] .uck-read {
+  font-size: 11px;
+  color: #6d7c86;
+}
+:root[data-palette='comic-ukiyo'] .uck-wave {
+  display: block;
+  height: 8px;
+  margin: 4px auto 0;
+  width: 60%;
+  background: var(--uki-wave) repeat-x;
+  background-size: 20px 8px;
+  opacity: 0.6;
+}
+:root[data-palette='comic-ukiyo'] .uck-actions {
+  display: flex;
+  gap: 8px;
+  padding: 2px 16px 14px;
+  justify-content: center;
+}
+:root[data-palette='comic-ukiyo'] .uck-actions button {
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  color: var(--uki-indigo);
+  font-family: var(--uki-serif);
+}
+
+/* ---------- 漫画合并行：和纸条 ---------- */
+:root[data-palette='comic-ukiyo'] .comic-item.cmi-uv {
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(39, 80, 110, 0.16);
+  margin-bottom: 8px;
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .cmi-read {
+  font-family: var(--uki-serif);
+  font-size: 11px;
+  color: #6d7c86;
+}
+:root[data-palette='comic-ukiyo'] .cmi-seal {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  transform: rotate(-3deg);
+  font-size: 12px;
+  font-weight: 700;
+}
+:root[data-palette='comic-ukiyo'] .cmi-seal-new {
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+}
+:root[data-palette='comic-ukiyo'] .cmi-seal-warn {
+  background: #b08a2e;
+  color: #fff8ea;
+}
+:root[data-palette='comic-ukiyo'] .cmi-seal-ok {
+  background: var(--uki-indigo);
+  color: var(--uki-paper);
+}
+:root[data-palette='comic-ukiyo'] .cmi-seal-muted {
+  background: #9aa3ab;
+  color: var(--uki-paper);
+}
+
+/* ---------- 视频弹窗：和纸试览框 ---------- */
+:root[data-palette='comic-ukiyo'] .detail-modal.uv-modal {
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo) !important;
+  border-radius: 2px !important;
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(39, 80, 110, 0.3) !important;
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .uv-modal .monitor-stage {
+  border: 1px solid var(--uki-indigo);
+}
+:root[data-palette='comic-ukiyo'] .dvm-kicker {
+  align-self: center;
+  padding: 2px 8px;
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+  border-radius: 3px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+
+/* ---------- 封面接触表：和纸装裱 ---------- */
+:root[data-palette='comic-ukiyo'] .contact-sheet-uv .contact-sheet-summary b {
+  font-family: var(--uki-serif);
+  letter-spacing: 0.18em;
+  color: var(--uki-indigo);
+}
+:root[data-palette='comic-ukiyo'] .contact-sheet-uv .contact-frame {
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  box-shadow: inset 0 0 0 3px var(--uki-paper),
+    inset 0 0 0 4px rgba(39, 80, 110, 0.18);
+}
+:root[data-palette='comic-ukiyo'] .contact-sheet-uv .contact-frame:hover {
+  transform: translateY(-2px);
+  border-color: var(--uki-vermilion);
+}

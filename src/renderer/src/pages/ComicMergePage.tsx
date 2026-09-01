@@ -8,8 +8,10 @@ import {
 import { applyRegexRules } from '../../../shared/rename-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import PathCard from '../components/PathCard'
 import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes, joinPath } from '../utils/format'
+import { usePalette } from '../hooks/usePalette'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 import { useWorkspaceRequestVersion } from '../utils/useWorkspaceRequestVersion'
@@ -58,8 +60,59 @@ const ComicListItem = memo(function ComicListItem({
   onToggleExpand: (relDir: string) => void
 }): React.JSX.Element {
   const badge = comicBadge(comic)
+  const palette = usePalette()
+  const variantCls =
+    palette === 'terminal'
+      ? 'cmi-tv'
+      : palette === 'comic'
+        ? 'cmi-cv'
+        : palette === 'comic-ukiyo'
+          ? 'cmi-uv'
+          : ''
+
+  /* 次级信息行与状态徽标：三皮肤各渲染不同 DOM */
+  let infoLine: React.ReactNode = (
+    <span className="muted">
+      {comic.chapters.length} 章 · {comic.imageCount} 图
+      {comic.merged ? ` · 产物 ${formatBytes(comic.merged.outputBytes)}` : ''}
+    </span>
+  )
+  let badgeNode: React.ReactNode = (
+    <span className={`comic-badge comic-badge-${badge.tone}`}>{badge.text}</span>
+  )
+
+  if (palette === 'terminal') {
+    infoLine = (
+      <span className="cmi-stats">
+        {comic.chapters.length} CH <i aria-hidden="true">{'//'}</i> {comic.imageCount} IMG
+        {comic.merged ? ` // 产物 ${formatBytes(comic.merged.outputBytes)}` : ''}
+      </span>
+    )
+    badgeNode = (
+      <span className={`cmi-chip cmi-chip-${badge.tone}`}>{badge.text.toUpperCase()}</span>
+    )
+  } else if (palette === 'comic-ukiyo') {
+    infoLine = (
+      <span className="cmi-read">
+        {comic.chapters.length} 章 ／ {comic.imageCount} 图
+        {comic.merged ? ` ／ 产物 ${formatBytes(comic.merged.outputBytes)}` : ''}
+      </span>
+    )
+    badgeNode = (
+      <span className={`cmi-seal cmi-seal-${badge.tone}`}>
+        {badge.tone === 'new'
+          ? '新'
+          : badge.tone === 'warn'
+            ? '变'
+            : badge.tone === 'ok'
+              ? '成'
+              : '待'}
+      </span>
+    )
+  }
+
   return (
-    <div className="comic-item">
+    <div className={`comic-item ${variantCls}`}>
       <label className="comic-row">
         <input
           className="check-input"
@@ -97,12 +150,9 @@ const ComicListItem = memo(function ComicListItem({
             onClick={(event) => event.preventDefault()}
             onChange={(event) => onNameChange(comic.relDir, event.target.value)}
           />
-          <span className="muted">
-            {comic.chapters.length} 章 · {comic.imageCount} 图
-            {comic.merged ? ` · 产物 ${formatBytes(comic.merged.outputBytes)}` : ''}
-          </span>
+          {infoLine}
         </span>
-        <span className={`comic-badge comic-badge-${badge.tone}`}>{badge.text}</span>
+        {badgeNode}
         <button
           className="secondary comic-expand"
           onClick={(event) => {
@@ -501,10 +551,7 @@ function ComicMergePage({
         }
       />
 
-      <section className="path-card">
-        <span>漫画工作区</span>
-        <strong>{workspace || '尚未选择目录'}</strong>
-      </section>
+      <PathCard label="漫画工作区" value={workspace} />
 
       {error && <ErrorBanner message={error} />}
       {notice && <p className="notice-inline">{notice}</p>}

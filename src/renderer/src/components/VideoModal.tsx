@@ -5,6 +5,7 @@ import { formatTimecode } from '../utils/format'
 import HudCorners from './hud/HudCorners'
 import Letterbox from './hud/Letterbox'
 import MonitorBadge from './hud/MonitorBadge'
+import { usePalette } from '../hooks/usePalette'
 
 /** 通用视频试看弹窗（合并页预览 / 媒体库点播共用）；传 rememberKey 时记忆播放进度 */
 function VideoModal({
@@ -23,6 +24,7 @@ function VideoModal({
   const storageKey = rememberKey ? `msd-play-${rememberKey}` : null
   // 监视器时码用 ref 直写文本，避免逐帧 setState 触发整树渲染
   const timecodeRef = useRef<HTMLSpanElement>(null)
+  const palette = usePalette()
 
   const syncTimecode = (): void => {
     const video = videoRef.current
@@ -59,8 +61,29 @@ function VideoModal({
     <Dialog.Root open onOpenChange={(open) => !open && close()}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className="detail-modal" aria-label={`播放视频：${title}`}>
+        <Dialog.Content
+          className={`detail-modal ${
+            palette === 'terminal'
+              ? 'tv-modal'
+              : palette === 'comic'
+                ? 'cv-modal'
+                : palette === 'comic-ukiyo'
+                  ? 'uv-modal'
+                  : ''
+          }`}
+          aria-label={`播放视频：${title}`}
+        >
           <div className="detail-header">
+            {palette === 'comic' && (
+              <span className="dvm-chip" aria-hidden="true">
+                预览！
+              </span>
+            )}
+            {palette === 'comic-ukiyo' && (
+              <span className="dvm-kicker" aria-hidden="true">
+                试览
+              </span>
+            )}
             <Dialog.Title>{title}</Dialog.Title>
             <Dialog.Close asChild>
               <button className="chip-remove" aria-label="关闭视频播放器">

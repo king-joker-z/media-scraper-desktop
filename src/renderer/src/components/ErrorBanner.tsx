@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
-/** 错误横幅：展示可执行的错误说明，支持复制详情与手动关闭。 */
+import { usePalette } from '../hooks/usePalette'
+
+/** 错误横幅：展示可执行的错误说明，支持复制详情与手动关闭。不同皮肤渲染不同结构。 */
 function ErrorBanner({ message }: { message: string }): React.JSX.Element | null {
   const [copied, setCopied] = useState(false)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [dismissedFor, setDismissedFor] = useState<string | null>(null)
+  const palette = usePalette()
 
   useEffect(
     () => () => {
@@ -29,12 +32,8 @@ function ErrorBanner({ message }: { message: string }): React.JSX.Element | null
     }
   }
 
-  return (
-    <section className="error-banner" role="alert" aria-live="assertive">
-      <div className="error-text">
-        <b>操作未完成</b>
-        <span>{message}</span>
-      </div>
+  const actions = (
+    <>
       <button className="error-copy" onClick={() => void copy()}>
         {copied ? '已复制' : '复制详情'}
       </button>
@@ -46,6 +45,50 @@ function ErrorBanner({ message }: { message: string }): React.JSX.Element | null
       >
         关闭
       </button>
+    </>
+  )
+
+  /* terminal：mono // FAULT 前缀 + 描红读数条
+     comic：黑框黄底警示牌
+     comic-ukiyo：和纸警示 + 朱印「警」 */
+  const variantCls =
+    palette === 'terminal'
+      ? 'terminal-error'
+      : palette === 'comic'
+        ? 'comic-error'
+        : palette === 'comic-ukiyo'
+          ? 'ukiyo-error'
+          : ''
+
+  if (variantCls) {
+    return (
+      <section className={`error-banner ${variantCls}`} role="alert" aria-live="assertive">
+        {palette === 'terminal' && (
+          <i className="eb-tag" aria-hidden="true">
+            {'// FAULT'}
+          </i>
+        )}
+        {palette === 'comic-ukiyo' && (
+          <span className="eb-seal" aria-hidden="true">
+            警
+          </span>
+        )}
+        <div className={`error-text ${variantCls === 'ukiyo-error' ? 'eb-serif' : ''}`}>
+          <b>{palette === 'comic' ? '操作未完成！' : '操作未完成'}</b>
+          <span>{message}</span>
+        </div>
+        {actions}
+      </section>
+    )
+  }
+
+  return (
+    <section className="error-banner" role="alert" aria-live="assertive">
+      <div className="error-text">
+        <b>操作未完成</b>
+        <span>{message}</span>
+      </div>
+      {actions}
     </section>
   )
 }

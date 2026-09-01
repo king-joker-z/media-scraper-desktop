@@ -18,9 +18,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
 import ConfirmDialog from './components/ConfirmDialog'
 import CursorTrail from './components/CursorTrail'
-import Magnetic from './components/Magnetic'
-import HudCorners from './components/hud/HudCorners'
-import TerminalAtmosphere from './components/hud/TerminalAtmosphere'
+import ModulePicker from './components/ModulePicker'
 import { prunePlayPositions } from './utils/media'
 import { useSpotlightHover } from './utils/spotlight'
 import {
@@ -566,72 +564,15 @@ function App(): React.JSX.Element {
     { key: 'settings', element: <SettingsPage active={page === 'settings'} /> }
   ]
 
-  // 模块选择页：启动（未记忆模块）或主动切换时展示
+  // 模块选择页：启动（未记忆模块）或主动切换时展示（按皮肤渲染不同 DOM）
   if (!module) {
     return (
-      <div className="module-picker workspace-with-background">
-        <a className="skip-link" href="#module-choice">
-          跳到模块选择
-        </a>
-        <div className="module-picker-drag" />
-        {/* 终端皮肤装饰层：仅 terminal 色板可见，其余皮肤 display:none */}
-        <TerminalAtmosphere />
-        <HudCorners size="l" />
-        <div className="picker-status" aria-hidden="true">
-          <span>MEDIA SCRAPER // LOCAL OPS TERMINAL</span>
-          <span>LOCAL-ONLY // NO CLOUD SYNC</span>
-        </div>
-        <div className="module-picker-intro">
-          <div className="module-picker-mark" aria-hidden="true">
-            <Icon name="film" size={26} />
-          </div>
-          <p className="eyebrow">Media Scraper · Local Studio</p>
-          <h1>从素材开始，整理你的媒体工作台。</h1>
-          <p className="muted">
-            选择一间工作室开始处理。视频与漫画各自保留工作区、页面状态与最近记录。
-          </p>
-        </div>
-        <div id="module-choice" className="module-cards">
-          {(Object.keys(MODULE_META) as AppModule[]).map((key, index) => (
-            <Magnetic key={key}>
-              <button
-                data-spotlight=""
-                className={`module-card module-card-${key}`}
-                onClick={() => switchModule(key)}
-              >
-                <span className="module-card-index" aria-hidden="true">
-                  {`${String(index + 1).padStart(2, '0')} //`}
-                </span>
-                <HudCorners size="s" />
-                <span className="module-card-icon">
-                  <Icon name={MODULE_META[key].icon} size={38} />
-                </span>
-                <span className="module-card-kicker">
-                  {key === 'video' ? 'VIDEO DESK' : 'COMIC DESK'}
-                </span>
-                <span className="module-card-name">{MODULE_META[key].name}</span>
-                <span className="module-card-desc">
-                  {key === 'video'
-                    ? '为本地视频完成清理、合并、命名与归档。'
-                    : '将章节整理为 EPUB / PDF，并持续增量追更。'}
-                </span>
-                <span className="module-card-capabilities" aria-hidden="true">
-                  {key === 'video'
-                    ? '清理 · 合并 · 重命名 · 归档'
-                    : '章节合并 · EPUB / PDF · 漫画库'}
-                </span>
-                <span className="module-card-enter">
-                  进入{MODULE_META[key].name} <span aria-hidden="true">→</span>
-                </span>
-              </button>
-            </Magnetic>
-          ))}
-        </div>
-        <p className="picker-bootline" aria-hidden="true">
-          VIDEO DESK · COMIC DESK — ALL PROCESSING LOCAL
-        </p>
-        <CursorTrail />
-      </div>
+      <ModulePicker
+        onSwitch={switchModule}
+        renderIcon={(name, size) => (
+          <Icon name={name as (typeof MODULE_META)[AppModule]['icon']} size={size} />
+        )}
+      />
     )
   }
 

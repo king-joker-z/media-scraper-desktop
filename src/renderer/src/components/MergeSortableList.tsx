@@ -16,6 +16,7 @@ import { useMemo } from 'react'
 import { CSS } from '@dnd-kit/utilities'
 import type { MergeVideoItem } from '../../../shared/types'
 import { formatBytes, formatDuration } from '../utils/format'
+import { usePalette } from '../hooks/usePalette'
 import { mediaUrl } from '../utils/media'
 
 /**
@@ -99,6 +100,45 @@ function SortableRow({
     id: item.relativePath
   })
   const media = item.media
+  const palette = usePalette()
+
+  /* 行内三段差异组件：序号尾标 / 信息读数 / 排除开关 */
+  let orderChip: React.ReactNode = <span className="merge-order">{order ?? '—'}</span>
+  let infoNode: React.ReactNode = (
+    <span className="merge-info muted">
+      {media
+        ? `${formatDuration(media.durationMs)} · ${formatBytes(media.sizeBytes)} · ${media.width}×${media.height} · ${
+            media.orientation === 'landscape' ? '横屏' : '竖屏'
+          } · ${media.videoCodec ?? '?'}/${media.audioCodec ?? '无音轨'} · ${media.fps.toFixed(0)}fps`
+        : '媒体信息读取失败'}
+    </span>
+  )
+  let toggleLabel: string = excluded ? '已排除' : '参与'
+
+  if (palette === 'terminal') {
+    orderChip = (
+      <span className="merge-order tv-order" aria-label={`合并顺序 ${order ?? '无'}`}>
+        {order == null ? '--' : String(order).padStart(2, '0')}
+      </span>
+    )
+    infoNode = (
+      <span className="merge-info tv-info muted">
+        {media
+          ? `${formatDuration(media.durationMs)} // ${formatBytes(media.sizeBytes)} // ${media.width}×${media.height} // ${media.videoCodec?.toUpperCase() ?? '?'}/${media.audioCodec ?? '无音轨'} // ${media.fps.toFixed(0)}fps`
+          : '媒体信息读取失败'}
+      </span>
+    )
+    toggleLabel = excluded ? 'EXCLUDED' : 'IN-MERGE'
+  } else if (palette === 'comic') {
+    orderChip = <span className="merge-order cv-order">{order ?? '—'}</span>
+  } else if (palette === 'comic-ukiyo') {
+    orderChip = (
+      <span className="merge-order uv-order" aria-hidden="true">
+        {order == null ? '—' : order}
+      </span>
+    )
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -115,7 +155,7 @@ function SortableRow({
       >
         ⠿
       </button>
-      <span className="merge-order">{order ?? '—'}</span>
+      {orderChip}
       <span className="merge-thumb">
         {item.posterPath ? (
           <img
@@ -135,19 +175,13 @@ function SortableRow({
       <button className="merge-play" title="试看" onClick={() => onPlay(item)}>
         ▶
       </button>
-      <span className="merge-info muted">
-        {media
-          ? `${formatDuration(media.durationMs)} · ${formatBytes(media.sizeBytes)} · ${media.width}×${media.height} · ${
-              media.orientation === 'landscape' ? '横屏' : '竖屏'
-            } · ${media.videoCodec ?? '?'}/${media.audioCodec ?? '无音轨'} · ${media.fps.toFixed(0)}fps`
-          : '媒体信息读取失败'}
-      </span>
+      {infoNode}
       <button
         className={`merge-toggle ${excluded ? 'off' : ''}`}
         title={excluded ? '恢复参与合并' : '置灰排除，不参与本次合并'}
         onClick={() => onToggleExclude(item.relativePath)}
       >
-        {excluded ? '已排除' : '参与'}
+        {toggleLabel}
       </button>
     </div>
   )

@@ -368,3 +368,458 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------- 模块选择页漫画变体：网点封面页 ---------- */
+:root[data-palette='comic'] .cp-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  padding: 82px clamp(28px, 6vw, 96px) 74px;
+  background:
+    radial-gradient(circle, rgba(42, 40, 37, 0.12) 1.6px, transparent 1.7px) 0 0 / 9px 9px,
+    var(--comic-paper);
+}
+:root[data-palette='comic'] .cp-intro {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+:root[data-palette='comic'] .cp-burst {
+  position: absolute;
+  top: -20px;
+  right: clamp(8px, 6vw, 90px);
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  background: var(--comic-red);
+  color: var(--comic-paper);
+  font-size: 20px;
+  font-weight: 900;
+  clip-path: polygon(
+    50% 0, 61% 13, 76% 8, 77% 21, 91% 23, 86% 36, 98% 45, 88% 54, 95% 68,
+    82% 68, 79% 82, 66% 76, 58% 89, 48% 79, 33% 85, 31% 71, 17% 70, 19% 56,
+    7% 48, 16% 38, 10% 24, 24% 24, 28% 10, 39% 16
+  );
+  transform: rotate(12deg);
+  pointer-events: none;
+}
+:root[data-palette='comic'] .cp-kicker {
+  display: inline-block;
+  margin: 0;
+  padding: 4px 14px;
+  background: var(--comic-ink);
+  color: var(--comic-paper);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  transform: skewX(-10deg);
+}
+:root[data-palette='comic'] .cp-intro h1 {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+:root[data-palette='comic'] .cp-intro h1::after {
+  content: '';
+  display: block;
+  width: 52%;
+  height: 7px;
+  margin: 9px auto 0;
+  background: var(--comic-red);
+  transform: rotate(-0.6deg);
+}
+:root[data-palette='comic'] .cp-desc {
+  margin: 2px 0 0;
+}
+:root[data-palette='comic'] .cp-cards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 28px;
+}
+:root[data-palette='comic'] .cp-cards > * {
+  width: min(320px, 84vw);
+}
+:root[data-palette='comic'] .cp-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 24px 20px 22px;
+  background: var(--comic-paper);
+  border: 3px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 8px 8px 0 var(--comic-ink);
+  color: var(--comic-ink);
+  text-align: center;
+  cursor: pointer;
+  overflow: hidden;
+  transform: rotate(-1.4deg);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+:root[data-palette='comic'] .cp-cards > *:nth-child(2n) .cp-card {
+  transform: rotate(1.3deg);
+}
+:root[data-palette='comic'] .cp-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    115deg,
+    transparent 0 14px,
+    rgba(255, 216, 61, 0.22) 14px 16px
+  );
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+:root[data-palette='comic'] .cp-card:hover:not(:disabled) {
+  transform: translate(-3px, -3px) rotate(0);
+  box-shadow: 11px 11px 0 var(--comic-ink);
+}
+:root[data-palette='comic'] .cp-card:hover:not(:disabled)::before {
+  opacity: 1;
+}
+:root[data-palette='comic'] .cp-card-icon {
+  position: relative;
+  z-index: 1;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  background: var(--comic-yellow);
+  border: 3px solid var(--comic-ink);
+  border-radius: 50%;
+  color: var(--comic-ink);
+}
+:root[data-palette='comic'] .cp-card-name {
+  position: relative;
+  z-index: 1;
+  font-size: 26px;
+  font-weight: 900;
+}
+:root[data-palette='comic'] .cp-card-cap {
+  position: relative;
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--comic-ink-soft);
+}
+:root[data-palette='comic'] .cp-card-desc {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #7a746c;
+}
+:root[data-palette='comic'] .cp-card-enter {
+  position: relative;
+  z-index: 1;
+  margin-top: 8px;
+  padding: 5px 14px;
+  background: var(--comic-ink);
+  color: var(--comic-paper);
+  font-size: 13px;
+  font-weight: 900;
+  transform: skewX(-10deg);
+}
+
+/* ============================================================
+ * 漫画风通用组件变体：工作区路径卡 / 错误横幅 / 空状态 / 确认框
+ * ============================================================ */
+
+/* ---------- 工作区路径卡：墨框白卡 ---------- */
+:root[data-palette='comic'] .cpc {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--comic-paper);
+  border: 2.5px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 5px 5px 0 var(--comic-ink);
+}
+:root[data-palette='comic'] .cpc-label {
+  flex: 0 0 auto;
+  padding: 2px 10px;
+  background: var(--comic-ink);
+  color: var(--comic-paper);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  transform: skewX(-10deg);
+}
+:root[data-palette='comic'] .cpc-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 800;
+  word-break: break-all;
+}
+
+/* ---------- 错误横幅：黑框警示牌 ---------- */
+:root[data-palette='comic'] .comic-error {
+  background: var(--comic-yellow);
+  border: 2.5px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 5px 5px 0 var(--comic-ink);
+  color: var(--comic-ink);
+}
+:root[data-palette='comic'] .comic-error .error-text b {
+  font-weight: 900;
+}
+:root[data-palette='comic'] .comic-error .error-copy {
+  background: var(--comic-paper);
+  border: 2px solid var(--comic-ink);
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 var(--comic-ink);
+  font-weight: 800;
+}
+
+/* ---------- 空状态：倾斜墨框提示牌 ---------- */
+:root[data-palette='comic'] .comic-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 44px 20px;
+  background: var(--comic-paper);
+  border: 3px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 8px 8px 0 var(--comic-ink);
+  transform: rotate(-1deg);
+}
+:root[data-palette='comic'] .we-burst {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  background: var(--comic-yellow);
+  color: var(--comic-ink);
+  border: 3px solid var(--comic-ink);
+  border-radius: 50%;
+  font-size: 20px;
+  font-weight: 900;
+  box-shadow: 2px 2px 0 var(--comic-ink);
+}
+:root[data-palette='comic'] .comic-empty h2 {
+  margin: 0;
+  font-weight: 900;
+}
+
+/* ---------- 确认框：音效高亮计数 ---------- */
+:root[data-palette='comic'] .comic-dialog {
+  background: var(--comic-paper);
+  border: 3px solid var(--comic-ink) !important;
+  border-radius: 3px !important;
+  box-shadow: 8px 8px 0 var(--comic-ink) !important;
+}
+:root[data-palette='comic'] .cd-comic-line mark {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 0 10px;
+  background: var(--comic-yellow);
+  color: var(--comic-ink);
+  border: 2px solid var(--comic-ink);
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 var(--comic-ink);
+  font-weight: 900;
+  transform: rotate(-1.5deg);
+}
+
+/* ============================================================
+ * 漫画风主体内容变体：去重分组 / 合并片段行 / 漫画库卡 / 合并列表行 / 弹窗
+ * ============================================================ */
+
+/* ---------- 去重分组框架：墨框牌 ---------- */
+:root[data-palette='comic'] .dg-comic {
+  padding: 0;
+  background: var(--comic-paper);
+  border: 2.5px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 5px 5px 0 var(--comic-ink);
+  overflow: hidden;
+}
+:root[data-palette='comic'] .dg-comic .dg-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  background: var(--comic-ink);
+}
+:root[data-palette='comic'] .dg-tag {
+  padding: 2px 10px;
+  background: var(--comic-paper);
+  color: var(--comic-ink);
+  font-size: 12px;
+  font-weight: 900;
+  transform: skewX(-10deg);
+}
+:root[data-palette='comic'] .dg-meta {
+  color: rgba(255, 253, 245, 0.75);
+  font-size: 11px;
+  font-weight: 700;
+}
+:root[data-palette='comic'] .dg-comic .dg-rule {
+  flex: 1;
+  border-top: 2px dashed rgba(255, 253, 245, 0.25);
+  text-decoration: none;
+}
+:root[data-palette='comic'] .dg-body {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+}
+
+/* ---------- 合并片段行：黄色圆盘序号 ---------- */
+:root[data-palette='comic'] .merge-row .cv-order {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--comic-yellow);
+  color: var(--comic-ink);
+  border: 2px solid var(--comic-ink);
+  border-radius: 50%;
+  box-shadow: 2px 2px 0 var(--comic-ink);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+/* ---------- 漫画库分镜卡 ---------- */
+:root[data-palette='comic'] .comic-card.cck-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--comic-paper);
+  border: 3px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 6px 6px 0 var(--comic-ink);
+  overflow: hidden;
+}
+:root[data-palette='comic'] .cck-frame.comic-card-main {
+  display: grid;
+  gap: 0;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+}
+:root[data-palette='comic'] .cck-card .comic-thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 3 / 4;
+  background: var(--comic-ink);
+  border-bottom: 3px solid var(--comic-ink);
+  overflow: hidden;
+}
+:root[data-palette='comic'] .cck-card .comic-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+:root[data-palette='comic'] .cck-format {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 2px 7px;
+  background: var(--comic-yellow);
+  color: var(--comic-ink);
+  border: 2px solid var(--comic-ink);
+  box-shadow: 2px 2px 0 var(--comic-ink);
+  font-size: 10px;
+  font-weight: 900;
+}
+:root[data-palette='comic'] .cck-update {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 24px;
+  padding: 2px 6px;
+  background: var(--comic-red);
+  color: var(--comic-paper);
+  border: 2px solid var(--comic-ink);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.65);
+  font-size: 10px;
+  font-weight: 900;
+  text-align: center;
+}
+:root[data-palette='comic'] .cck-meta {
+  display: grid;
+  gap: 3px;
+  padding: 9px 12px 7px;
+}
+:root[data-palette='comic'] .cck-meta b {
+  font-size: 14px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-palette='comic'] .cck-meta > span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7a746c;
+}
+:root[data-palette='comic'] .cck-read {
+  justify-self: start;
+  margin-top: 5px;
+  padding: 2px 10px;
+  background: var(--comic-ink);
+  color: var(--comic-paper) !important;
+  font-size: 10px !important;
+  font-weight: 800;
+  transform: skewX(-10deg);
+}
+:root[data-palette='comic'] .cck-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+
+/* ---------- 漫画合并行：墨框硬投影 ---------- */
+:root[data-palette='comic'] .comic-item.cmi-cv {
+  background: var(--comic-paper);
+  border: 2.5px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 4px 4px 0 var(--comic-ink);
+  margin-bottom: 10px;
+}
+
+/* ---------- 视频弹窗：墨框试映板 ---------- */
+:root[data-palette='comic'] .detail-modal.cv-modal {
+  background: var(--comic-paper);
+  border: 3px solid var(--comic-ink) !important;
+  border-radius: 3px !important;
+  box-shadow: 8px 8px 0 var(--comic-ink) !important;
+}
+:root[data-palette='comic'] .dvm-chip {
+  align-self: center;
+  padding: 3px 10px;
+  background: var(--comic-ink);
+  color: var(--comic-paper);
+  font-size: 11px;
+  font-weight: 900;
+  transform: skewX(-12deg);
+}
+
+/* ---------- 封面接触表：墨框齿孔 ---------- */
+:root[data-palette='comic'] .contact-sheet-cv .contact-sheet-summary b {
+  font-weight: 900;
+}
+:root[data-palette='comic'] .contact-sheet-cv .contact-frame {
+  border: 2px solid var(--comic-ink);
+  border-radius: 3px;
+  background: var(--comic-paper);
+}
+:root[data-palette='comic'] .contact-sheet-cv .contact-frame:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--comic-ink);
+}

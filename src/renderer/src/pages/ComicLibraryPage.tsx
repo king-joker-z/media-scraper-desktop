@@ -5,6 +5,7 @@ import VirtualGrid from '../components/VirtualGrid'
 import WorkbenchEmptyState from '../components/WorkbenchEmptyState'
 import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes, joinPath } from '../utils/format'
+import { usePalette } from '../hooks/usePalette'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
@@ -150,53 +151,15 @@ function ComicLibraryPage({
           metaHeight={122}
           thumbnailRatio={3 / 4}
           renderItem={(comic, style) => (
-            <article key={comic.relDir} data-spotlight="" className="comic-card" style={style}>
-              <button
-                className="comic-card-main"
-                onClick={() => void openComic(comic.relDir, comic.merged!.outputName)}
-                title="用系统默认应用打开"
-                aria-label={`打开《${comic.name}》`}
-              >
-                <span className="comic-thumb">
-                  {comic.coverRel ? (
-                    <img
-                      src={mediaUrl(joinPath(workspace, joinPath(comic.relDir, comic.coverRel)))}
-                      alt=""
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span className="comic-cover-empty" aria-label="暂无封面">
-                      暂无封面
-                    </span>
-                  )}
-                  <span className="comic-format-badge">{comic.merged!.format.toUpperCase()}</span>
-                  {comic.newChapters.length > 0 && (
-                    <span className="comic-card-update">+{comic.newChapters.length}</span>
-                  )}
-                </span>
-                <span className="comic-card-meta">
-                  <b title={comic.name}>{comic.name}</b>
-                  <span>
-                    {comic.merged!.chapters.length} 章 <i aria-hidden="true">·</i>{' '}
-                    {formatBytes(comic.merged!.outputBytes)}
-                  </span>
-                  <span className="comic-card-hint">点击打开阅读</span>
-                </span>
-              </button>
-              <div className="comic-card-actions">
-                <button
-                  className="secondary"
-                  onClick={() => void revealComic(comic.relDir, comic.merged!.outputName)}
-                >
-                  在文件夹中显示
-                </button>
-                {comic.newChapters.length > 0 && (
-                  <button className="secondary comic-update-button" onClick={onOpenMerge}>
-                    追更
-                  </button>
-                )}
-              </div>
-            </article>
+            <LibraryComicCard
+              key={comic.relDir}
+              comic={comic}
+              style={style}
+              workspace={workspace}
+              onOpen={() => void openComic(comic.relDir, comic.merged!.outputName)}
+              onReveal={() => void revealComic(comic.relDir, comic.merged!.outputName)}
+              onOpenMerge={onOpenMerge}
+            />
           )}
         />
       )}
@@ -228,6 +191,200 @@ function ComicLibraryPage({
         />
       )}
     </div>
+  )
+}
+
+type LibraryComic = ComicScanResult['comics'][number]
+
+/** 漫画库卡片：默认保持原海报卡结构；三皮肤各渲染完全不同 DOM。 */
+function LibraryComicCard({
+  comic,
+  style,
+  workspace,
+  onOpen,
+  onReveal,
+  onOpenMerge
+}: {
+  comic: LibraryComic
+  style: React.CSSProperties
+  workspace: string
+  onOpen: () => void
+  onReveal: () => void
+  onOpenMerge: () => void
+}): React.JSX.Element {
+  const palette = usePalette()
+  const merged = comic.merged!
+  const cover = comic.coverRel
+    ? mediaUrl(joinPath(workspace, joinPath(comic.relDir, comic.coverRel)))
+    : ''
+  const updates = comic.newChapters.length
+
+  if (palette === 'terminal') {
+    return (
+      <article className="comic-card tk-card" style={style}>
+        <button
+          className="comic-card-main tk-frame"
+          onClick={onOpen}
+          title="用系统默认应用打开"
+          aria-label={`打开《${comic.name}》`}
+        >
+          <span className="comic-thumb">
+            {cover ? (
+              <img src={cover} alt="" loading="lazy" />
+            ) : (
+              <span className="comic-cover-empty" aria-label="暂无封面" />
+            )}
+            <span className="tk-format">{merged.format.toUpperCase()}</span>
+            {updates > 0 && <span className="tk-update">+{updates}</span>}
+          </span>
+          <span className="tk-meta">
+            <b title={comic.name}>{comic.name}</b>
+            <span>
+              {`${merged.chapters.length} CH // ${formatBytes(merged.outputBytes)} // ${merged.format.toUpperCase()}`}
+            </span>
+          </span>
+        </button>
+        <div className="tk-actions">
+          <button className="secondary" onClick={onReveal}>
+            定位
+          </button>
+          {updates > 0 && (
+            <button className="secondary" onClick={onOpenMerge}>
+              追更
+            </button>
+          )}
+        </div>
+      </article>
+    )
+  }
+
+  if (palette === 'comic') {
+    return (
+      <article className="comic-card cck-card" style={style}>
+        <button
+          className="comic-card-main cck-frame"
+          onClick={onOpen}
+          title="用系统默认应用打开"
+          aria-label={`打开《${comic.name}》`}
+        >
+          <span className="comic-thumb">
+            {cover ? (
+              <img src={cover} alt="" loading="lazy" />
+            ) : (
+              <span className="comic-cover-empty" aria-label="暂无封面">
+                暂无封面
+              </span>
+            )}
+            <span className="cck-format">{merged.format.toUpperCase()}</span>
+            {updates > 0 && <span className="cck-update">+{updates}</span>}
+          </span>
+          <span className="cck-meta">
+            <b title={comic.name}>{comic.name}</b>
+            <span>
+              {merged.chapters.length} 章 · {formatBytes(merged.outputBytes)}
+            </span>
+            <span className="cck-read">点击打开阅读</span>
+          </span>
+        </button>
+        <div className="cck-actions">
+          <button className="secondary" onClick={onReveal}>
+            在文件夹中显示
+          </button>
+          {updates > 0 && (
+            <button className="secondary" onClick={onOpenMerge}>
+              追更
+            </button>
+          )}
+        </div>
+      </article>
+    )
+  }
+
+  if (palette === 'comic-ukiyo') {
+    return (
+      <article className="comic-card uck-card" style={style}>
+        <button
+          className="comic-card-main uck-frame"
+          onClick={onOpen}
+          title="用系统默认应用打开"
+          aria-label={`打开《${comic.name}》`}
+        >
+          <span className="uck-thumb">
+            <span className="uck-mat">
+              {cover ? (
+                <img src={cover} alt="" loading="lazy" />
+              ) : (
+                <span className="comic-cover-empty" aria-label="暂无封面" />
+              )}
+            </span>
+            <span className="uck-format">{merged.format.toUpperCase()}</span>
+            {updates > 0 && (
+              <span className="uck-seal" aria-hidden="true">
+                新
+              </span>
+            )}
+          </span>
+          <span className="uck-meta">
+            <b title={comic.name}>{comic.name}</b>
+            <span className="uck-read">
+              {merged.chapters.length} 章 ／ {formatBytes(merged.outputBytes)}
+            </span>
+            <span className="uck-wave" aria-hidden="true" />
+          </span>
+        </button>
+        <div className="uck-actions">
+          <button className="secondary" onClick={onReveal}>
+            在文件夹中显示
+          </button>
+          {updates > 0 && (
+            <button className="secondary" onClick={onOpenMerge}>
+              追更
+            </button>
+          )}
+        </div>
+      </article>
+    )
+  }
+
+  return (
+    <article data-spotlight="" className="comic-card" style={style}>
+      <button
+        className="comic-card-main"
+        onClick={onOpen}
+        title="用系统默认应用打开"
+        aria-label={`打开《${comic.name}》`}
+      >
+        <span className="comic-thumb">
+          {cover ? (
+            <img src={cover} alt="" loading="lazy" />
+          ) : (
+            <span className="comic-cover-empty" aria-label="暂无封面">
+              暂无封面
+            </span>
+          )}
+          <span className="comic-format-badge">{merged.format.toUpperCase()}</span>
+          {updates > 0 && <span className="comic-card-update">+{updates}</span>}
+        </span>
+        <span className="comic-card-meta">
+          <b title={comic.name}>{comic.name}</b>
+          <span>
+            {merged.chapters.length} 章 <i aria-hidden="true">·</i>{' '}
+            {formatBytes(merged.outputBytes)}
+          </span>
+          <span className="comic-card-hint">点击打开阅读</span>
+        </span>
+      </button>
+      <div className="comic-card-actions">
+        <button className="secondary" onClick={onReveal}>
+          在文件夹中显示
+        </button>
+        {updates > 0 && (
+          <button className="secondary comic-update-button" onClick={onOpenMerge}>
+            追更
+          </button>
+        )}
+      </div>
+    </article>
   )
 }
 

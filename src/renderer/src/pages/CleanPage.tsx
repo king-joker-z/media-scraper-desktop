@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CleanReport, PosterPicks, ScanPlan } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import PathCard from '../components/PathCard'
 import StatGrid from '../components/StatGrid'
 import WorkbenchHeader from '../components/WorkbenchHeader'
 import { usePalette } from '../hooks/usePalette'
@@ -170,10 +171,7 @@ function CleanPage({
         }
       />
 
-      <section className="path-card">
-        <span>当前工作区</span>
-        <strong>{workspace || '尚未选择目录'}</strong>
-      </section>
+      <PathCard label="当前工作区" value={workspace} />
 
       {error && <ErrorBanner message={error} />}
 

@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DedupeScanResult, DupItem, MediaInfo, SimilarDupItem } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import PathCard from '../components/PathCard'
 import VideoModal from '../components/VideoModal'
 import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes, formatDuration, joinPath } from '../utils/format'
+import { usePalette } from '../hooks/usePalette'
 
 /** 质量徽标：分辨率 · 时长 · 平均码率 */
 const mediaBadge = (media: MediaInfo | null, size: number): string => {
@@ -200,10 +202,7 @@ function DedupePage({
         }
       />
 
-      <section className="path-card">
-        <span>当前工作区</span>
-        <strong>{workspace || '尚未选择目录'}</strong>
-      </section>
+      <PathCard label="当前工作区" value={workspace} />
 
       {error && <ErrorBanner message={error} />}
       {notice && (
@@ -236,16 +235,13 @@ function DedupePage({
           <h2>完全重复（{currentResult.exact.length} 组）</h2>
           <p className="muted">内容指纹完全相同，默认勾选除「建议保留」（质量最高）外的副本。</p>
           {currentResult.exact.map((group, index) => (
-            <div key={group.hash} className="dup-group">
-              <h3>
-                重复组 {index + 1}
-                <small className="muted">
-                  {' '}
-                  · {group.items.length} 个文件 · 每个 {formatBytes(group.sizeBytes)}
-                </small>
-              </h3>
+            <DupGroupCard
+              key={group.hash}
+              title={`重复组 ${index + 1}`}
+              meta={`${group.items.length} 个文件 · 每个 ${formatBytes(group.sizeBytes)}`}
+            >
               {group.items.map((item) => renderItem(item, group.keepRel, false))}
-            </div>
+            </DupGroupCard>
           ))}
         </section>
       )}
@@ -257,13 +253,13 @@ function DedupePage({
             同一影片的不同压制版本（同分辨率、时长相近但内容指纹不同）。默认不勾选，请人工确认后选择删除。
           </p>
           {currentResult.similar.map((group) => (
-            <div key={group.key + group.keepRel} className="dup-group">
-              <h3>
-                {group.key}
-                <small className="muted"> · {group.items.length} 个版本 · 建议保留体积最大者</small>
-              </h3>
+            <DupGroupCard
+              key={group.key + group.keepRel}
+              title={group.key}
+              meta={`${group.items.length} 个版本 · 建议保留体积最大者`}
+            >
               {group.items.map((item) => renderItem(item, group.keepRel, true))}
-            </div>
+            </DupGroupCard>
           ))}
         </section>
       )}
@@ -288,6 +284,70 @@ function DedupePage({
           onClose={() => setPreviewRel(null)}
         />
       )}
+    </div>
+  )
+}
+
+/** 重复组卡片：默认保持原结构；三皮肤各渲染不同的分组框架。 */
+function DupGroupCard({
+  title,
+  meta,
+  children
+}: {
+  title: string
+  meta: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  const palette = usePalette()
+
+  if (palette === 'terminal') {
+    return (
+      <section className="dup-group dg-terminal">
+        <header className="dg-head">
+          <i aria-hidden="true">CLUSTER</i>
+          <b>{title}</b>
+          <span>{meta}</span>
+          <u className="dg-rule" aria-hidden="true" />
+        </header>
+        <div className="dg-body">{children}</div>
+      </section>
+    )
+  }
+
+  if (palette === 'comic') {
+    return (
+      <section className="dup-group dg-comic">
+        <header className="dg-head">
+          <span className="dg-tag">{title}</span>
+          <span className="dg-meta">{meta}</span>
+          <u className="dg-rule" aria-hidden="true" />
+        </header>
+        <div className="dg-body">{children}</div>
+      </section>
+    )
+  }
+
+  if (palette === 'comic-ukiyo') {
+    return (
+      <section className="dup-group dg-ukiyo">
+        <header className="dg-head">
+          <span className="dg-dot" aria-hidden="true" />
+          <b>{title}</b>
+          <span className="dg-meta">{meta}</span>
+          <u className="dg-rule" aria-hidden="true" />
+        </header>
+        <div className="dg-body">{children}</div>
+      </section>
+    )
+  }
+
+  return (
+    <div className="dup-group">
+      <h3>
+        {title}
+        <small className="muted"> · {meta}</small>
+      </h3>
+      {children}
     </div>
   )
 }

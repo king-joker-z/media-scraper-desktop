@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { CandidateFrameScore } from '../../../shared/types'
 import HoverImagePreview from './HoverImagePreview'
 import { formatDuration } from '../utils/format'
+import { usePalette } from '../hooks/usePalette'
 import { mediaUrl } from '../utils/media'
 
 type SortMode = 'recommended' | 'time' | 'scene' | 'similar'
@@ -50,6 +51,7 @@ function PosterContactSheet({
   const [positionedPath, setPositionedPath] = useState<string | null>(null)
   const seekRequestRef = useRef(0)
   const gridRef = useRef<HTMLDivElement>(null)
+  const palette = usePalette()
 
   const orderedFrames = useMemo(() => {
     const sorted = [...frames]
@@ -178,10 +180,21 @@ function PosterContactSheet({
 
   return (
     <Tooltip.Provider delayDuration={300}>
-      <section className="poster-contact-sheet" aria-label="候选封面接触表">
+      <section
+        className={`poster-contact-sheet ${
+          palette === 'terminal'
+            ? 'contact-sheet-tv'
+            : palette === 'comic'
+              ? 'contact-sheet-cv'
+              : palette === 'comic-ukiyo'
+                ? 'contact-sheet-uv'
+                : ''
+        }`}
+        aria-label="候选封面接触表"
+      >
         <div className="contact-sheet-toolbar">
           <div className="contact-sheet-summary">
-            <b>候选接触表</b>
+            <b>{palette === 'terminal' ? 'CONTACT SHEET' : '候选接触表'}</b>
             <span>
               {collapseSimilar
                 ? `${orderedFrames.length} 个代表帧`

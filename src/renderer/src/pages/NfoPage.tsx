@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NfoPlan, NfoReport } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import PathCard from '../components/PathCard'
 import WorkbenchHeader from '../components/WorkbenchHeader'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
@@ -113,10 +114,7 @@ function NfoPage({
         }
       />
 
-      <section className="path-card">
-        <span>当前工作区</span>
-        <strong>{workspace || '尚未选择目录'}</strong>
-      </section>
+      <PathCard label="当前工作区" value={workspace} />
 
       {error && <ErrorBanner message={error} />}
 
