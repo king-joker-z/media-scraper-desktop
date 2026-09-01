@@ -16,7 +16,7 @@ import { createReadStream, createWriteStream } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { pipeline } from 'node:stream/promises'
 import { basename, dirname, extname, join, resolve } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 const MERGE_TRANSACTION_PREFIX = '.msd-merge-transaction-'
 const MERGE_TRANSACTION_RE =
@@ -68,13 +68,15 @@ const LOCK_RETRY_BASE_MS = 250
 const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** 对瞬时文件锁定错误做递增延迟重试（最多 8 次，覆盖约 9 秒）；其他错误立即抛出。 */
-async function withLockRetry(fn) {
+async function withLockRetry(fn, onLockRetry) {
   for (let attempt = 0; attempt <= LOCK_RETRY_MAX; attempt += 1) {
     try {
       return await fn()
     } catch (error) {
       if (!LOCK_RETRY_CODES.has(error?.code) || attempt >= LOCK_RETRY_MAX) throw error
-      await sleepMs(LOCK_RETRY_BASE_MS * (attempt + 1))
+      const delayMs = LOCK_RETRY_BASE_MS * (attempt + 1)
+      onLockRetry?.({ attempt: attempt + 1, delayMs, code: error.code })
+      await sleepMs(delayMs)
     }
   }
   return undefined // 不可达：循环内要么返回要么抛出
@@ -210,8 +212,8 @@ export async function moveWithCollision(from, toDir, options) {
 }
 
 /** 直接改名/移动（不做重名避让），供两阶段改名的临时名阶段使用。 */
-export async function directRename(from, to) {
-  await withLockRetry(() => rename(from, to))
+export async function directRename(from, to, { onLockRetry } = {}) {
+  await withLockRetry(() => rename(from, to), onLockRetry)
   return to
 }
 
@@ -421,6 +423,34 @@ export async function fileMtimeMs(target) {
 /** 为 media:// 等只读协议创建可指定字节区间的文件流，保持文件访问入口集中。 */
 export function createFileReadStream(target, options) {
   return createReadStream(target, options)
+}
+
+/** 创建文件写流；大文件调用方必须写入同目录暂存文件后再安全提交。 */
+export function createFileWriteStream(target, options) {
+  return createWriteStream(target, options)
+}
+
+/** 对尚未提交的暂存文件回填小范围头部数据。 */
+export async function overwriteFileRange(target, data, position) {
+  const handle = await open(target, 'r+')
+  try {
+    await handle.write(data, 0, undefined, position)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
+ * 流式计算文件 SHA-256：用于大 EPUB/PDF 的暂存提交摘要，避免额外读取完整 Buffer。
+ * 哈希仅在文件已完成写入和结构校验后调用，不改变暂存、安全替换与 marker 恢复语义。
+ */
+export async function sha256File(target) {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(target, { highWaterMark: 4 * 1024 * 1024 })) {
+    hash.update(chunk)
+  }
+  return hash.digest('hex')
 }
 
 /**

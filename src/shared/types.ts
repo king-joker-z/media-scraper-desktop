@@ -227,6 +227,10 @@ export interface AppSettings {
   comicFormat: ComicFormat
   /** 全局并发线程数，1-20，默认 5（视频合并除外） */
   concurrency: number
+  /** 漫画合并时同时处理的书籍数；与页面转码并发独立。 */
+  comicBookConcurrency: number
+  /** 单本 PDF 同时转码的页面数；与书级任务并发独立。 */
+  comicPageConcurrency: number
   /** 扫描子目录并发数，1-16，默认 4（大目录树加速遍历） */
   scanConcurrency: number
   /** FFmpeg/FFprobe 进程池大小，1-8，默认 4（限制同时运行的媒体处理进程数） */
@@ -687,6 +691,9 @@ export type AppModule = 'video' | 'comic'
 /** 漫画合并输出格式 */
 export type ComicFormat = 'epub' | 'pdf'
 
+/** PDF 漫画质量预设：原样直嵌兼容图；balanced 为默认优化（限宽 1600 + mozjpeg q85）。 */
+export type ComicPdfQuality = 'raw' | 'balanced'
+
 /** 漫画章节：子文件夹为一章；漫画目录下的扁平图片归入 relDir 为 '' 的虚拟章节 */
 export interface ComicChapter {
   /** 章节名（子文件夹名；扁平图片为 ''） */
@@ -695,6 +702,12 @@ export interface ComicChapter {
   relDir: string
   /** 有序图片（相对漫画目录，自然排序） */
   images: string[]
+}
+
+/** 完整扫描生成的文件系统一致性快照；执行前只做 stat 校验即可安全复用章节清单。 */
+export interface ComicScanSnapshot {
+  directories: Array<{ relPath: string; mtimeMs: number }>
+  images: Array<{ relPath: string; size: number; mtimeMs: number }>
 }
 
 /** 已合并产物清单（存于漫画目录 .comic-merge.json） */
@@ -707,6 +720,8 @@ export interface ComicMergedState {
   outputBytes: number
   /** 本应用生成并管理的封面文件名；缺失表示旧版本清单 */
   coverName?: string
+  /** PDF 质量预设；旧版 PDF 清单按历史默认的 balanced 兼容。high/text 视为脏状态，合并时全量重建。 */
+  pdfQuality?: ComicPdfQuality
   /** 已合并章节快照（用于增量更新检测） */
   chapters: ComicChapter[]
   updatedAt: string
@@ -728,6 +743,7 @@ export interface Comic {
   newChapters: ComicChapter[]
   /** 已合并但内容发生变化的章节名（需全量重建） */
   changedChapters: string[]
+  snapshot: ComicScanSnapshot
 }
 
 export interface ComicScanResult {
@@ -749,6 +765,20 @@ export interface ComicMergeItem {
   sourceBytes: number
   /** 结构异常、经自动转码修复的页数（坏 JPEG，0 表示全部正常） */
   repairedPages: number
+  /** PDF 质量预设；EPUB 结果缺失。 */
+  pdfQuality?: ComicPdfQuality
+  /** 实际 PDF 写入引擎；自建流式路径避免生成阶段累计整本页面与 PDF 字节。 */
+  pdfEngine?: 'stream-pdf' | 'pdf-lib'
+  /** 流式路径不适用或失败时的明确兼容模式回退原因。 */
+  pdfFallbackReason?: string
+  /** 本书总耗时（毫秒）。 */
+  durationMs: number
+  /** 文档写入/序列化耗时（毫秒）。 */
+  documentDurationMs: number
+  /** PDF 页预处理耗时（毫秒）；EPUB 不适用。 */
+  preprocessDurationMs?: number
+  /** EPUB/PDF 结构校验耗时（毫秒）。 */
+  verifyDurationMs: number
 }
 
 export interface ComicMergeFailedItem {

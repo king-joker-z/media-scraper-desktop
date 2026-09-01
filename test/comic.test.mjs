@@ -11,12 +11,15 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { Writable } from 'node:stream'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { unzipSync } from 'fflate'
 import { PDFDocument } from 'pdf-lib'
 import sharp from 'sharp'
 import { createTaskCenter } from '../src/main/core/task-center.mjs'
+import { sha256File } from '../src/main/core/fs-ops.mjs'
 import {
   appendEpub,
   appendEpubFile,
@@ -27,9 +30,25 @@ import {
   verifyEpubFile
 } from '../src/main/modules/comic/epub.mjs'
 import { appendPdf, createPdf, verifyPdfFile } from '../src/main/modules/comic/pdf.mjs'
-import { deleteComicSources, mergeComics, mergeOneComic } from '../src/main/modules/comic/merge.mjs'
+import {
+  buildNativePdfPageObjects,
+  createNativePdfFile,
+  verifyNativePdfFile
+} from '../src/main/modules/comic/pdf-native.mjs'
+import {
+  deleteComicSources,
+  mergeComics,
+  mergeOneComic,
+  prepareComicPage,
+  resolvePdfQuality
+} from '../src/main/modules/comic/merge.mjs'
 import { renameComicDirectories } from '../src/main/modules/comic/rename.mjs'
-import { COMIC_STATE_PENDING_NAME, scanComicWorkspace } from '../src/main/modules/comic/scan.mjs'
+import {
+  COMIC_STATE_PENDING_NAME,
+  isComicSnapshotCurrent,
+  scanComic,
+  scanComicWorkspace
+} from '../src/main/modules/comic/scan.mjs'
 
 // sharp 生成真实 1x1 PNG：与生产端同一解码链路，避免手写 base64 图的兼容性差异
 const TINY_PNG = await sharp({
@@ -89,6 +108,19 @@ test('漫画扫描跳过指向工作区外的符号链接目录', async () => {
   })
 })
 
+test('漫画扫描快照会检测嵌套目录新增页，过期时不可复用', async () => {
+  await withTempDir(async (root) => {
+    const comicDir = join(root, '快照漫画')
+    await mkdir(join(comicDir, '第1话', '分镜'), { recursive: true })
+    await writeFile(join(comicDir, '第1话', '分镜', '1.png'), TINY_PNG)
+    const comic = await scanComic(root, '快照漫画')
+    assert.equal(await isComicSnapshotCurrent(root, '快照漫画', comic.snapshot), true)
+
+    await writeFile(join(comicDir, '第1话', '分镜', '2.png'), TINY_PNG)
+    assert.equal(await isComicSnapshotCurrent(root, '快照漫画', comic.snapshot), false)
+  })
+})
+
 test('EPUB：创建后有正确页数、章节导航，增量追加保持顺序', () => {
   const initial = createEpub({
     title: '测试漫画',
@@ -119,6 +151,150 @@ test('PDF：创建与增量追加页数正确', async () => {
   assert.equal((await PDFDocument.load(updated)).getPageCount(), 3)
 })
 
+test('自建流式 PDF：对象组装、超长页缩放与完整解析校验', async () => {
+  const objects = buildNativePdfPageObjects({
+    index: 2,
+    width: 800,
+    height: 1200,
+    imageLength: 123
+  })
+  assert.equal(objects.pageId, 10)
+  assert.match(objects.imageStart, /\/Filter \/DCTDecode/)
+  const longPage = buildNativePdfPageObjects({
+    index: 0,
+    width: 800,
+    height: 20000,
+    imageLength: 123
+  })
+  assert.equal(longPage.pageWidth, 560)
+  assert.equal(longPage.pageHeight, 14000)
+  assert.match(longPage.page, /\/MediaBox \[0 0 560 14000\]/)
+  assert.match(longPage.content, /560 0 0 14000 0 0 cm/)
+  await withTempDir(async (root) => {
+    const output = join(root, 'native.pdf')
+    const jpeg = await sharp({
+      create: { width: 1, height: 15000, channels: 3, background: { r: 255, g: 255, b: 255 } }
+    })
+      .jpeg()
+      .toBuffer()
+    async function* pages() {
+      yield { data: jpeg, width: 1, height: 15000, ext: 'jpg' }
+      yield { data: jpeg, width: 1, height: 15000, ext: 'jpg' }
+    }
+    const result = await createNativePdfFile({
+      outputPath: output,
+      title: '流式测试',
+      pageCount: 2,
+      pages: pages()
+    })
+    assert.equal(result.engine, 'stream-pdf')
+    await verifyNativePdfFile(output, 2)
+    const document = await PDFDocument.load(await readFile(output))
+    assert.equal(document.getPageCount(), 2)
+    assert.deepEqual(document.getPage(0).getSize(), { width: 1, height: 14000 })
+  })
+})
+
+test('自建流式 PDF：写流中途报错会被接住并拒绝写入', async () => {
+  await withTempDir(async (root) => {
+    const output = join(root, 'failed.pdf')
+    const jpeg = await sharp(TINY_PNG).jpeg().toBuffer()
+    let writes = 0
+    const createFailingStream = () =>
+      new Writable({
+        write(_chunk, _encoding, callback) {
+          writes += 1
+          callback(writes === 3 ? new Error('模拟磁盘写入失败') : null)
+        }
+      })
+    async function* pages() {
+      yield { data: jpeg, width: 1, height: 1, ext: 'jpg' }
+    }
+    await assert.rejects(
+      () =>
+        createNativePdfFile({
+          outputPath: output,
+          title: '失败测试',
+          pageCount: 1,
+          pages: pages(),
+          createWriteStream: createFailingStream
+        }),
+      /模拟磁盘写入失败/
+    )
+  })
+})
+
+test('PDF 原样模式：CMYK JPEG 回退 pdf-lib，避免按 DeviceRGB 直嵌', async () => {
+  await withTempDir(async (root) => {
+    const comicDir = join(root, 'CMYK 漫画')
+    await mkdir(join(comicDir, '第1话'), { recursive: true })
+    const source = join(comicDir, '第1话', '1.jpg')
+    await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 40, g: 50, b: 60 } }
+    })
+      .toColorspace('cmyk')
+      .jpeg()
+      .toFile(source)
+    assert.equal((await sharp(source).metadata()).space, 'cmyk')
+    const result = await mergeOneComic(root, 'CMYK 漫画', {
+      format: 'pdf',
+      raw: true,
+      pdfQuality: 'raw'
+    })
+    assert.equal(result.pdfEngine, 'pdf-lib')
+    assert.match(result.pdfFallbackReason, /非 sRGB 三通道 JPEG/)
+  })
+})
+
+test('PDF 质量归一化：high/text 降为 balanced，原样复选框优先', () => {
+  assert.equal(resolvePdfQuality('balanced'), 'balanced')
+  assert.equal(resolvePdfQuality('raw'), 'raw')
+  assert.equal(resolvePdfQuality('high'), 'balanced')
+  assert.equal(resolvePdfQuality('text'), 'balanced')
+  assert.equal(resolvePdfQuality(undefined, true), 'raw')
+  assert.equal(resolvePdfQuality('high', true), 'raw')
+})
+
+test('PDF 旧清单 high/text 自动全量重建为默认优化', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, 'PDF质量漫画')
+    await mkdir(join(comic, '第1话'), { recursive: true })
+    await writeFile(join(comic, '第1话', '1.png'), TINY_PNG)
+    await mergeOneComic(root, 'PDF质量漫画', { format: 'pdf', pdfQuality: 'high' })
+    const statePath = join(comic, '.comic-merge.json')
+    const state = JSON.parse(await readFile(statePath, 'utf8'))
+    assert.equal(state.pdfQuality, 'balanced')
+
+    state.pdfQuality = 'text'
+    await writeFile(statePath, JSON.stringify(state, null, 2))
+    await mkdir(join(comic, '第2话'), { recursive: true })
+    await writeFile(join(comic, '第2话', '1.png'), TINY_PNG)
+
+    const result = await mergeOneComic(root, 'PDF质量漫画', { format: 'pdf' })
+    assert.equal(result.mode, 'full')
+    assert.equal(result.pdfQuality, 'balanced')
+    const next = JSON.parse(await readFile(statePath, 'utf8'))
+    assert.equal(next.pdfQuality, 'balanced')
+    assert.equal(next.chapters.length, 2)
+  })
+})
+
+test('PDF 在原样与默认优化之间切换时要求全量重建', async () => {
+  await withTempDir(async (root) => {
+    const comic = join(root, 'PDF质量漫画')
+    await mkdir(join(comic, '第1话'), { recursive: true })
+    await writeFile(join(comic, '第1话', '1.png'), TINY_PNG)
+    await mergeOneComic(root, 'PDF质量漫画', { format: 'pdf' })
+
+    await mkdir(join(comic, '第2话'), { recursive: true })
+    await writeFile(join(comic, '第2话', '1.png'), TINY_PNG)
+    await assert.rejects(
+      () => mergeOneComic(root, 'PDF质量漫画', { format: 'pdf', raw: true }),
+      /质量预设已变化/
+    )
+  })
+})
+
 test('PDF 文件校验会拒绝页数不符或损坏产物', async () => {
   await withTempDir(async (root) => {
     const output = join(root, 'book.pdf')
@@ -127,6 +303,53 @@ test('PDF 文件校验会拒绝页数不符或损坏产物', async () => {
     await assert.rejects(() => verifyPdfFile(output, 2), /页数校验失败/)
     await writeFile(output, 'broken')
     await assert.rejects(() => verifyPdfFile(output, 1))
+  })
+})
+
+test('大漫画产物摘要以流式 SHA-256 计算', async () => {
+  await withTempDir(async (root) => {
+    const output = join(root, 'book.epub')
+    const bytes = Buffer.alloc(9 * 1024 * 1024 + 37, 0xab)
+    await writeFile(output, bytes)
+    assert.equal(await sha256File(output), createHash('sha256').update(bytes).digest('hex'))
+  })
+})
+
+test('PDF 默认预处理应用 EXIF 方向、sRGB 和 4:2:0；透明图安全铺白', async () => {
+  await withTempDir(async (root) => {
+    const rotated = join(root, 'rotated.jpg')
+    const transparent = join(root, 'transparent.png')
+    await sharp({
+      create: { width: 40, height: 20, channels: 3, background: { r: 40, g: 50, b: 60 } }
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toFile(rotated)
+    await sharp({
+      create: { width: 2, height: 2, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0 } }
+    })
+      .png()
+      .toFile(transparent)
+
+    const optimized = await prepareComicPage(rotated, {
+      format: 'pdf',
+      raw: false,
+      pdfQuality: 'balanced'
+    })
+    const optimizedMetadata = await sharp(optimized.data).metadata()
+    assert.deepEqual([optimized.width, optimized.height], [20, 40])
+    assert.equal(optimizedMetadata.space, 'srgb')
+    assert.equal(optimizedMetadata.chromaSubsampling, '4:2:0')
+
+    const flattened = await prepareComicPage(transparent, {
+      format: 'pdf',
+      raw: false,
+      pdfQuality: 'balanced'
+    })
+    const flattenedMetadata = await sharp(flattened.data).metadata()
+    const pixels = await sharp(flattened.data).raw().toBuffer()
+    assert.equal(flattenedMetadata.hasAlpha, false)
+    assert.deepEqual([...pixels.slice(0, 3)], [255, 255, 255])
   })
 })
 

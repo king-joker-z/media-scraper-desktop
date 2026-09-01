@@ -20,8 +20,9 @@ import {
 const nameKey = (name) => String(name).normalize('NFC').toLocaleLowerCase('en-US')
 const WINDOWS_SAFE_PATH_MAX = 240
 
-/** 暂存/提交/恢复阶段的目录改名并发上限：Windows 上文件锁重试相互独立，有限并发显著缩短批量等待 */
-const STAGE_CONCURRENCY = 4
+const isNetworkPath = (root) => /^\\\\|^\/\//.test(root)
+const renameConcurrencyFor = (root, requested) =>
+  process.platform === 'win32' || isNetworkPath(root) ? 1 : Math.min(2, Math.max(1, requested))
 
 const validateName = (root, name) => {
   const value = String(name ?? '').trim()
@@ -43,14 +44,14 @@ const validateName = (root, name) => {
   return null
 }
 
-const moveExact = async (from, to) => {
+const moveExact = async (from, to, options) => {
   // Windows 对仅大小写的 rename 在不同卷/工具链下表现不一致，显式经过临时名保证落位。
   if (from !== to && nameKey(basename(from)) === nameKey(basename(to))) {
     const temp = join(dirname(from), `.msd-comic-case-${crypto.randomUUID()}`)
-    await directRename(from, temp)
-    return directRename(temp, to)
+    await directRename(from, temp, options)
+    return directRename(temp, to, options)
   }
-  return directRename(from, to)
+  return directRename(from, to, options)
 }
 const restoreDir = async (from, to) => {
   if (await pathExists(from)) await moveExact(from, to).catch(() => {})
@@ -96,8 +97,9 @@ const friendlyRenameError = (error, target) => {
 export async function renameComicDirectories(
   root,
   items,
-  { taskCenter, taskId, concurrency = 5, onStageProgress }
+  { taskCenter, taskId, concurrency = 5, signal, onStageProgress, onLockRetry }
 ) {
+  const laneCount = renameConcurrencyFor(root, concurrency)
   // 校验阶段：非法/冲突项不阻断整批，直接进入失败报告；只有调用方错误（relDir 越界/重复）整体拒绝。
   const invalid = []
   const valid = []
@@ -149,7 +151,22 @@ export async function renameComicDirectories(
     if (relDir !== newName) active.push({ relDir, newName })
   }
 
-  const report = { taskId, cancelled: false, renamedCount: 0, items: [], failed: invalid }
+  const report = {
+    taskId,
+    cancelled: false,
+    renamedCount: 0,
+    items: [],
+    failed: invalid,
+    lockRetries: 0,
+    lockWaitMs: 0
+  }
+  const lockOptions = (relDir) => ({
+    onLockRetry: (info) => {
+      report.lockRetries += 1
+      report.lockWaitMs += info.delayMs
+      onLockRetry?.(relDir, info)
+    }
+  })
   if (active.length === 0) return report
 
   // 暂存阶段：全部先改到唯一临时名，规避 A↔B 交换冲突。即使仅修改大小写也必须经过临时名，
@@ -158,12 +175,13 @@ export async function renameComicDirectories(
   const staged = []
   let stageDone = 0
   const stageErrors = []
-  await runLanes(active.length, STAGE_CONCURRENCY, async (index) => {
+  await runLanes(active.length, laneCount, async (index) => {
+    if (signal?.aborted) return
     const { relDir, newName } = active[index]
     const tempPath = join(root, `.msd-comic-rename-${crypto.randomUUID()}`)
     onStageProgress?.(stageDone, active.length, `暂存 ${relDir}`)
     try {
-      await moveExact(join(root, relDir), tempPath)
+      await moveExact(join(root, relDir), tempPath, lockOptions(relDir))
       staged.push({ relDir, newName, tempPath })
     } catch (error) {
       stageErrors.push({ target: relDir, error: friendlyRenameError(error, relDir) })
@@ -182,7 +200,7 @@ export async function renameComicDirectories(
     try {
       // 所有参与项已移至临时名；目标若仍存在即为外部竞争，宁可失败也不静默追加 (n)。
       if (await pathExists(targetPath)) throw new Error(`目标目录已存在：${item.newName}`)
-      await moveExact(item.tempPath, targetPath)
+      await moveExact(item.tempPath, targetPath, lockOptions(item.relDir))
       state = await readComicState(targetPath)
       if (state) {
         const oldOutput = join(targetPath, state.outputName)
@@ -190,7 +208,7 @@ export async function renameComicDirectories(
         if (state.outputName !== nextOutputName && (await pathExists(oldOutput))) {
           const nextOutput = join(targetPath, nextOutputName)
           if (await pathExists(nextOutput)) throw new Error(`目标产物已存在：${nextOutputName}`)
-          await moveExact(oldOutput, nextOutput)
+          await moveExact(oldOutput, nextOutput, lockOptions(item.relDir))
           outputMove = { from: nextOutput, to: oldOutput }
           state.outputName = nextOutputName
         }
@@ -203,7 +221,7 @@ export async function renameComicDirectories(
         if (oldCoverName !== nextCoverName && (await pathExists(oldCover))) {
           const nextCover = join(targetPath, nextCoverName)
           if (await pathExists(nextCover)) throw new Error(`目标封面已存在：${nextCoverName}`)
-          await moveExact(oldCover, nextCover)
+          await moveExact(oldCover, nextCover, lockOptions(item.relDir))
           coverMove = { from: nextCover, to: oldCover }
         }
         state.coverName = (await pathExists(join(targetPath, nextCoverName)))
@@ -230,13 +248,14 @@ export async function renameComicDirectories(
     taskId,
     label: '重命名漫画',
     items: staged,
-    concurrency: Math.min(STAGE_CONCURRENCY, concurrency),
+    concurrency: laneCount,
+    signal,
     worker: renameOne
   })
   report.cancelled = result.cancelled
   // 未派发、取消或失败的项仍留在临时名：统一回退，保证扫描不会丢失漫画。
   let restored = 0
-  await runLanes(staged.length, STAGE_CONCURRENCY, async (index) => {
+  await runLanes(staged.length, laneCount, async (index) => {
     const item = staged[index]
     onStageProgress?.(restored, staged.length, `恢复 ${item.relDir}`)
     const ok = await restoreDirChecked(item.tempPath, join(root, item.relDir))
@@ -253,5 +272,6 @@ export async function renameComicDirectories(
       report.failed.push({ target: staged[index].relDir, error: entry.error ?? '未知错误' })
     }
   })
+  report.cancelled ||= signal?.aborted === true
   return report
 }

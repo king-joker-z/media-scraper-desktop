@@ -105,6 +105,11 @@ const DEFAULT_NVENC_ENABLED = process.platform === 'win32'
 const DEFAULT_CURSOR_EFFECTS = process.platform === 'win32' ? 'off' : 'particles'
 const DEFAULT_PERFORMANCE_MODE = process.platform === 'win32' ? 'reduced' : 'standard'
 const DEFAULT_TASK_CONCURRENCY = process.platform === 'win32' ? 3 : DEFAULT_CONCURRENCY
+export const DEFAULT_COMIC_BOOK_CONCURRENCY = process.platform === 'win32' ? 1 : 2
+export const DEFAULT_COMIC_PAGE_CONCURRENCY = process.platform === 'win32' ? 2 : 4
+export const MIN_COMIC_CONCURRENCY = 1
+export const MAX_COMIC_BOOK_CONCURRENCY = 4
+export const MAX_COMIC_PAGE_CONCURRENCY = 8
 
 /** 最近工作区最多记忆条数 */
 export const MAX_RECENT_WORKSPACES = 8
@@ -118,6 +123,20 @@ export const clampScanConcurrency = (value) => {
   if (!Number.isFinite(n)) return DEFAULT_SCAN_CONCURRENCY
   return Math.min(MAX_SCAN_CONCURRENCY, Math.max(MIN_SCAN_CONCURRENCY, Math.round(n)))
 }
+export const clampComicBookConcurrency = (value) =>
+  clampInteger(
+    value,
+    MIN_COMIC_CONCURRENCY,
+    MAX_COMIC_BOOK_CONCURRENCY,
+    DEFAULT_COMIC_BOOK_CONCURRENCY
+  )
+export const clampComicPageConcurrency = (value) =>
+  clampInteger(
+    value,
+    MIN_COMIC_CONCURRENCY,
+    MAX_COMIC_PAGE_CONCURRENCY,
+    DEFAULT_COMIC_PAGE_CONCURRENCY
+  )
 
 // 与 ffmpeg-pool.mjs 的默认池大小保持一致：按核数自适应（低配机 2，上限 4）。
 export const DEFAULT_FFMPEG_POOL_SIZE =
@@ -142,6 +161,8 @@ const normalizeMergeTempLocation = (value) =>
 
 export const DEFAULT_SETTINGS = {
   concurrency: DEFAULT_TASK_CONCURRENCY,
+  comicBookConcurrency: DEFAULT_COMIC_BOOK_CONCURRENCY,
+  comicPageConcurrency: DEFAULT_COMIC_PAGE_CONCURRENCY,
   scanConcurrency: DEFAULT_SCAN_CONCURRENCY,
   ffmpegPoolSize: DEFAULT_FFMPEG_POOL_SIZE,
   nvencEnabled: DEFAULT_NVENC_ENABLED,
@@ -351,6 +372,8 @@ export function normalizeSettings(raw) {
 
   return {
     concurrency: clampConcurrency(input.concurrency ?? DEFAULT_SETTINGS.concurrency),
+    comicBookConcurrency: clampComicBookConcurrency(input.comicBookConcurrency),
+    comicPageConcurrency: clampComicPageConcurrency(input.comicPageConcurrency),
     scanConcurrency: clampScanConcurrency(
       input.scanConcurrency ?? DEFAULT_SETTINGS.scanConcurrency
     ),

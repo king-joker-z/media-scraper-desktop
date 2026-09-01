@@ -31,7 +31,18 @@ declare module './fs-ops.mjs' {
     target: string,
     options?: { start?: number; end?: number }
   ): import('node:fs').ReadStream
+  export function createFileWriteStream(
+    target: string,
+    options?: import('node:fs').WriteStreamOptions
+  ): import('node:fs').WriteStream
+  export function overwriteFileRange(
+    target: string,
+    data: Uint8Array,
+    position: number
+  ): Promise<void>
   export function fileSize(target: string): Promise<number>
+  /** 以流式读取计算文件 SHA-256，避免大文件额外驻留内存。 */
+  export function sha256File(target: string): Promise<string>
   export function writeTextFile(target: string, content: string): Promise<string>
   /** 读文本文件（utf8） */
   export function readTextFile(target: string): Promise<string>
@@ -44,7 +55,11 @@ declare module './fs-ops.mjs' {
   export function removeEmptyDirs(root: string): Promise<string[]>
   export function isJunkFileName(name: string): boolean
   export function listDirNames(dir: string): Promise<string[]>
-  export function directRename(from: string, to: string): Promise<string>
+  export function directRename(
+    from: string,
+    to: string,
+    options?: { onLockRetry?: (info: { attempt: number; delayMs: number; code: string }) => void }
+  ): Promise<string>
   export function diskFreeBytes(dir: string): Promise<number>
   /** 返回目录所在设备标识，用于判断是否共享磁盘空间池。 */
   export function fileSystemId(dir: string): Promise<string>

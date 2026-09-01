@@ -1,9 +1,9 @@
 import { join, relative } from 'node:path'
-import { createHash } from 'node:crypto'
 import sharp from 'sharp'
-import { COMIC_STATE_PENDING_NAME, scanComic } from './scan.mjs'
+import { COMIC_STATE_PENDING_NAME, isComicSnapshotCurrent, scanComic } from './scan.mjs'
 import { appendEpubFile, createEpubFile, verifyEpubFile } from './epub.mjs'
 import { appendPdf, createPdf, verifyPdfFile } from './pdf.mjs'
+import { createNativePdfFile } from './pdf-native.mjs'
 import {
   commitStagedFile,
   createStagingPath,
@@ -13,6 +13,7 @@ import {
   pathExists,
   readBinaryFile,
   removeEmptyDirs,
+  sha256File,
   writeAtomicTextFile,
   writeBinaryFile
 } from '../../core/fs-ops.mjs'
@@ -30,8 +31,9 @@ import { needsJpegRepair } from '../../../shared/jpeg-guard.mjs'
  * 漫画合并执行：
  * - 全量合并：全部章节按自然顺序打包为单个 EPUB/PDF；
  * - 增量更新：清单存在且仅新增章节时，新章节按顺序追加到既有产物末尾（原页面不重编码）；
- * - 图片优化（默认）：宽度 >1600 缩至 1600，统一转 mozjpeg q85（质量/体积平衡）；
- *   原样模式：不重编码不改尺寸（PDF 仅支持 jpg/png 直嵌，其他格式转码 jpg q92）；
+ * - PDF 质量预设仅 raw / balanced；增量追加时二者切换必须全量重建；
+ *   旧清单 high/text 视为脏状态，自动全量重建并按 balanced 处理；
+ * - 有损预处理统一应用 EXIF 方向并转换到 sRGB，透明图先铺白色后 JPEG 编码；
  * - 坏 JPEG 自动修复：结构异常（libjpeg「extraneous bytes before marker」等，sharp 默认
  *   failOn='warning' 会直接抛错）或内容非 JPEG 的 .jpg 页，自动宽容解码转码为干净 JPEG，
  *   避免整本合并失败或坏图原样进入 EPUB/PDF；修复页数计入合并结果 repairedPages；
@@ -46,8 +48,35 @@ const RAW_JPEG_QUALITY = 92
 const COVER_WIDTH = 400
 
 const PDF_DIRECT_EXTS = new Set(['jpg', 'jpeg', 'png'])
-/** PDF 单本内页级转码并发：pdf-lib 仍需整本驻留，故不并行多本；页级并行只多占用在途页 Buffer */
-const PDF_PAGE_CONCURRENCY = 4
+export const PDF_QUALITY_PRESETS = {
+  raw: { label: '原样', maxWidth: 0, quality: RAW_JPEG_QUALITY, chromaSubsampling: '4:2:0' },
+  balanced: {
+    label: '默认优化',
+    maxWidth: OPT_MAX_WIDTH,
+    quality: OPT_JPEG_QUALITY,
+    chromaSubsampling: '4:2:0'
+  }
+}
+
+/**
+ * 归一化 PDF 质量。原样复选框或显式 raw 才走无损直嵌；
+ * 已移除的 high/text 以及未知值一律按历史默认 balanced 处理。
+ * @param {unknown} pdfQuality
+ * @param {boolean} [raw]
+ * @returns {'raw'|'balanced'}
+ */
+export function resolvePdfQuality(pdfQuality, raw = false) {
+  if (raw === true || pdfQuality === 'raw') return 'raw'
+  return 'balanced'
+}
+
+/** 清单写入了已移除的 high/text 等档位时，不能与当前页面混排增量。 */
+const hasLegacyPdfQuality = (state, format) => {
+  if (format !== 'pdf' || !state) return false
+  const previous = state.pdfQuality ?? 'balanced'
+  return !Object.hasOwn(PDF_QUALITY_PRESETS, previous)
+}
+
 const throwIfAborted = (signal) => {
   if (signal?.aborted) throw new Error('已取消')
 }
@@ -58,6 +87,22 @@ const extOf = (name) => {
 }
 
 const isJpegExt = (ext) => ext === 'jpg' || ext === 'jpeg'
+
+/**
+ * 原样 JPEG 只有在已明确识别为 3 通道 sRGB、没有 EXIF 方向变换时才能直嵌流式 PDF。
+ * CMYK、灰度、带方向变换或无法识别色彩空间的 JPEG 交给 pdf-lib，以免错误以 DeviceRGB
+ * 解释 DCT 数据。Sharp 在这里只读取元数据，不参与 PDF 生成。
+ */
+const supportsStreamRawJpeg = async (path) => {
+  if (!isJpegExt(extOf(path))) return false
+  const metadata = await sharp(path, { limitInputPixels: false }).metadata()
+  return (
+    metadata.format === 'jpeg' &&
+    (metadata.orientation ?? 1) === 1 &&
+    metadata.space === 'srgb' &&
+    metadata.channels === 3
+  )
+}
 
 // sharp 0.35 默认 failOn='warning'：libjpeg 对「标记前有多余字节」等坏 JPEG 告警会直接抛错，
 // 导致漫画合并整本失败。此正则识别这类可宽容解码修复的错误（严格解码失败时降级重试）。
@@ -70,19 +115,24 @@ const isRepairableJpegError = (error) =>
  * 经 sharp 编码为 JPEG。宽容模式（failOn:'none'）让 libjpeg 跳过垃圾字节完成解码，
  * 相当于把结构异常的坏图修复为干净 JPEG（像素与严格解码一致，见 test/jpeg-guard.test.mjs）。
  * @param {Buffer} buffer
- * @param {{quality: number, maxWidth?: number, tolerant?: boolean}} options
+ * @param {{quality: number, maxWidth?: number, chromaSubsampling?: '4:2:0'|'4:4:4', tolerant?: boolean}} options
  */
-async function encodeToJpeg(buffer, { quality, maxWidth = 0, tolerant = false }) {
+async function encodeToJpeg(
+  buffer,
+  { quality, maxWidth = 0, chromaSubsampling = '4:2:0', tolerant = false }
+) {
   const options = { limitInputPixels: false }
   if (tolerant) options.failOn = 'none'
   let pipeline = sharp(buffer, options)
   const metadata = await pipeline.metadata()
-  if (maxWidth > 0 && (metadata.width ?? 0) > maxWidth) {
+  // rotate 在解码链中应用 EXIF Orientation；有损输出统一 sRGB，避免不同阅读器色彩解释不一致。
+  pipeline = pipeline.rotate().toColorspace('srgb')
+  if (maxWidth > 0) {
     pipeline = pipeline.resize({ width: maxWidth, withoutEnlargement: true })
   }
   if (metadata.hasAlpha) pipeline = pipeline.flatten({ background: '#ffffff' })
   const { data, info } = await pipeline
-    .jpeg({ quality, mozjpeg: true })
+    .jpeg({ quality, chromaSubsampling, mozjpeg: true })
     .toBuffer({ resolveWithObject: true })
   return { data, width: info.width, height: info.height, ext: 'jpg' }
 }
@@ -92,13 +142,16 @@ async function encodeToJpeg(buffer, { quality, maxWidth = 0, tolerant = false })
  * 降级为宽容解码修复。
  * @returns {{data: Buffer, width: number, height: number, ext: string, repaired: boolean}}
  */
-async function encodeWithRepair(buffer, { quality, maxWidth = 0 }) {
+async function encodeWithRepair(buffer, { quality, maxWidth = 0, chromaSubsampling = '4:2:0' }) {
   try {
-    return { ...(await encodeToJpeg(buffer, { quality, maxWidth })), repaired: false }
+    return {
+      ...(await encodeToJpeg(buffer, { quality, maxWidth, chromaSubsampling })),
+      repaired: false
+    }
   } catch (error) {
     if (isRepairableJpegError(error)) {
       return {
-        ...(await encodeToJpeg(buffer, { quality, maxWidth, tolerant: true })),
+        ...(await encodeToJpeg(buffer, { quality, maxWidth, chromaSubsampling, tolerant: true })),
         repaired: true
       }
     }
@@ -113,11 +166,12 @@ async function encodeWithRepair(buffer, { quality, maxWidth = 0 }) {
  *   避免把 libjpeg 无法正常解码的坏图直接塞进 EPUB/PDF（阅读器渲染异常）。
  * 此函数只在当前页生命周期内保留 Buffer，绝不累积整章/整书图片。
  * @param {string} absPath
- * @param {{format: 'epub'|'pdf', raw: boolean}} options
+ * @param {{format: 'epub'|'pdf', raw: boolean, pdfQuality?: 'raw'|'balanced'|string}} options
  */
-async function preparePage(absPath, { format, raw }) {
+export async function prepareComicPage(absPath, { format, raw, pdfQuality = 'balanced' }) {
   const buffer = await readBinaryFile(absPath)
   const sourceExt = extOf(absPath)
+  pdfQuality = resolvePdfQuality(pdfQuality, raw)
 
   if (raw && (format === 'epub' || PDF_DIRECT_EXTS.has(sourceExt))) {
     if (isJpegExt(sourceExt) && needsJpegRepair(buffer)) {
@@ -138,10 +192,12 @@ async function preparePage(absPath, { format, raw }) {
     }
   }
 
-  const quality = raw ? RAW_JPEG_QUALITY : OPT_JPEG_QUALITY
+  const profile = format === 'pdf' ? PDF_QUALITY_PRESETS[pdfQuality] : PDF_QUALITY_PRESETS.balanced
+  const quality = raw ? RAW_JPEG_QUALITY : profile.quality
   const page = await encodeWithRepair(buffer, {
     quality,
-    maxWidth: raw ? 0 : OPT_MAX_WIDTH
+    maxWidth: raw ? 0 : profile.maxWidth,
+    chromaSubsampling: profile.chromaSubsampling
   })
   return { ...page, sourceBytes: buffer.length }
 }
@@ -150,22 +206,46 @@ async function preparePage(absPath, { format, raw }) {
  * 合并单部漫画。
  * @param {string} root 工作区
  * @param {string} relDir 漫画相对目录
- * @param {{format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, signal?: AbortSignal, onProgress?: (progress: {completedPages: number, totalPages: number, current?: string}) => void, writeState?: (path: string, content: string) => Promise<void>}} options
+ * @param {{format: 'epub'|'pdf', raw?: boolean, pdfQuality?: 'raw'|'balanced'|string, rebuild?: boolean, signal?: AbortSignal, onProgress?: (progress: {completedPages: number, totalPages: number, current?: string}) => void, writeState?: (path: string, content: string) => Promise<void>}} options
  * @returns {Promise<import('../../../shared/types').ComicMergeItem>}
  */
 export async function mergeOneComic(
   root,
   relDir,
-  { format, raw = false, rebuild = false, signal, onProgress, writeState = writeAtomicTextFile }
+  {
+    format,
+    raw = false,
+    pdfQuality,
+    rebuild = false,
+    comic: plannedComic,
+    pageConcurrency = 2,
+    signal,
+    onProgress,
+    writeState = writeAtomicTextFile
+  }
 ) {
-  const comic = await scanComic(root, relDir)
+  pdfQuality = resolvePdfQuality(pdfQuality, raw)
+  const useRaw = format === 'pdf' ? pdfQuality === 'raw' : raw
+  const startedAt = Date.now()
+  let preprocessDurationMs = 0
+  let documentDurationMs = 0
+  let verifyDurationMs = 0
+  // 预扫描快照只在目录及每张图片的元数据均未变化时复用；否则完整重扫。
+  const comic =
+    plannedComic && (await isComicSnapshotCurrent(root, relDir, plannedComic.snapshot, { signal }))
+      ? plannedComic
+      : await scanComic(root, relDir, { signal })
   const comicDir = join(root, relDir)
-  const state = rebuild ? null : comic.merged
+  // 旧 PDF 清单 high/text：不能增量混页，忽略既有清单并按当前 raw/balanced 全量重建。
+  const state = rebuild || hasLegacyPdfQuality(comic.merged, format) ? null : comic.merged
 
   if (comic.imageCount === 0 && !state) throw new Error('没有可合并的图片')
   if (state && state.format !== format) {
     // 换格式必须全量重建（EPUB/PDF 结构不同，无法互转追加）
   } else if (state) {
+    if (format === 'pdf' && (state.pdfQuality ?? 'balanced') !== pdfQuality) {
+      throw new Error('PDF 质量预设已变化，请勾选全量重建后重试')
+    }
     if (comic.changedChapters.length > 0) {
       throw new Error(
         `章节「${comic.changedChapters[0]}」等内容已变化，请改用全量重建（勾选后重试）`
@@ -199,6 +279,8 @@ export async function mergeOneComic(
   let outputBytes = 0
   let repairedPages = 0
   let stagedOutputPath = null
+  let pdfEngine = null
+  let pdfFallbackReason = null
   if (format === 'epub') {
     const stagingPath = createStagingPath(outputPath)
     const streamChapters = chaptersToProcess.map((chapter) => ({
@@ -212,7 +294,7 @@ export async function mergeOneComic(
     const prepareStreamPage = async ({ path }) => {
       // 原样 EPUB 通常无须读入图片：sharp 仅读取元数据，yazl 在写入时按需流式读取源文件。
       // 但结构异常的 jpg/jpeg 必须检出并转码修复，否则坏图会原样进入 EPUB（阅读器渲染异常）。
-      if (raw) {
+      if (useRaw) {
         const ext = extOf(path)
         if (isJpegExt(ext)) {
           const buffer = await readBinaryFile(path)
@@ -248,11 +330,12 @@ export async function mergeOneComic(
           repaired: false
         }
       }
-      const page = await preparePage(path, { format, raw })
+      const page = await prepareComicPage(path, { format, raw: useRaw, pdfQuality })
       sourceBytes += page.sourceBytes ?? page.data.length
       repairedPages += page.repaired ? 1 : 0
       return page
     }
+    const documentStartedAt = Date.now()
     try {
       if (mode === 'update') {
         await appendEpubFile({
@@ -278,6 +361,7 @@ export async function mergeOneComic(
           onProgress: emitPageProgress
         })
       }
+      documentDurationMs = Date.now() - documentStartedAt
       if (signal?.aborted) throw new Error('已取消')
       onProgress?.({
         completedPages: processedPageCount,
@@ -285,7 +369,9 @@ export async function mergeOneComic(
         current: comic.name,
         phase: '正在校验 EPUB 结构并安全替换产物'
       })
+      const verifyStartedAt = Date.now()
       await verifyEpubFile(stagingPath, expectedPages)
+      verifyDurationMs = Date.now() - verifyStartedAt
       stagedOutputPath = stagingPath
     } catch (error) {
       await discardStagedFile(stagingPath)
@@ -299,49 +385,113 @@ export async function mergeOneComic(
     for (const chapter of chaptersToProcess) {
       for (const image of chapter.images) pageSources.push(join(comicDir, image))
     }
-    const pages = new Array(pageSources.length)
-    let pageCursor = 0
-    let processedCount = 0
-    const pageLane = async () => {
-      while (pageCursor < pageSources.length && !signal?.aborted) {
-        const index = pageCursor
-        pageCursor += 1
-        const page = await preparePage(pageSources[index], { format, raw })
-        pages[index] = page
-        sourceBytes += page.sourceBytes ?? page.data.length
-        repairedPages += page.repaired ? 1 : 0
-        processedCount += 1
-        onProgress?.({
-          completedPages: processedCount,
-          totalPages: processedPageCount,
-          current: comic.name,
-          phase: '正在处理 PDF 页面'
-        })
-      }
-    }
-    await Promise.all(
-      Array.from({ length: Math.min(PDF_PAGE_CONCURRENCY, pageSources.length) }, pageLane)
-    )
-    if (signal?.aborted) throw new Error('已取消')
     const expectedPages =
       (mode === 'update'
         ? state.chapters.reduce((sum, chapter) => sum + chapter.images.length, 0)
-        : 0) + pages.length
+        : 0) + pageSources.length
     const stagingPath = createStagingPath(outputPath)
     try {
-      const bytes =
-        mode === 'update'
-          ? await appendPdf(await readBinaryFile(outputPath), { pages })
-          : await createPdf({ title: comic.name, pages })
+      const documentStartedAt = Date.now()
+      const streamRawCompatible =
+        !useRaw || (await Promise.all(pageSources.map(supportsStreamRawJpeg))).every(Boolean)
+      const useStreaming = mode === 'full' && streamRawCompatible
+      if (!useStreaming) {
+        pdfFallbackReason =
+          mode === 'update'
+            ? '增量追加需保留既有 PDF 页面，使用兼容模式'
+            : '原样模式含非 sRGB 三通道 JPEG、EXIF 方向图或无法确认的 JPEG，使用兼容模式'
+      }
+      const writePdfLib = async () => {
+        const pages = new Array(pageSources.length)
+        let pageCursor = 0
+        let processedCount = 0
+        const pageLane = async () => {
+          while (pageCursor < pageSources.length && !signal?.aborted) {
+            const index = pageCursor
+            pageCursor += 1
+            const page = await prepareComicPage(pageSources[index], {
+              format,
+              raw: useRaw,
+              pdfQuality
+            })
+            pages[index] = page
+            sourceBytes += page.sourceBytes ?? page.data.length
+            repairedPages += page.repaired ? 1 : 0
+            processedCount += 1
+            onProgress?.({
+              completedPages: processedCount,
+              totalPages: processedPageCount,
+              current: comic.name,
+              phase: '正在处理 PDF 页面（兼容模式）'
+            })
+          }
+        }
+        const preprocessStartedAt = Date.now()
+        await Promise.all(
+          Array.from({ length: Math.min(pageConcurrency, pageSources.length) }, pageLane)
+        )
+        preprocessDurationMs = Date.now() - preprocessStartedAt
+        throwIfAborted(signal)
+        const bytes =
+          mode === 'update'
+            ? await appendPdf(await readBinaryFile(outputPath), { pages })
+            : await createPdf({ title: comic.name, pages })
+        await writeBinaryFile(stagingPath, bytes)
+        pdfEngine = 'pdf-lib'
+      }
+      if (useStreaming) {
+        let processedCount = 0
+        const pages = (async function* () {
+          for (const source of pageSources) {
+            throwIfAborted(signal)
+            const page = await prepareComicPage(source, { format, raw: useRaw, pdfQuality })
+            sourceBytes += page.sourceBytes ?? page.data.length
+            repairedPages += page.repaired ? 1 : 0
+            processedCount += 1
+            onProgress?.({
+              completedPages: processedCount,
+              totalPages: processedPageCount,
+              current: comic.name,
+              phase: '正在流式写入 PDF 页面'
+            })
+            yield page
+          }
+        })()
+        preprocessDurationMs = 0
+        try {
+          await createNativePdfFile({
+            outputPath: stagingPath,
+            title: comic.name,
+            pageCount: pageSources.length,
+            pages,
+            signal
+          })
+          pdfEngine = 'stream-pdf'
+        } catch (error) {
+          if (signal?.aborted) throw error
+          await discardStagedFile(stagingPath)
+          pdfFallbackReason = `流式 PDF 写入失败，已回退兼容模式：${
+            error instanceof Error ? error.message : String(error)
+          }`
+          // 原生迭代器可能已消费部分页面；兼容路径从源文件重新读取，确保页序完整。
+          sourceBytes = 0
+          repairedPages = 0
+          await writePdfLib()
+        }
+      } else {
+        await writePdfLib()
+      }
+      documentDurationMs = Date.now() - documentStartedAt
       if (signal?.aborted) throw new Error('已取消')
       onProgress?.({
         completedPages: processedPageCount,
         totalPages: processedPageCount,
         current: comic.name,
-        phase: '正在生成并校验 PDF 文档'
+        phase: '正在校验 PDF 文档'
       })
-      await writeBinaryFile(stagingPath, bytes)
+      const verifyStartedAt = Date.now()
       await verifyPdfFile(stagingPath, expectedPages)
+      verifyDurationMs = Date.now() - verifyStartedAt
       stagedOutputPath = stagingPath
     } catch (error) {
       await discardStagedFile(stagingPath)
@@ -372,6 +522,7 @@ export async function mergeOneComic(
     format,
     outputName,
     outputBytes,
+    ...(format === 'pdf' ? { pdfQuality } : {}),
     coverName: managedCoverName,
     chapters: mergedChapters.map((chapter) => ({
       name: chapter.name,
@@ -385,7 +536,7 @@ export async function mergeOneComic(
   // 下次扫描只在目标摘要匹配时补写清单，不会把旧产物误认为已增量追加。
   outputBytes = await fileSize(stagedOutputPath)
   newState.outputBytes = outputBytes
-  const outputHash = createHash('sha256').update(await readBinaryFile(stagedOutputPath)).digest('hex')
+  const outputHash = await sha256File(stagedOutputPath)
   const markerPath = join(comicDir, COMIC_STATE_PENDING_NAME)
   await writeAtomicTextFile(
     markerPath,
@@ -411,14 +562,25 @@ export async function mergeOneComic(
     images: chaptersToProcess.reduce((sum, chapter) => sum + chapter.images.length, 0),
     bytes: outputBytes,
     sourceBytes,
-    repairedPages
+    repairedPages,
+    ...(format === 'pdf'
+      ? {
+          pdfQuality,
+          pdfEngine,
+          ...(pdfFallbackReason ? { pdfFallbackReason } : {}),
+          preprocessDurationMs,
+          documentDurationMs,
+          verifyDurationMs,
+          durationMs: Date.now() - startedAt
+        }
+      : { durationMs: Date.now() - startedAt, documentDurationMs, verifyDurationMs })
   }
 }
 
 /**
  * 批量合并（TaskCenter 并发，一项一部漫画）。
  * @param {string} root
- * @param {{relDirs: string[], format: 'epub'|'pdf', raw?: boolean, rebuild?: boolean, taskCenter: object, taskId: string, concurrency?: number, signal?: AbortSignal, onProgress?: (progress: {completed: number, total: number, current: string, done?: boolean, cancelled?: boolean}) => void}} options
+ * @param {{relDirs: string[], format: 'epub'|'pdf', raw?: boolean, pdfQuality?: 'raw'|'balanced'|string, rebuild?: boolean, snapshots?: object[], taskCenter: object, taskId: string, bookConcurrency?: number, pageConcurrency?: number, signal?: AbortSignal, onProgress?: (progress: {completed: number, total: number, current: string, done?: boolean, cancelled?: boolean}) => void}} options
  * @returns {Promise<import('../../../shared/types').ComicMergeReport>}
  */
 export async function mergeComics(
@@ -427,14 +589,18 @@ export async function mergeComics(
     relDirs,
     format,
     raw = false,
+    pdfQuality,
     rebuild = false,
     taskCenter,
     taskId,
-    concurrency = 5,
+    snapshots = [],
+    bookConcurrency = 2,
+    pageConcurrency = 2,
     signal,
     onProgress
   }
 ) {
+  pdfQuality = resolvePdfQuality(pdfQuality, raw)
   const startedAt = Date.now()
   const report = { taskId, cancelled: false, format, merged: [], failed: [], durationMs: 0 }
 
@@ -445,6 +611,11 @@ export async function mergeComics(
 
   // 预先扫描以获得稳定的页数总量；这让数千页长漫画能显示实际页进度，而非只显示“第几本”。
   // 扫描本身也是大量目录 I/O，车道并发 4 缩短「准备」阶段等待，取消从任务创建前就生效。
+  const suppliedByRelDir = new Map(
+    snapshots
+      .filter((comic) => comic?.relDir && relDirs.includes(comic.relDir))
+      .map((comic) => [comic.relDir, comic])
+  )
   const plans = []
   let scanCursor = 0
   const scanLane = async () => {
@@ -452,11 +623,17 @@ export async function mergeComics(
       throwIfAborted(signal)
       const relDir = relDirs[scanCursor]
       scanCursor += 1
-      const comic = await scanComic(root, relDir)
-      const update = !rebuild && comic.merged?.format === format
+      const supplied = suppliedByRelDir.get(relDir)
+      const comic =
+        supplied && (await isComicSnapshotCurrent(root, relDir, supplied.snapshot, { signal }))
+          ? supplied
+          : await scanComic(root, relDir, { signal })
+      const update =
+        !rebuild && !hasLegacyPdfQuality(comic.merged, format) && comic.merged?.format === format
       const chapters = update ? comic.newChapters : comic.chapters
       plans.push({
         relDir,
+        comic,
         total: chapters.reduce((sum, chapter) => sum + chapter.images.length, 0)
       })
     }
@@ -480,16 +657,18 @@ export async function mergeComics(
     label: format === 'epub' ? '合并漫画（EPUB）' : '合并漫画（PDF）',
     items: relDirs,
     // 单部漫画内部已做页级并行转码；同时并行多部超大 PDF 会成倍放大 pdf-lib 的全量内存占用。
-    // EPUB 至多 4 本并行（sharp 转码是 CPU 密集，多本并行充分利用多核）；
     // PDF 保持单本并行（页级并行已提速），优先保证 Windows 的稳定性。
-    concurrency: format === 'pdf' ? 1 : Math.min(4, concurrency),
+    concurrency: format === 'pdf' ? 1 : bookConcurrency,
     signal,
     worker: async (relDir, signal) => {
       if (signal?.aborted) throw new Error('已取消')
       const item = await mergeOneComic(root, relDir, {
         format,
         raw,
+        pdfQuality,
         rebuild,
+        comic: plans.find((plan) => plan.relDir === relDir)?.comic,
+        pageConcurrency,
         signal,
         onProgress: (progress) => reportProgress(relDir, progress)
       })

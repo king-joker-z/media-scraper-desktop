@@ -71,7 +71,9 @@ import type {
   AiFileInput,
   AppModule,
   AppSettings,
+  ComicScanResult,
   ComicFormat,
+  ComicPdfQuality,
   MergeSourceItem,
   MergeVideoItem,
   NfoPlanItem,
@@ -413,6 +415,8 @@ const emitTask = (
 const taskSlots = new Map<string, string>()
 /** 任务 ID 到取消入口的映射；仅暴露白名单任务，防止 renderer 直接操作任意主进程任务。 */
 const taskCancels = new Map<string, () => void>()
+// 仅主进程保留扫描快照；不接受渲染端传回的章节数据，避免 IPC 伪造或遗漏页面。
+const comicScanSnapshots = new Map<string, ComicScanResult>()
 // AI 命名是网络任务，不经过 TaskCenter worker；单独保存 controller 以响应同一个“取消重命名”入口。
 const aiTaskControllers = new Map<string, AbortController>()
 
@@ -1451,11 +1455,14 @@ function registerIpcHandlers(): void {
   })
 
   // ---------- 漫画模块 ----------
-  ipcMain.handle('comic:scan', async (_event, root: string, options: { light?: boolean } = {}) =>
-    trackScan('扫描漫画工作区', async (signal) =>
-      scanComicWorkspace(requireComicRoot(root), { ...options, signal })
+  ipcMain.handle('comic:scan', async (_event, root: string, options: { light?: boolean } = {}) => {
+    const safeRoot = requireComicRoot(root)
+    const result = await trackScan('扫描漫画工作区', async (signal) =>
+      scanComicWorkspace(safeRoot, { ...options, signal })
     )
-  )
+    comicScanSnapshots.set(safeRoot, result)
+    return result
+  })
   ipcMain.handle(
     'comic:merge',
     async (
@@ -1463,7 +1470,7 @@ function registerIpcHandlers(): void {
       root: string,
       relDirs: string[],
       format: ComicFormat,
-      options: { raw?: boolean; rebuild?: boolean } = {}
+      options: { raw?: boolean; pdfQuality?: ComicPdfQuality; rebuild?: boolean } = {}
     ) =>
       runExclusiveAbort('comic-mutate', '漫画工作区操作', async (signal, taskId) => {
         const safeRoot = requireComicRoot(root)
@@ -1473,10 +1480,13 @@ function registerIpcHandlers(): void {
           relDirs,
           format,
           raw: options.raw === true,
+          pdfQuality: options.pdfQuality,
           rebuild: options.rebuild === true,
           taskCenter,
           taskId,
-          concurrency: settings.concurrency,
+          snapshots: comicScanSnapshots.get(safeRoot)?.comics ?? [],
+          bookConcurrency: settings.comicBookConcurrency,
+          pageConcurrency: settings.comicPageConcurrency,
           signal,
           onProgress: ({ completed, total, current, done, cancelled }) => {
             emitTask(`${taskId}-pages`, '漫画页处理进度', {
@@ -1502,7 +1512,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     'comic:rename',
     async (_event, root: string, items: Array<{ relDir: string; newName: string }>) =>
-      runExclusive('comic-mutate', '漫画工作区操作', async (taskId) => {
+      runExclusiveAbort('comic-mutate', '漫画工作区操作', async (signal, taskId) => {
         const safeRoot = requireComicRoot(root)
         items.forEach((item) => requireComicDir(safeRoot, item.relDir))
         const settings = await settingsStore.get()
@@ -1515,10 +1525,16 @@ function registerIpcHandlers(): void {
             taskCenter,
             taskId,
             concurrency: settings.concurrency,
+            signal,
             onStageProgress: (completed, total, current) => {
               stageNotified = true
               emitTask(taskId, '重命名漫画', { type: 'progress', current, completed, total })
-            }
+            },
+            onLockRetry: (relDir, info) =>
+              emitTask(taskId, '重命名漫画', {
+                type: 'progress',
+                current: `「${relDir}」等待文件锁释放（第 ${info.attempt} 次，${info.delayMs}ms）`
+              })
           })
         } catch (error) {
           // 暂存阶段失败发生在 TaskCenter 派发之前，必须补发终态事件，
@@ -1542,7 +1558,7 @@ function registerIpcHandlers(): void {
         return report
       })
   )
-  ipcMain.handle('comic:rename-cancel', async () => cancelSlot('comic-mutate'))
+  ipcMain.handle('comic:rename-cancel', async () => abortSlot('comic-mutate'))
   ipcMain.handle('comic:delete-sources', async (_event, root: string, relDirs: string[]) => {
     const safeRoot = requireComicRoot(root)
     relDirs.forEach((relDir) => requireComicDir(safeRoot, relDir))

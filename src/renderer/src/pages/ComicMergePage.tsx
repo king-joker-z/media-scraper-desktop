@@ -136,7 +136,7 @@ const ComicListItem = memo(function ComicListItem({
 const COMIC_PAGE_SIZE = 100
 
 /**
- * 漫画合并：扫描漫画工作区 → 勾选漫画 → 选格式（EPUB/PDF）→ 执行 → 报告 → 删除源图。
+ * 漫画合并：扫描漫画工作区 → 勾选漫画 → 选格式（EPUB/PDF）与原样模式 → 执行 → 报告 → 删除源图。
  * 已合并且有新章节的漫画走增量追加；章节内容变化的需要勾选「全量重建」。
  */
 function ComicMergePage({
@@ -372,7 +372,13 @@ function ComicMergePage({
         setError('')
       }
       setNotice(
-        `已重命名漫画 ${outcome.renamedCount} 部${outcome.failed.length ? `，失败 ${outcome.failed.length} 部` : ''}`
+        `已重命名漫画 ${outcome.renamedCount} 部${
+          outcome.failed.length ? `，失败 ${outcome.failed.length} 部` : ''
+        }${
+          outcome.lockRetries > 0
+            ? `；文件锁等待 ${outcome.lockRetries} 次，累计 ${(outcome.lockWaitMs / 1000).toFixed(1)}s`
+            : ''
+        }`
       )
       // 改名只涉及目录名，图片/章节结构一个都没变：用主进程返回的 from→to 映射就地更新列表，
       // 完全跳过扫描（几千页工作区也不会发生任何目录遍历）。失败项保持原名，不影响其他项。
@@ -521,10 +527,7 @@ function ComicMergePage({
                 PDF（通用）
               </button>
             </div>
-            <label
-              className="confirm-check"
-              title="不重编码、不缩放，原图直接打包（体积更大；PDF 仅 JPG/PNG 可直嵌）"
-            >
+            <label className="confirm-check" title="不重编码、不缩放，原图直接打包（体积更大）">
               <input
                 className="check-input"
                 type="checkbox"
@@ -672,10 +675,30 @@ function ComicMergePage({
                           · <span className="warn-text">修复 {item.repairedPages} 页损坏图</span>
                         </>
                       )}
+                      {item.pdfQuality && (
+                        <> · PDF {item.pdfQuality === 'raw' ? '原样' : '默认优化'}</>
+                      )}
+                      {item.pdfEngine && (
+                        <> · {item.pdfEngine === 'stream-pdf' ? '流式写入器' : '兼容引擎'}</>
+                      )}
+                      {item.pdfFallbackReason && (
+                        <>
+                          {' '}
+                          · <span className="warn-text">{item.pdfFallbackReason}</span>
+                        </>
+                      )}
                     </span>
                   </span>
                   <span className="muted">
                     {formatBytes(item.sourceBytes)} → {formatBytes(item.bytes)}
+                    {item.pdfQuality && (
+                      <>
+                        {' '}
+                        · 预处理 {((item.preprocessDurationMs ?? 0) / 1000).toFixed(1)}s · 生成{' '}
+                        {(item.documentDurationMs / 1000).toFixed(1)}s · 校验{' '}
+                        {(item.verifyDurationMs / 1000).toFixed(1)}s
+                      </>
+                    )}
                   </span>
                 </div>
               ))}

@@ -1,6 +1,28 @@
 declare module './merge.mjs' {
-  import type { ComicMergeItem, ComicMergeReport } from '../../../shared/types'
+  import type {
+    Comic,
+    ComicMergeItem,
+    ComicMergeReport,
+    ComicPdfQuality
+  } from '../../../shared/types'
   import type { TaskCenter } from '../../core/task-center.mjs'
+
+  export const PDF_QUALITY_PRESETS: Record<
+    ComicPdfQuality,
+    { label: string; maxWidth: number; quality: number; chromaSubsampling: '4:2:0' | '4:4:4' }
+  >
+  export function resolvePdfQuality(pdfQuality: unknown, raw?: boolean): ComicPdfQuality
+  export function prepareComicPage(
+    absPath: string,
+    options: { format: 'epub' | 'pdf'; raw: boolean; pdfQuality?: ComicPdfQuality }
+  ): Promise<{
+    data: Buffer
+    width: number
+    height: number
+    ext: 'jpg' | 'png'
+    repaired: boolean
+    sourceBytes: number
+  }>
 
   /** 合并单部漫画（全量或增量自动判定；rebuild 强制全量重建） */
   export function mergeOneComic(
@@ -9,7 +31,10 @@ declare module './merge.mjs' {
     options: {
       format: 'epub' | 'pdf'
       raw?: boolean
+      pdfQuality?: ComicPdfQuality
       rebuild?: boolean
+      comic?: Comic
+      pageConcurrency?: number
       signal?: AbortSignal
       onProgress?: (progress: {
         completedPages: number
@@ -27,10 +52,13 @@ declare module './merge.mjs' {
       relDirs: string[]
       format: 'epub' | 'pdf'
       raw?: boolean
+      pdfQuality?: ComicPdfQuality
       rebuild?: boolean
+      snapshots?: Comic[]
       taskCenter: TaskCenter
       taskId: string
-      concurrency?: number
+      bookConcurrency?: number
+      pageConcurrency?: number
       signal?: AbortSignal
       onProgress?: (progress: {
         completed: number

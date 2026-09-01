@@ -7,6 +7,7 @@ import type {
   CaptureOutcome,
   CleanReport,
   ComicFormat,
+  ComicPdfQuality,
   ComicMergeReport,
   ComicScanResult,
   DedupeScanResult,
@@ -118,7 +119,7 @@ declare global {
         root: string,
         relDirs: string[],
         format: ComicFormat,
-        options?: { raw?: boolean; rebuild?: boolean }
+        options?: { raw?: boolean; pdfQuality?: ComicPdfQuality; rebuild?: boolean }
       ) => Promise<ComicMergeReport>
       cancelComicMerge: () => Promise<void>
       renameComics: (
@@ -130,6 +131,8 @@ declare global {
         renamedCount: number
         items: Array<{ from: string; to: string }>
         failed: Array<{ target: string; error: string }>
+        lockRetries: number
+        lockWaitMs: number
       }>
       cancelComicRename: () => Promise<void>
       deleteComicSources: (

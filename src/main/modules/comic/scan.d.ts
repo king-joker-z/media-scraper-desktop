@@ -1,11 +1,23 @@
 declare module './scan.mjs' {
-  import type { Comic, ComicMergedState, ComicScanResult } from '../../../shared/types'
+  import type {
+    Comic,
+    ComicMergedState,
+    ComicScanResult,
+    ComicScanSnapshot
+  } from '../../../shared/types'
 
   export const COMIC_STATE_PENDING_NAME: string
   /** 读取合并清单（不存在/损坏/产物被删时返回 null） */
   export function readComicState(comicDir: string): Promise<ComicMergedState | null>
   /** 恢复产物已提交、清单尚未落盘的漫画事务。 */
   export function recoverComicStateTransaction(comicDir: string): Promise<boolean>
+  /** 快照仅做目录/文件 stat 校验，失败时需回退完整扫描。 */
+  export function isComicSnapshotCurrent(
+    root: string,
+    relDir: string,
+    snapshot: ComicScanSnapshot | undefined,
+    options?: { signal?: AbortSignal }
+  ): Promise<boolean>
 
   /**
    * 扫描单部漫画。

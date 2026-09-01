@@ -7,6 +7,7 @@ import type {
   CaptureOutcome,
   CleanReport,
   ComicFormat,
+  ComicPdfQuality,
   ComicMergeReport,
   ComicScanResult,
   DedupeScanResult,
@@ -127,7 +128,7 @@ const api = {
     root: string,
     relDirs: string[],
     format: ComicFormat,
-    options?: { raw?: boolean; rebuild?: boolean }
+    options?: { raw?: boolean; pdfQuality?: ComicPdfQuality; rebuild?: boolean }
   ): Promise<ComicMergeReport> => ipcRenderer.invoke('comic:merge', root, relDirs, format, options),
   cancelComicMerge: (): Promise<void> => ipcRenderer.invoke('comic:cancel'),
   renameComics: (

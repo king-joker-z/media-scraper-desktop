@@ -1,7 +1,12 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createHash } from 'node:crypto'
-import { discardStagedFile, pathExists, recoverStagedOutputs, writeAtomicTextFile } from '../../core/fs-ops.mjs'
+import {
+  discardStagedFile,
+  pathExists,
+  recoverStagedOutputs,
+  sha256File,
+  writeAtomicTextFile
+} from '../../core/fs-ops.mjs'
 import {
   COMIC_STATE_NAME,
   LEGACY_COMIC_COVER_NAME,
@@ -59,6 +64,80 @@ async function collectImages(comicDir, relDir, comicName, { signal } = {}) {
   return out.sort(compareComicNames)
 }
 
+const snapshotEntry = async (comicDir, relPath) => {
+  const info = await stat(join(comicDir, relPath))
+  return { relPath, size: info.size, mtimeMs: info.mtimeMs }
+}
+
+/**
+ * 为已完整扫描的漫画创建轻量一致性快照。执行前只需 stat 已知目录和图片，
+ * 无需再次 readdir 整棵目录树；任何新增/删除页都会改变其所在目录的 mtime。
+ */
+async function createComicSnapshot(comicDir, chapters) {
+  const directoryPaths = new Set([''])
+  const imagePaths = []
+  for (const chapter of chapters) {
+    if (chapter.relDir) {
+      const segments = chapter.relDir.split('/')
+      for (let index = 1; index <= segments.length; index += 1) {
+        directoryPaths.add(segments.slice(0, index).join('/'))
+      }
+    }
+    for (const image of chapter.images) {
+      imagePaths.push(image)
+      const segments = image.split('/')
+      for (let index = 1; index < segments.length; index += 1) {
+        directoryPaths.add(segments.slice(0, index).join('/'))
+      }
+    }
+  }
+  return {
+    directories: await Promise.all(
+      [...directoryPaths].map(async (relPath) => {
+        const info = await stat(join(comicDir, relPath))
+        return { relPath, mtimeMs: info.mtimeMs }
+      })
+    ),
+    images: await Promise.all(imagePaths.map((relPath) => snapshotEntry(comicDir, relPath)))
+  }
+}
+
+/** 执行前轻量校验扫描快照；不可信或过期时调用方必须重新完整扫描。 */
+export async function isComicSnapshotCurrent(root, relDir, snapshot, { signal } = {}) {
+  if (
+    !snapshot ||
+    !Array.isArray(snapshot.directories) ||
+    !Array.isArray(snapshot.images) ||
+    snapshot.directories.length === 0
+  ) {
+    return false
+  }
+  const comicDir = join(root, relDir)
+  try {
+    for (const entry of snapshot.directories) {
+      throwIfAborted(signal)
+      if (typeof entry?.relPath !== 'string' || !Number.isFinite(entry.mtimeMs)) return false
+      const info = await stat(join(comicDir, entry.relPath))
+      if (!info.isDirectory() || info.mtimeMs !== entry.mtimeMs) return false
+    }
+    for (const entry of snapshot.images) {
+      throwIfAborted(signal)
+      if (
+        typeof entry?.relPath !== 'string' ||
+        !Number.isFinite(entry.size) ||
+        !Number.isFinite(entry.mtimeMs)
+      ) {
+        return false
+      }
+      const info = await stat(join(comicDir, entry.relPath))
+      if (!info.isFile() || info.size !== entry.size || info.mtimeMs !== entry.mtimeMs) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** 读取合并清单（不存在/损坏/产物被删时返回 null） */
 export async function readComicState(comicDir) {
   try {
@@ -71,8 +150,6 @@ export async function readComicState(comicDir) {
     return null
   }
 }
-
-const sha256File = async (path) => createHash('sha256').update(await readFile(path)).digest('hex')
 
 /**
  * 产物安全替换后、清单落盘前若进程退出，pending marker 带有产物摘要与完整新清单。
@@ -96,7 +173,10 @@ export async function recoverComicStateTransaction(comicDir) {
       await discardStagedFile(markerPath)
       return false
     }
-    await writeAtomicTextFile(join(comicDir, COMIC_STATE_NAME), JSON.stringify(marker.state, null, 2))
+    await writeAtomicTextFile(
+      join(comicDir, COMIC_STATE_NAME),
+      JSON.stringify(marker.state, null, 2)
+    )
     await discardStagedFile(markerPath)
     return true
   } catch {
@@ -158,7 +238,8 @@ export async function scanComic(root, relDir, { signal } = {}) {
     coverRel,
     merged,
     newChapters,
-    changedChapters
+    changedChapters,
+    snapshot: await createComicSnapshot(comicDir, sorted)
   }
 }
 

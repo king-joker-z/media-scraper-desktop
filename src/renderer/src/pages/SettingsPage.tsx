@@ -883,6 +883,36 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
       </section>
 
       <section className="settings-card" hidden={!isGroupActive('performance')}>
+        <h2>漫画合并并发</h2>
+        <p className="muted">
+          书级任务和单本 PDF 页面转码使用独立预算。Windows 默认保守为 1 本、2 页；网络盘建议保持书级
+          1。
+        </p>
+        <p className="muted">同时合并的 EPUB 书籍数（1–4；PDF 为保护内存始终单本执行）。</p>
+        <div className="slider-row">
+          <input
+            type="range"
+            min={1}
+            max={4}
+            value={settings.comicBookConcurrency}
+            onChange={(event) => persist({ comicBookConcurrency: Number(event.target.value) })}
+          />
+          <b>{settings.comicBookConcurrency}</b>
+        </div>
+        <p className="muted">单本 PDF 同时预处理的页面数（1–8）。</p>
+        <div className="slider-row">
+          <input
+            type="range"
+            min={1}
+            max={8}
+            value={settings.comicPageConcurrency}
+            onChange={(event) => persist({ comicPageConcurrency: Number(event.target.value) })}
+          />
+          <b>{settings.comicPageConcurrency}</b>
+        </div>
+      </section>
+
+      <section className="settings-card" hidden={!isGroupActive('performance')}>
         <h2>FFmpeg 进程池</h2>
         <p className="muted">
           同时运行的 ffmpeg/ffprobe 进程数上限（1–8，默认 4）。截帧、探测、体检共用此池，
