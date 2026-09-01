@@ -823,3 +823,148 @@
   transform: translate(-1px, -1px);
   box-shadow: 3px 3px 0 var(--comic-ink);
 }
+
+/* ============================================================
+ * 漫画风侧边栏变体：书脊 / 卷号徽章 / 对话式切换 / 墨框目录
+ * ============================================================ */
+:root[data-palette='comic'] .sidebar-comic {
+  background: var(--comic-paper);
+  border-right: 3px solid var(--comic-ink);
+}
+:root[data-palette='comic'] .sb-comic-spine {
+  padding: 14px 14px 10px;
+  display: grid;
+  gap: 10px;
+  border-bottom: 2.5px solid var(--comic-ink);
+  background: var(--comic-paper);
+}
+:root[data-palette='comic'] .sb-comic-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+:root[data-palette='comic'] .sb-comic-vol {
+  padding: 2px 8px;
+  background: var(--comic-yellow);
+  color: var(--comic-ink);
+  border: 2px solid var(--comic-ink);
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 var(--comic-ink);
+  font-size: 11px;
+  font-weight: 900;
+}
+:root[data-palette='comic'] .sb-comic-burst {
+  color: var(--comic-red);
+  font-size: 14px;
+  font-weight: 900;
+}
+:root[data-palette='comic'] .sb-comic-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--comic-paper);
+  border: 2.5px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 var(--comic-ink);
+  color: var(--comic-ink);
+  cursor: pointer;
+  transform: rotate(-0.5deg);
+}
+:root[data-palette='comic'] .sb-comic-switch:hover {
+  transform: translate(-1px, -1px) rotate(-0.5deg);
+  box-shadow: 5px 5px 0 var(--comic-ink);
+}
+:root[data-palette='comic'] .sb-comic-icon {
+  color: var(--comic-ink);
+}
+:root[data-palette='comic'] .sb-comic-name {
+  font-size: 14px;
+  font-weight: 900;
+}
+:root[data-palette='comic'] .sb-comic-caret {
+  margin-left: auto;
+  padding: 1px 6px;
+  background: var(--comic-ink);
+  color: var(--comic-paper);
+  font-size: 10px;
+  font-weight: 800;
+  border-radius: 2px;
+}
+:root[data-palette='comic'] .sb-comic-ws {
+  padding: 10px 12px;
+}
+:root[data-palette='comic'] .sb-comic-ws .workspace-button {
+  background: #fff;
+  border: 2px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 var(--comic-ink);
+}
+:root[data-palette='comic'] .sb-comic-ws .workspace-label {
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--comic-ink);
+}
+:root[data-palette='comic'] .sb-comic-ws .workspace-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: #3f3933;
+}
+:root[data-palette='comic'] .sb-comic-nav {
+  padding: 10px 10px;
+  display: grid;
+  gap: 4px;
+}
+:root[data-palette='comic'] .sb-comic-nav-title {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--comic-ink);
+  letter-spacing: 0.1em;
+  border-bottom: 2px dashed var(--comic-ink);
+  margin-bottom: 4px;
+}
+:root[data-palette='comic'] .sb-comic-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 3px;
+  color: var(--comic-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+:root[data-palette='comic'] .sb-comic-item:hover {
+  background: #fff;
+  border-color: var(--comic-ink);
+  box-shadow: 2px 2px 0 var(--comic-ink);
+}
+:root[data-palette='comic'] .sb-comic-item.active {
+  background: var(--comic-yellow);
+  border-color: var(--comic-ink);
+  box-shadow: 3px 3px 0 var(--comic-ink);
+  font-weight: 900;
+  transform: translateX(3px);
+}
+:root[data-palette='comic'] .sb-comic-num {
+  font-size: 10px;
+  font-weight: 900;
+  color: #7a746c;
+}
+:root[data-palette='comic'] .sb-comic-item.active .sb-comic-num {
+  color: var(--comic-ink);
+}
+:root[data-palette='comic'] .sb-comic-star {
+  margin-left: auto;
+  font-size: 14px;
+}
+:root[data-palette='comic'] .sb-comic-footer {
+  padding: 12px 14px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #7a746c;
+  border-top: 2px solid var(--comic-ink);
+}

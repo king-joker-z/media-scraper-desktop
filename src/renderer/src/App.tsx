@@ -19,6 +19,7 @@ import CommandPalette from './components/CommandPalette'
 import ConfirmDialog from './components/ConfirmDialog'
 import CursorTrail from './components/CursorTrail'
 import ModulePicker from './components/ModulePicker'
+import { AppSidebar, type NavItemDef } from './components/AppSidebar'
 import { prunePlayPositions } from './utils/media'
 import { useSpotlightHover } from './utils/spotlight'
 import {
@@ -58,7 +59,7 @@ type IconName =
   | 'settings'
   | 'spark'
 
-const VIDEO_NAV_ITEMS: { key: PageKey; icon: IconName; label: string }[] = [
+const VIDEO_NAV_ITEMS: NavItemDef[] = [
   { key: 'clean', icon: 'brush', label: '目录清理' },
   { key: 'merge', icon: 'merge', label: '视频合并' },
   { key: 'rename', icon: 'rename', label: '批量重命名' },
@@ -69,7 +70,7 @@ const VIDEO_NAV_ITEMS: { key: PageKey; icon: IconName; label: string }[] = [
   { key: 'settings', icon: 'settings', label: '设置' }
 ]
 
-const COMIC_NAV_ITEMS: { key: PageKey; icon: IconName; label: string }[] = [
+const COMIC_NAV_ITEMS: NavItemDef[] = [
   { key: 'comic-merge', icon: 'merge', label: '漫画合并' },
   { key: 'comic-library', icon: 'book', label: '漫画库' },
   { key: 'settings', icon: 'settings', label: '设置' }
@@ -586,89 +587,20 @@ function App(): React.JSX.Element {
       onDragOver={(event) => event.preventDefault()}
       onDrop={onDrop}
     >
-      <aside className="sidebar">
-        <div className="sidebar-drag" />
-        <div className="sidebar-brand">
-          <button
-            className="module-switch"
-            title="切换模块（视频 / 漫画）"
-            aria-label="切换模块"
-            onClick={() => switchModule(null)}
-          >
-            <span className={`brand-icon brand-icon-${module}`}>
-              <Icon name={MODULE_META[module].icon} size={28} />
-            </span>
-            <span className="brand-name">{MODULE_META[module].name}</span>
-            <span className="module-switch-caret">⇄</span>
-          </button>
-        </div>
-        <div className="workspace-host">
-          <button className="workspace-button" onClick={chooseWorkspace} title={workspace}>
-            <span className="workspace-label">{module === 'video' ? '工作区' : '漫画工作区'}</span>
-            <span className="workspace-value">
-              {workspace ? basenameOf(workspace) : '点击选择 / 拖入文件夹'}
-            </span>
-          </button>
-          {moduleRecents.length > 0 && (
-            <button
-              className="recents-toggle"
-              title="最近使用的工作区"
-              aria-label="显示最近工作区"
-              aria-expanded={showRecents}
-              onClick={() => setShowRecents((v) => !v)}
-            >
-              <Icon name="recent" size={15} /> 最近
-            </button>
-          )}
-          {showRecents && moduleRecents.length > 0 && (
-            <>
-              <button
-                className="recents-mask"
-                type="button"
-                aria-label="关闭最近工作区列表"
-                onClick={() => setShowRecents(false)}
-              />
-              <div className="recents-pop">
-                {moduleRecents.map((path) => (
-                  <button
-                    key={path}
-                    className={`recents-item ${path === workspace ? 'active' : ''}`}
-                    title={path}
-                    onClick={() => {
-                      setShowRecents(false)
-                      void openWorkspace(path)
-                    }}
-                  >
-                    <b>{basenameOf(path)}</b>
-                    <span>{path}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        <nav className="sidebar-nav">
-          {navItems.map((item, index) => (
-            <button
-              key={item.key}
-              data-spotlight=""
-              className={`nav-item ${page === item.key ? 'active' : ''}`}
-              aria-current={page === item.key ? 'page' : undefined}
-              onClick={() => navigateToPage(item.key)}
-            >
-              {/* 终端皮肤显示序号，其余皮肤隐藏 */}
-              <span className="nav-index" aria-hidden="true">
-                {String(index + 1).padStart(2, '0')}
-              </span>
-              <span className="nav-icon">
-                <Icon name={item.icon} />
-              </span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-footer">v1.4.0 · 本地处理，隐私安全</div>
-      </aside>
+      <AppSidebar
+        module={module}
+        page={page}
+        workspace={workspace}
+        recents={moduleRecents}
+        showRecents={showRecents}
+        navItems={navItems}
+        onSwitchModule={() => switchModule(null)}
+        onChooseWorkspace={() => void chooseWorkspace()}
+        onOpenWorkspace={(path) => void openWorkspace(path)}
+        onToggleRecents={() => setShowRecents((v) => !v)}
+        onCloseRecents={() => setShowRecents(false)}
+        onNavigate={navigateToPage}
+      />
       <a className="skip-link" href="#main-content">
         跳到主要内容
       </a>
