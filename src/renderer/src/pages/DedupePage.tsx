@@ -3,6 +3,7 @@ import type { DedupeScanResult, DupItem, MediaInfo, SimilarDupItem } from '../..
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
 import VideoModal from '../components/VideoModal'
+import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes, formatDuration, joinPath } from '../utils/format'
 
 /** 质量徽标：分辨率 · 时长 · 平均码率 */
@@ -157,49 +158,47 @@ function DedupePage({
 
   return (
     <div className="page">
-      <header className="page-header" aria-hidden={!active}>
-        <div>
-          <p className="eyebrow">视频去重</p>
-          <h1>重复视频检测</h1>
-          <p className="muted">
-            「完全重复」按大小 +
-            头/中/尾内容指纹判定；「相似重复」找同片不同压制版本（同分辨率、时长相近）。
-          </p>
-        </div>
-        <div className="actions page-actions dedupe-actions">
-          <button className="secondary" onClick={onChooseWorkspace} disabled={deleting}>
-            选择工作区
-          </button>
-          <label
-            className="confirm-check"
-            title="仅检测完全重复，跳过相似重复聚类（大目录显著提速）"
-          >
-            <input
-              className="check-input"
-              type="checkbox"
-              checked={fastMode}
-              onChange={(event) => setFastMode(event.target.checked)}
-              disabled={loading || deleting}
-            />
-            <span className="muted">快速模式</span>
-          </label>
-          <button data-command="scan" onClick={scan} disabled={!workspace || loading || deleting}>
-            {loading ? '检测中…' : '开始检测'}
-          </button>
-          {deleting ? (
-            <button
-              className="secondary action-cancel"
-              onClick={() => void window.api.cancelDedupeDelete()}
+      <WorkbenchHeader
+        ariaHidden={!active}
+        eyebrow="视频去重"
+        title="重复视频检测"
+        description="「完全重复」按大小 + 头/中/尾内容指纹判定；「相似重复」找同片不同压制版本（同分辨率、时长相近）。"
+        actions={
+          <>
+            <button className="secondary" onClick={onChooseWorkspace} disabled={deleting}>
+              选择工作区
+            </button>
+            <label
+              className="confirm-check"
+              title="仅检测完全重复，跳过相似重复聚类（大目录显著提速）"
             >
-              取消删除
+              <input
+                className="check-input"
+                type="checkbox"
+                checked={fastMode}
+                onChange={(event) => setFastMode(event.target.checked)}
+                disabled={loading || deleting}
+              />
+              <span className="muted">快速模式</span>
+            </label>
+            <button data-command="scan" onClick={scan} disabled={!workspace || loading || deleting}>
+              {loading ? '检测中…' : '开始检测'}
             </button>
-          ) : currentResult && checked.size > 0 ? (
-            <button className="danger-button" onClick={() => setConfirming(true)}>
-              {`删除选中（${checked.size}）`}
-            </button>
-          ) : null}
-        </div>
-      </header>
+            {deleting ? (
+              <button
+                className="secondary action-cancel"
+                onClick={() => void window.api.cancelDedupeDelete()}
+              >
+                取消删除
+              </button>
+            ) : currentResult && checked.size > 0 ? (
+              <button className="danger-button" onClick={() => setConfirming(true)}>
+                {`删除选中（${checked.size}）`}
+              </button>
+            ) : null}
+          </>
+        }
+      />
 
       <section className="path-card">
         <span>当前工作区</span>

@@ -8,6 +8,7 @@ import {
 import { applyRegexRules } from '../../../shared/rename-rules.mjs'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes, joinPath } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
@@ -453,54 +454,52 @@ function ComicMergePage({
 
   return (
     <div className="page comic-merge-page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">漫画合并</p>
-          <h1>章节合并为 EPUB / PDF</h1>
-          <p className="muted">
-            每个子文件夹是一部漫画，章节目录与图片按自然顺序合并；已合并的漫画追更后只需追加新章节。
-          </p>
-        </div>
-        <div className="actions">
-          <button
-            className="secondary"
-            onClick={onChooseWorkspace}
-            disabled={comicMutating || confirmDelete}
-          >
-            选择工作区
-          </button>
-          <button
-            className="secondary"
-            onClick={() => void scan()}
-            data-command="scan"
-            disabled={!workspace || loading || comicMutating}
-          >
-            {loading ? '扫描中…' : '刷新'}
-          </button>
-          <button className="secondary" onClick={onOpenLibrary}>
-            漫画库
-          </button>
-          {/* 主操作放在置顶的页头：随时可见，且不会被右下角任务浮岛遮挡。 */}
-          {result && (
-            <span className="muted comic-picked">
-              已选 {selectedComics.length} 部{rebuild ? '（全量重建）' : ''}
-            </span>
-          )}
-          {result &&
-            (merging ? (
-              <button className="secondary" onClick={() => void window.api.cancelComicMerge()}>
-                取消合并
-              </button>
-            ) : (
-              <button
-                onClick={execute}
-                disabled={selectedComics.length === 0 || deleting || (needRebuild && !rebuild)}
-              >
-                {`合并 ${selectedComics.length} 部为 ${format.toUpperCase()}`}
-              </button>
-            ))}
-        </div>
-      </header>
+      <WorkbenchHeader
+        eyebrow="漫画合并"
+        title="章节合并为 EPUB / PDF"
+        description="每个子文件夹是一部漫画，章节目录与图片按自然顺序合并；已合并的漫画追更后只需追加新章节。"
+        actions={
+          <>
+            <button
+              className="secondary"
+              onClick={onChooseWorkspace}
+              disabled={comicMutating || confirmDelete}
+            >
+              选择工作区
+            </button>
+            <button
+              className="secondary"
+              onClick={() => void scan()}
+              data-command="scan"
+              disabled={!workspace || loading || comicMutating}
+            >
+              {loading ? '扫描中…' : '刷新'}
+            </button>
+            <button className="secondary" onClick={onOpenLibrary}>
+              漫画库
+            </button>
+            {/* 主操作放在置顶的页头：随时可见，且不会被右下角任务浮岛遮挡。 */}
+            {result && (
+              <span className="muted comic-picked">
+                已选 {selectedComics.length} 部{rebuild ? '（全量重建）' : ''}
+              </span>
+            )}
+            {result &&
+              (merging ? (
+                <button className="secondary" onClick={() => void window.api.cancelComicMerge()}>
+                  取消合并
+                </button>
+              ) : (
+                <button
+                  onClick={execute}
+                  disabled={selectedComics.length === 0 || deleting || (needRebuild && !rebuild)}
+                >
+                  {`合并 ${selectedComics.length} 部为 ${format.toUpperCase()}`}
+                </button>
+              ))}
+          </>
+        }
+      />
 
       <section className="path-card">
         <span>漫画工作区</span>

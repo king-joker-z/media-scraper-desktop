@@ -99,6 +99,7 @@ export const THEME_PALETTE_OPTIONS = [
   'mecha',
   'nautical',
   'ink',
+  'terminal',
   'custom'
 ]
 const DEFAULT_NVENC_ENABLED = process.platform === 'win32'

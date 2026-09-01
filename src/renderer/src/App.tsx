@@ -19,6 +19,8 @@ import CommandPalette from './components/CommandPalette'
 import ConfirmDialog from './components/ConfirmDialog'
 import CursorTrail from './components/CursorTrail'
 import Magnetic from './components/Magnetic'
+import HudCorners from './components/hud/HudCorners'
+import TerminalAtmosphere from './components/hud/TerminalAtmosphere'
 import { prunePlayPositions } from './utils/media'
 import { useSpotlightHover } from './utils/spotlight'
 import {
@@ -572,6 +574,13 @@ function App(): React.JSX.Element {
           跳到模块选择
         </a>
         <div className="module-picker-drag" />
+        {/* 终端皮肤装饰层：仅 terminal 色板可见，其余皮肤 display:none */}
+        <TerminalAtmosphere />
+        <HudCorners size="l" />
+        <div className="picker-status" aria-hidden="true">
+          <span>MEDIA SCRAPER // LOCAL OPS TERMINAL</span>
+          <span>LOCAL-ONLY // NO CLOUD SYNC</span>
+        </div>
         <div className="module-picker-intro">
           <div className="module-picker-mark" aria-hidden="true">
             <Icon name="film" size={26} />
@@ -583,13 +592,17 @@ function App(): React.JSX.Element {
           </p>
         </div>
         <div id="module-choice" className="module-cards">
-          {(Object.keys(MODULE_META) as AppModule[]).map((key) => (
+          {(Object.keys(MODULE_META) as AppModule[]).map((key, index) => (
             <Magnetic key={key}>
               <button
                 data-spotlight=""
                 className={`module-card module-card-${key}`}
                 onClick={() => switchModule(key)}
               >
+                <span className="module-card-index" aria-hidden="true">
+                  {`${String(index + 1).padStart(2, '0')} //`}
+                </span>
+                <HudCorners size="s" />
                 <span className="module-card-icon">
                   <Icon name={MODULE_META[key].icon} size={38} />
                 </span>
@@ -614,6 +627,9 @@ function App(): React.JSX.Element {
             </Magnetic>
           ))}
         </div>
+        <p className="picker-bootline" aria-hidden="true">
+          VIDEO DESK · COMIC DESK — ALL PROCESSING LOCAL
+        </p>
         <CursorTrail />
       </div>
     )
@@ -691,7 +707,7 @@ function App(): React.JSX.Element {
           )}
         </div>
         <nav className="sidebar-nav">
-          {navItems.map((item) => (
+          {navItems.map((item, index) => (
             <button
               key={item.key}
               data-spotlight=""
@@ -699,6 +715,10 @@ function App(): React.JSX.Element {
               aria-current={page === item.key ? 'page' : undefined}
               onClick={() => navigateToPage(item.key)}
             >
+              {/* 终端皮肤显示序号，其余皮肤隐藏 */}
+              <span className="nav-index" aria-hidden="true">
+                {String(index + 1).padStart(2, '0')}
+              </span>
               <span className="nav-icon">
                 <Icon name={item.icon} />
               </span>

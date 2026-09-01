@@ -319,7 +319,9 @@ test('目录遍历并发是跨层级的全局上限', async () => {
 
 test('扫描收到 AbortSignal 后拒绝且不产生计划', async () => {
   await withFixture(
-    Object.fromEntries(Array.from({ length: 30 }, (_, index) => [join(`d-${index}`, 'v.mp4'), 'v'])),
+    Object.fromEntries(
+      Array.from({ length: 30 }, (_, index) => [join(`d-${index}`, 'v.mp4'), 'v'])
+    ),
     async (root) => {
       const controller = new AbortController()
       let started = 0

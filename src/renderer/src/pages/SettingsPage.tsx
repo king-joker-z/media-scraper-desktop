@@ -12,6 +12,7 @@ import type {
   ThemePalette
 } from '../../../shared/types'
 import OperationTimeline from '../components/OperationTimeline'
+import WorkbenchHeader from '../components/WorkbenchHeader'
 import { formatBytes } from '../utils/format'
 import {
   applyBackgroundAppearance,
@@ -82,7 +83,12 @@ const PALETTE_OPTIONS: { key: ThemePalette; label: string; description: string }
   { key: 'nordic', label: '北欧自然风', description: '苔藓绿、暖木色与舒展的有机留白' },
   { key: 'mecha', label: '机甲蓝图风', description: '工程蓝图、结构标线与机甲信息层级' },
   { key: 'nautical', label: '航海地图', description: '羊皮纸、海图经纬线与深海罗盘色彩' },
-  { key: 'ink', label: '水墨国风', description: '宣纸留白、墨色晕染与朱砂点睛' }
+  { key: 'ink', label: '水墨国风', description: '宣纸留白、墨色晕染与朱砂点睛' },
+  {
+    key: 'terminal',
+    label: '作战终端',
+    description: '深黑底、琥珀信号色与 HUD 终端界面'
+  }
 ]
 
 const CUSTOM_PALETTE: { key: ThemePalette; label: string; description: string } = {
@@ -521,18 +527,17 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
 
   return (
     <div className="page settings-page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">SETTINGS</p>
-          <h1>设置</h1>
-          <p className="muted">所有配置保存在本地。各平台 Token 独立保存，切换平台不会清除。</p>
-        </div>
+      <WorkbenchHeader
+        eyebrow="SETTINGS"
+        title="设置"
+        description="所有配置保存在本地。各平台 Token 独立保存，切换平台不会清除。"
+      >
         {saved && (
           <span className="saved-badge" role="status">
             已保存 ✓
           </span>
         )}
-      </header>
+      </WorkbenchHeader>
 
       <div className="settings-navigation" aria-label="设置导航">
         <label className="settings-search" aria-label="查找设置项">
@@ -980,7 +985,11 @@ function SettingsPage({ active }: { active: boolean }): React.JSX.Element {
               placeholder="输入绝对路径，例如 D:\\MediaTemp"
               onChange={(event) => setMergeTempDraft(event.target.value)}
             />
-            <button className="secondary" type="button" onClick={() => void selectMergeTempDirectory()}>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => void selectMergeTempDirectory()}
+            >
               选择目录
             </button>
             <button type="button" onClick={() => void saveMergeTempDirectory()}>

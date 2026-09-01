@@ -1,0 +1,374 @@
+/* ============================================================
+ * 浮世绘卷皮肤（comic-ukiyo 色板）专属组件 DOM
+ * 设计语言：和纸底 + 靛蓝双框 + 朱印落款 + 青海波文 + 衬线大标题。
+ * 仅 data-palette='comic-ukiyo' 下生效；主文件最后导入以赢得级联。
+ * ============================================================ */
+
+:root[data-palette='comic-ukiyo'] {
+  --uki-paper: #fbf6e8;
+  --uki-indigo: #27506e;
+  --uki-ink: #2e3d4a;
+  --uki-vermilion: #c0483a;
+  --uki-serif: 'Songti SC', 'Noto Serif SC', 'SimSun', 'STSong', serif;
+  --uki-wave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='10' viewBox='0 0 24 10'%3E%3Cpath d='M0 9 Q6 1 12 9 T24 9' fill='none' stroke='%2327506e' stroke-width='1.6'/%3E%3C/svg%3E");
+}
+
+/* ---------- 浮世绘页头：衬线标题 + 标题旁方形朱印 + 波文分隔 ---------- */
+:root[data-palette='comic-ukiyo'] .ukiyo-header {
+  position: relative;
+  padding: 26px 24px 18px;
+  overflow: hidden;
+}
+/* 方形朱印：与标题同行，静置不遮挡内容 */
+:root[data-palette='comic-ukiyo'] .uh-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+:root[data-palette='comic-ukiyo'] .uh-seal {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+  font-family: var(--uki-serif);
+  font-size: 17px;
+  font-weight: 700;
+  border-radius: 4px;
+  transform: rotate(-4deg);
+  opacity: 0.94;
+  /* 篆刻留白：内凹双白边 */
+  box-shadow:
+    inset 0 0 0 2px rgba(251, 246, 232, 0.55),
+    inset 0 0 0 4px var(--uki-vermilion),
+    inset 0 0 0 5px rgba(251, 246, 232, 0.35),
+    0 2px 6px rgba(90, 40, 30, 0.22);
+}
+:root[data-palette='comic-ukiyo'] .uh-eyebrow {
+  margin: 0 0 10px;
+  font-family: var(--uki-serif);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  color: var(--uki-indigo);
+}
+:root[data-palette='comic-ukiyo'] .uh-eyebrow::before {
+  content: '「';
+  margin-right: 2px;
+}
+:root[data-palette='comic-ukiyo'] .uh-eyebrow::after {
+  content: '」';
+  margin-left: 2px;
+}
+:root[data-palette='comic-ukiyo'] .uh-body h1 {
+  margin: 0 0 6px;
+  font-family: var(--uki-serif);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--uki-ink);
+}
+:root[data-palette='comic-ukiyo'] .uh-desc {
+  margin: 0;
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .ukiyo-header::after {
+  content: '';
+  display: block;
+  height: 10px;
+  margin-top: 16px;
+  background: var(--uki-wave) repeat-x;
+  background-size: 24px 10px;
+  opacity: 0.75;
+}
+:root[data-palette='comic-ukiyo'] .uh-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+:root[data-palette='comic-ukiyo'] .uh-actions button {
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  border-radius: 2px;
+  box-shadow: none;
+  color: var(--uki-indigo);
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+:root[data-palette='comic-ukiyo'] .uh-actions button:hover:not(:disabled) {
+  background: var(--uki-indigo);
+  color: #f8f2e2;
+  transform: none;
+}
+:root[data-palette='comic-ukiyo'] .uh-actions button:not(.secondary):not(.danger-button) {
+  background: var(--uki-vermilion);
+  border-color: var(--uki-vermilion);
+  color: #fff8ea;
+}
+:root[data-palette='comic-ukiyo'] .uh-actions .danger-button {
+  border-color: var(--uki-vermilion);
+  color: var(--uki-vermilion);
+  background: var(--uki-paper);
+}
+:root[data-palette='comic-ukiyo'] .uh-actions .danger-button:hover:not(:disabled) {
+  background: rgba(192, 72, 58, 0.1);
+  color: var(--uki-vermilion);
+}
+
+/* ---------- 浮世绘读数板：和纸印屏 + 靛蓝双框 + 朱印点 ---------- */
+:root[data-palette='comic-ukiyo'] .ukiyo-statboard {
+  grid-template-columns: repeat(auto-fit, minmax(134px, 1fr));
+  gap: 14px;
+  padding: 2px 0;
+}
+:root[data-palette='comic-ukiyo'] .usb-cell {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px 14px;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  box-shadow: inset 0 0 0 3px var(--uki-paper), inset 0 0 0 4px rgba(39, 80, 110, 0.22);
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .usb-label {
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: var(--uki-indigo);
+}
+:root[data-palette='comic-ukiyo'] .usb-label::before {
+  content: '◆';
+  color: var(--uki-vermilion);
+  margin-right: 8px;
+  font-size: 8px;
+  vertical-align: 1px;
+}
+:root[data-palette='comic-ukiyo'] .usb-cell b {
+  font-family: var(--uki-serif);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--uki-ink);
+}
+:root[data-palette='comic-ukiyo'] .usb-jijitsu {
+  display: block;
+  height: 8px;
+  margin-top: 2px;
+  background: var(--uki-wave) repeat-x;
+  background-size: 20px 8px;
+  opacity: 0.5;
+  text-decoration: none;
+}
+:root[data-palette='comic-ukiyo'] .usb-cell.selectable {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+:root[data-palette='comic-ukiyo'] .usb-cell.selectable:hover {
+  box-shadow: inset 0 0 0 3px var(--uki-paper), inset 0 0 0 4px rgba(192, 72, 58, 0.4);
+}
+:root[data-palette='comic-ukiyo'] .usb-cell.selectable.active {
+  background: rgba(39, 80, 110, 0.1);
+  box-shadow: inset 0 0 0 3px var(--uki-paper), inset 0 0 0 4px var(--uki-indigo);
+}
+
+/* ---------- 浮世绘账本行：朱印点数 + 红点笔触行 ---------- */
+:root[data-palette='comic-ukiyo'] .ukiyo-ledger {
+  overflow: hidden;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  box-shadow: inset 0 0 0 3px var(--uki-paper), inset 0 0 0 4px rgba(39, 80, 110, 0.18);
+}
+:root[data-palette='comic-ukiyo'] .ul-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 18px 10px;
+  border-bottom: 1px solid rgba(39, 80, 110, 0.18);
+}
+:root[data-palette='comic-ukiyo'] .ul-title {
+  font-family: var(--uki-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--uki-ink);
+}
+:root[data-palette='comic-ukiyo'] .ul-count {
+  min-width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  transform: translateY(-2px);
+}
+:root[data-palette='comic-ukiyo'] .ul-rule {
+  flex: 1;
+  height: 8px;
+  background: var(--uki-wave) repeat-x;
+  background-size: 20px 8px;
+  opacity: 0.4;
+}
+:root[data-palette='comic-ukiyo'] .ul-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 7px 18px;
+  border-bottom: 1px solid rgba(39, 80, 110, 0.12);
+}
+:root[data-palette='comic-ukiyo'] .ul-row:last-child {
+  border-bottom: none;
+}
+:root[data-palette='comic-ukiyo'] .ul-row:hover {
+  background: rgba(39, 80, 110, 0.06);
+}
+:root[data-palette='comic-ukiyo'] .ul-row i {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--uki-vermilion);
+}
+:root[data-palette='comic-ukiyo'] .ul-row-copy {
+  min-width: 0;
+}
+:root[data-palette='comic-ukiyo'] .ul-row-copy b {
+  display: block;
+  font-family: var(--uki-serif);
+  font-size: 13px;
+  color: var(--uki-ink);
+  word-break: break-all;
+}
+:root[data-palette='comic-ukiyo'] .ul-row-copy span {
+  font-size: 11px;
+  color: #6d7c86;
+}
+:root[data-palette='comic-ukiyo'] .ul-empty {
+  padding: 14px 18px;
+  color: #6d7c86;
+}
+:root[data-palette='comic-ukiyo'] .ukiyo-ledger > .secondary {
+  margin: 10px 18px 14px;
+}
+
+/* ---------- 浮世绘视频卡：和纸框边 + 靛蓝内框 + 选中盖朱印 ---------- */
+:root[data-palette='comic-ukiyo'] .video-card.ukiyo-view {
+  position: relative;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  box-shadow: inset 0 0 0 3px var(--uki-paper), inset 0 0 0 4px rgba(39, 80, 110, 0.18);
+  overflow: hidden;
+}
+:root[data-palette='comic-ukiyo'] .video-card.ukiyo-view.selected {
+  box-shadow: inset 0 0 0 3px var(--uki-paper), inset 0 0 0 4px var(--uki-vermilion);
+}
+:root[data-palette='comic-ukiyo'] .uv-frame.video-card-open {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  background: none;
+  border: none;
+  box-shadow: none !important;
+}
+:root[data-palette='comic-ukiyo'] .uv-frame.video-card-open:hover:not(:disabled) {
+  transform: none;
+}
+:root[data-palette='comic-ukiyo'] .ukiyo-view .video-thumb {
+  position: relative;
+  display: block;
+  background: var(--uki-paper);
+  border: 1px solid var(--uki-indigo);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+:root[data-palette='comic-ukiyo'] .ukiyo-view .video-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+:root[data-palette='comic-ukiyo'] .ukiyo-view .video-thumb-empty {
+  background: rgba(39, 80, 110, 0.12);
+}
+:root[data-palette='comic-ukiyo'] .uv-time {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 1px 8px;
+  background: var(--uki-paper);
+  color: var(--uki-indigo);
+  border: 1px solid var(--uki-indigo);
+  border-radius: 2px;
+  font-family: var(--uki-serif);
+  font-size: 11px;
+}
+:root[data-palette='comic-ukiyo'] .uv-select {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 2;
+}
+:root[data-palette='comic-ukiyo'] .uv-caption {
+  display: grid;
+  gap: 3px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid rgba(39, 80, 110, 0.22);
+  font-family: var(--uki-serif);
+}
+:root[data-palette='comic-ukiyo'] .uv-caption b {
+  font-size: 14px;
+  color: var(--uki-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-palette='comic-ukiyo'] .uv-read {
+  font-size: 11px;
+  color: #6d7c86;
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-palette='comic-ukiyo'] .uv-seal {
+  position: absolute;
+  top: 14px;
+  right: 10px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: var(--uki-vermilion);
+  color: #fff8ea;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 700;
+  transform: rotate(3deg);
+  box-shadow: 0 1px 4px rgba(90, 40, 30, 0.3);
+}
+
+/* ============================================================
+ * 全局规则：隐藏所有滚动条（不限定皮肤）
+ * —— 页面总界面 / 内层列表都不显示滚动条，滚动功能保留。
+ * 本文件在所有皮肤样式之后导入，因此此处的 !important 能压过
+ * 任何皮肤的全局滚动条样式（例如 terminal、main.css @supports 块）。
+ * ============================================================ */
+*,
+*::before,
+*::after {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+*::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}

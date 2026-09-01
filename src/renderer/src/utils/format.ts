@@ -11,6 +11,17 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
+/** 毫秒 → 片场时码 HH:MM:SS.mmm（小时保留 00 定长，便于等宽对齐） */
+export function formatTimecode(ms: number): string {
+  const pad = (value: number, length = 2): string => String(value).padStart(length, '0')
+  const totalMs = Math.max(0, Math.floor(ms))
+  const hours = Math.floor(totalMs / 3_600_000)
+  const minutes = Math.floor((totalMs % 3_600_000) / 60_000)
+  const seconds = Math.floor((totalMs % 60_000) / 1000)
+  const millis = totalMs % 1000
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}.${pad(millis, 3)}`
+}
+
 /** 取路径末段（跨平台分隔符；侧边栏工作区/最近列表共用） */
 export function basenameOf(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path

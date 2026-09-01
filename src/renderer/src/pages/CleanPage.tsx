@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CleanReport, PosterPicks, ScanPlan } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import StatGrid from '../components/StatGrid'
+import WorkbenchHeader from '../components/WorkbenchHeader'
+import { usePalette } from '../hooks/usePalette'
 import { formatBytes } from '../utils/format'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 import { useWorkspaceRequestVersion } from '../utils/useWorkspaceRequestVersion'
@@ -120,49 +123,52 @@ function CleanPage({
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">模块一 · 目录清理</p>
-          <h1>工作区清理</h1>
-          <p className="muted">
-            扫描 → 预览 → 确认 → 执行 → 报告。
-            {toTrash
-              ? '删除默认移入系统回收站（可恢复，可在设置改为永久删除）。'
-              : '当前为永久删除模式，执行前请仔细核对清单。'}
-          </p>
-        </div>
-        <div className="actions">
-          <button className="secondary" onClick={choose} disabled={executing}>
-            选择工作区
-          </button>
-          <button data-command="scan" disabled={!workspace || loading || executing} onClick={scan}>
-            {loading ? '扫描中…' : '生成清理计划'}
-          </button>
-          {plan && (
+      <WorkbenchHeader
+        eyebrow="模块一 · 目录清理"
+        title="工作区清理"
+        description={`扫描 → 预览 → 确认 → 执行 → 报告。${
+          toTrash
+            ? '删除默认移入系统回收站（可恢复，可在设置改为永久删除）。'
+            : '当前为永久删除模式，执行前请仔细核对清单。'
+        }`}
+        actions={
+          <>
+            <button className="secondary" onClick={choose} disabled={executing}>
+              选择工作区
+            </button>
             <button
-              className="secondary"
-              disabled={executing || plan.moves.length === 0}
-              onClick={() => setConfirmingDissolve(true)}
+              data-command="scan"
+              disabled={!workspace || loading || executing}
+              onClick={scan}
             >
-              仅解散文件夹（{plan.moves.length}）
+              {loading ? '扫描中…' : '生成清理计划'}
             </button>
-          )}
-          {plan && (
-            <button
-              className="danger-button"
-              disabled={!picksComplete || executing}
-              onClick={() => setConfirming(true)}
-            >
-              {executing ? '执行中…' : '执行清理'}
-            </button>
-          )}
-          {executing && (
-            <button className="secondary" onClick={cancel}>
-              取消
-            </button>
-          )}
-        </div>
-      </header>
+            {plan && (
+              <button
+                className="secondary"
+                disabled={executing || plan.moves.length === 0}
+                onClick={() => setConfirmingDissolve(true)}
+              >
+                仅解散文件夹（{plan.moves.length}）
+              </button>
+            )}
+            {plan && (
+              <button
+                className="danger-button"
+                disabled={!picksComplete || executing}
+                onClick={() => setConfirming(true)}
+              >
+                {executing ? '执行中…' : '执行清理'}
+              </button>
+            )}
+            {executing && (
+              <button className="secondary" onClick={cancel}>
+                取消
+              </button>
+            )}
+          </>
+        }
+      />
 
       <section className="path-card">
         <span>当前工作区</span>
@@ -182,18 +188,15 @@ function CleanPage({
 
       {plan && (
         <>
-          <section className="stats">
-            {Object.entries(plan.summary).map(([key, value]) => (
-              <div key={key}>
-                <span>{SUMMARY_LABELS[key] ?? key}</span>
-                <b>{value}</b>
-              </div>
-            ))}
-            <div>
-              <span>删除体积</span>
-              <b>{formatBytes(plan.deleteBytes)}</b>
-            </div>
-          </section>
+          <StatGrid
+            items={[
+              ...Object.entries(plan.summary).map(([key, value]) => ({
+                label: SUMMARY_LABELS[key] ?? key,
+                value
+              })),
+              { label: '删除体积', value: formatBytes(plan.deleteBytes) }
+            ]}
+          />
 
           {plan.pendingPick.length > 0 && (
             <section className="pick-card">
@@ -372,7 +375,128 @@ function PlanList({
   tone: string
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
+  const palette = usePalette()
   const visible = expanded ? items : items.slice(0, PLAN_LIST_PREVIEW)
+
+  if (palette === 'terminal') {
+    /* terminal 皮肤：全不同 DOM —— 等宽账本行（├─ 引导），表头带点数与虚线尺 */
+    return (
+      <section className={`plan ${tone} terminal-ledger`}>
+        <div className="tl-head">
+          <span className="tl-title">{title}</span>
+          <span className="tl-count">{items.length}</span>
+          <span className="tl-rule" aria-hidden="true" />
+        </div>
+        <div className="tl-body">
+          {items.length ? (
+            <>
+              {visible.map((item, index) => (
+                <div key={item.relativePath} className="tl-row">
+                  <i aria-hidden="true">{index === visible.length - 1 && expanded ? '└─' : '├─'}</i>
+                  <div className="tl-row-copy">
+                    <b>{item.relativePath}</b>
+                    <span>
+                      {item.posterFor ? `poster → ${item.posterFor}` : item.reason || item.kind}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {items.length > PLAN_LIST_PREVIEW && (
+                <button className="secondary" onClick={() => setExpanded((value) => !value)}>
+                  {expanded
+                    ? '收起'
+                    : `显示全部 ${items.length} 条（当前仅前 ${PLAN_LIST_PREVIEW} 条）`}
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="tl-empty">无项目</p>
+          )}
+        </div>
+      </section>
+    )
+  }
+
+  if (palette === 'comic') {
+    /* 漫画风：黑底对话标题条 + 格次序号白刻 + 点画分隔 */
+    return (
+      <section className={`plan ${tone} comic-ledger`}>
+        <div className="cl-head">
+          <span className="cl-title">{title}</span>
+          <span className="cl-count">{items.length}</span>
+          <span className="cl-rule" aria-hidden="true" />
+        </div>
+        <div className="cl-body">
+          {items.length ? (
+            <>
+              {visible.map((item, index) => (
+                <div key={item.relativePath} className="cl-row">
+                  <span className="cl-idx" aria-hidden="true">
+                    格{String(index + 1).padStart(2, '0')}
+                  </span>
+                  <div className="cl-row-copy">
+                    <b>{item.relativePath}</b>
+                    <span>
+                      {item.posterFor ? `poster → ${item.posterFor}` : item.reason || item.kind}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {items.length > PLAN_LIST_PREVIEW && (
+                <button className="secondary" onClick={() => setExpanded((value) => !value)}>
+                  {expanded
+                    ? '收起'
+                    : `显示全部 ${items.length} 条（当前仅前 ${PLAN_LIST_PREVIEW} 条）`}
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="cl-empty">无项目</p>
+          )}
+        </div>
+      </section>
+    )
+  }
+
+  if (palette === 'comic-ukiyo') {
+    /* 浮世绘卷：衬线标题 + 朱印点数 + 笔触红点行 */
+    return (
+      <section className={`plan ${tone} ukiyo-ledger`}>
+        <div className="ul-head">
+          <span className="ul-title">{title}</span>
+          <span className="ul-count">{items.length}</span>
+          <span className="ul-rule" aria-hidden="true" />
+        </div>
+        <div className="ul-body">
+          {items.length ? (
+            <>
+              {visible.map((item) => (
+                <div key={item.relativePath} className="ul-row">
+                  <i aria-hidden="true" />
+                  <div className="ul-row-copy">
+                    <b>{item.relativePath}</b>
+                    <span>
+                      {item.posterFor ? `poster → ${item.posterFor}` : item.reason || item.kind}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {items.length > PLAN_LIST_PREVIEW && (
+                <button className="secondary" onClick={() => setExpanded((value) => !value)}>
+                  {expanded
+                    ? '收起'
+                    : `显示全部 ${items.length} 条（当前仅前 ${PLAN_LIST_PREVIEW} 条）`}
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="ul-empty">无项目</p>
+          )}
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className={`plan ${tone}`}>
       <h2>

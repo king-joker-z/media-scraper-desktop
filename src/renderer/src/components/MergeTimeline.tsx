@@ -10,6 +10,7 @@ import { useMemo } from 'react'
 import type { MergeCompatibility, MergeVideoItem } from '../../../shared/types'
 import { formatBytes, formatDuration } from '../utils/format'
 import { mediaUrl } from '../utils/media'
+import Timecode from './hud/Timecode'
 import {
   buildTimelineSegments,
   orientationLabel,
@@ -233,6 +234,8 @@ function TimelineClip({
           <b>{segment.index + 1}</b>
           <small>{formatDuration(duration)}</small>
         </span>
+        {/* 片场时码：段首入点；排除段不占输出时间轴，不显示 */}
+        {segment.included && <Timecode ms={segment.startMs} label="IN" />}
         <span className="merge-timeline-name">{item.name}</span>
         <span className="merge-timeline-meta">{orientation}</span>
       </button>

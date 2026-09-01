@@ -10,10 +10,14 @@ test('开发入口只允许同一 Vite origin 的主窗口导航', () => {
 })
 
 test('生产入口只允许当前应用 HTML 文件', () => {
-  const entry = 'file:///Applications/Media%20Scraper.app/Contents/Resources/app/renderer/index.html'
+  const entry =
+    'file:///Applications/Media%20Scraper.app/Contents/Resources/app/renderer/index.html'
   assert.equal(isAllowedMainFrameNavigation(entry, entry), true)
   assert.equal(
-    isAllowedMainFrameNavigation('file:///Applications/Media%20Scraper.app/Contents/Resources/app/evil.html', entry),
+    isAllowedMainFrameNavigation(
+      'file:///Applications/Media%20Scraper.app/Contents/Resources/app/evil.html',
+      entry
+    ),
     false
   )
   assert.equal(isAllowedMainFrameNavigation('https://example.com/', entry), false)

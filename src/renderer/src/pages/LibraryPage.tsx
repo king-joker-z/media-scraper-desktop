@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { compareTitles } from '../../../shared/rename-rules.mjs'
 import type { LibraryDensity, MergeVideoItem, Orientation } from '../../../shared/types'
 import ErrorBanner from '../components/ErrorBanner'
+import StatGrid from '../components/StatGrid'
 import VideoModal from '../components/VideoModal'
 import VirtualGrid from '../components/VirtualGrid'
 import StatusBadge from '../components/StatusBadge'
 import WorkbenchEmptyState from '../components/WorkbenchEmptyState'
 import WorkbenchHeader from '../components/WorkbenchHeader'
+import { usePalette } from '../hooks/usePalette'
 import { formatBytes, formatDuration } from '../utils/format'
 import { mediaUrl } from '../utils/media'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
@@ -189,38 +191,30 @@ function LibraryPage({
 
       {loaded && videos.length > 0 && (
         <>
-          <section className="stats library-dashboard" aria-label="媒体统计">
-            <div>
-              <span>视频总数</span>
-              <b>{videos.length}</b>
-            </div>
-            <div>
-              <span>媒体容量</span>
-              <b>{formatBytes(dashboard.totalBytes)}</b>
-            </div>
-            <div>
-              <span>总时长</span>
-              <b>{formatDuration(dashboard.totalDuration)}</b>
-            </div>
-            <button
-              className={`library-stat-action ${statusFilter === 'no-poster' ? 'active' : ''}`}
-              onClick={() =>
-                setStatusFilter((value) => (value === 'no-poster' ? 'all' : 'no-poster'))
+          <StatGrid
+            className="library-dashboard"
+            ariaLabel="媒体统计"
+            items={[
+              { label: '视频总数', value: videos.length },
+              { label: '媒体容量', value: formatBytes(dashboard.totalBytes) },
+              { label: '总时长', value: formatDuration(dashboard.totalDuration) },
+              {
+                label: '待补封面',
+                value: dashboard.missingPoster,
+                valueClassName: dashboard.missingPoster ? 'warning-text' : undefined,
+                active: statusFilter === 'no-poster',
+                onSelect: () =>
+                  setStatusFilter((value) => (value === 'no-poster' ? 'all' : 'no-poster'))
+              },
+              {
+                label: '竖屏视频',
+                value: dashboard.portrait,
+                active: orientation === 'portrait',
+                onSelect: () =>
+                  setOrientation((value) => (value === 'portrait' ? 'all' : 'portrait'))
               }
-            >
-              <span>待补封面</span>
-              <b className={dashboard.missingPoster ? 'warning-text' : ''}>
-                {dashboard.missingPoster}
-              </b>
-            </button>
-            <button
-              className={`library-stat-action ${orientation === 'portrait' ? 'active' : ''}`}
-              onClick={() => setOrientation((value) => (value === 'portrait' ? 'all' : 'portrait'))}
-            >
-              <span>竖屏视频</span>
-              <b>{dashboard.portrait}</b>
-            </button>
-          </section>
+            ]}
+          />
           {dashboard.missingPoster > 0 && (
             <section className="notice-banner">
               整理提醒：有 {dashboard.missingPoster}{' '}
@@ -303,57 +297,14 @@ function LibraryPage({
           minItemWidth={densityOption.minItemWidth}
           metaHeight={density === 'compact' ? 50 : 62}
           renderItem={(video, style) => (
-            <article
+            <LibraryVideoCard
               key={video.relativePath}
-              className={`video-card ${selectedPaths.has(video.relativePath) ? 'selected' : ''}`}
+              video={video}
               style={style}
-            >
-              <label className="poster-select">
-                <input
-                  type="checkbox"
-                  checked={selectedPaths.has(video.relativePath)}
-                  onChange={() => toggleSelected(video.relativePath)}
-                  aria-label={`选择${video.name}`}
-                />
-              </label>
-              <button className="video-card-open" onClick={() => setPlaying(video)}>
-                <span className="video-thumb">
-                  {video.posterPath ? (
-                    <img
-                      src={mediaUrl(video.posterPath)}
-                      alt={video.name}
-                      loading="lazy"
-                      width="320"
-                      height="180"
-                    />
-                  ) : (
-                    <span className="video-thumb-empty" aria-label="暂无封面" />
-                  )}
-                  <span className="video-card-overlay" aria-hidden="true">
-                    <b>
-                      {video.media
-                        ? `${video.media.width} × ${video.media.height}`
-                        : '媒体信息待探测'}
-                    </b>
-                    <span>
-                      {video.media?.videoCodec ?? '未知编码'} ·{' '}
-                      {video.media ? `${video.media.fps.toFixed(0)} fps` : '—'}
-                    </span>
-                    <span>
-                      {formatBytes(video.size)} ·{' '}
-                      {video.media ? formatDuration(video.media.durationMs) : '—'}
-                    </span>
-                  </span>
-                </span>
-                <span className="video-meta">
-                  <b title={video.name}>{video.name}</b>
-                  <span className="muted">
-                    {formatBytes(video.size)}
-                    {video.media ? ` · ${formatDuration(video.media.durationMs)}` : ''}
-                  </span>
-                </span>
-              </button>
-            </article>
+              selected={selectedPaths.has(video.relativePath)}
+              onToggleSelect={() => toggleSelected(video.relativePath)}
+              onOpen={() => setPlaying(video)}
+            />
           )}
         />
       )}
@@ -424,6 +375,206 @@ function LibrarySkeleton(): React.JSX.Element {
         <span key={index} />
       ))}
     </section>
+  )
+}
+
+/** 媒体库卡片：默认皮肤沿用原有海报卡 DOM；terminal 换成片场监视卡。 */
+function LibraryVideoCard({
+  video,
+  style,
+  selected,
+  onToggleSelect,
+  onOpen
+}: {
+  video: MergeVideoItem
+  style: React.CSSProperties
+  selected: boolean
+  onToggleSelect: () => void
+  onOpen: () => void
+}): React.JSX.Element {
+  const palette = usePalette()
+
+  if (palette === 'terminal') {
+    return (
+      <article className={`video-card terminal-view ${selected ? 'selected' : ''}`} style={style}>
+        <button className="video-card-open tv-frame" onClick={onOpen}>
+          <span className="video-thumb">
+            {video.posterPath ? (
+              <img
+                src={mediaUrl(video.posterPath)}
+                alt={video.name}
+                loading="lazy"
+                width="320"
+                height="180"
+              />
+            ) : (
+              <span className="video-thumb-empty" aria-label="暂无封面" />
+            )}
+            <span className="tv-timecode" aria-hidden="true">
+              {video.media ? formatDuration(video.media.durationMs) : '--:--'}
+            </span>
+            <span className="tv-res" aria-hidden="true">
+              {video.media ? `${video.media.width}×${video.media.height}` : 'PROBE'}
+            </span>
+            <span className="tv-playglyph" aria-hidden="true">
+              ▶
+            </span>
+          </span>
+        </button>
+        <label className="poster-select tv-select">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            aria-label={`选择${video.name}`}
+          />
+        </label>
+        <div className="tv-meta">
+          <b title={video.name}>{video.name}</b>
+          <span className="tv-read">
+            {formatBytes(video.size)} {'//'} {video.media?.videoCodec?.toUpperCase() ?? 'PROBE'}{' '}
+            {'//'} {video.media ? `${video.media.fps.toFixed(0)}FPS` : '—'}
+          </span>
+        </div>
+      </article>
+    )
+  }
+
+  if (palette === 'comic') {
+    /* 漫画风：粗黑边框分镜卡 + 點心黄时间片 + 悬停加速线 + 硬态悬停条 */
+    return (
+      <article className={`video-card comic-view ${selected ? 'selected' : ''}`} style={style}>
+        <button className="video-card-open cv-frame" onClick={onOpen}>
+          <span className="video-thumb">
+            {video.posterPath ? (
+              <img
+                src={mediaUrl(video.posterPath)}
+                alt={video.name}
+                loading="lazy"
+                width="320"
+                height="180"
+              />
+            ) : (
+              <span className="video-thumb-empty" aria-label="暂无封面" />
+            )}
+            <span className="cv-speedlines" aria-hidden="true" />
+            <span className="cv-time" aria-hidden="true">
+              {video.media ? formatDuration(video.media.durationMs) : '--:--'}
+            </span>
+            <span className="cv-play" aria-hidden="true">
+              ▶
+            </span>
+          </span>
+        </button>
+        <label className="poster-select cv-select">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            aria-label={`选择${video.name}`}
+          />
+        </label>
+        <div className="cv-caption">
+          <b title={video.name}>{video.name}</b>
+          <span className="cv-read">
+            {formatBytes(video.size)} ★ {video.media?.videoCodec?.toUpperCase() ?? 'PROBE'} ★{' '}
+            {video.media ? `${video.media.fps.toFixed(0)}FPS` : '—'}
+          </span>
+        </div>
+      </article>
+    )
+  }
+
+  if (palette === 'comic-ukiyo') {
+    /* 浮世绘卷：和纸框边 + 靛蓝内框 + 选中盖朱印 */
+    return (
+      <article className={`video-card ukiyo-view ${selected ? 'selected' : ''}`} style={style}>
+        <button className="video-card-open uv-frame" onClick={onOpen}>
+          <span className="video-thumb">
+            {video.posterPath ? (
+              <img
+                src={mediaUrl(video.posterPath)}
+                alt={video.name}
+                loading="lazy"
+                width="320"
+                height="180"
+              />
+            ) : (
+              <span className="video-thumb-empty" aria-label="暂无封面" />
+            )}
+            <span className="uv-time" aria-hidden="true">
+              {video.media ? formatDuration(video.media.durationMs) : '--:--'}
+            </span>
+          </span>
+        </button>
+        <label className="poster-select uv-select">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            aria-label={`选择${video.name}`}
+          />
+        </label>
+        <div className="uv-caption">
+          <b title={video.name}>{video.name}</b>
+          <span className="uv-read">
+            {formatBytes(video.size)} ／ {video.media?.videoCodec ?? '未知编码'} ／{' '}
+            {video.media ? `${video.media.fps.toFixed(0)} fps` : '—'}
+          </span>
+        </div>
+        {selected && (
+          <span className="uv-seal" aria-hidden="true">
+            选
+          </span>
+        )}
+      </article>
+    )
+  }
+
+  return (
+    <article className={`video-card ${selected ? 'selected' : ''}`} style={style}>
+      <label className="poster-select">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          aria-label={`选择${video.name}`}
+        />
+      </label>
+      <button className="video-card-open" onClick={onOpen}>
+        <span className="video-thumb">
+          {video.posterPath ? (
+            <img
+              src={mediaUrl(video.posterPath)}
+              alt={video.name}
+              loading="lazy"
+              width="320"
+              height="180"
+            />
+          ) : (
+            <span className="video-thumb-empty" aria-label="暂无封面" />
+          )}
+          <span className="video-card-overlay" aria-hidden="true">
+            <b>{video.media ? `${video.media.width} × ${video.media.height}` : '媒体信息待探测'}</b>
+            <span>
+              {video.media?.videoCodec ?? '未知编码'} ·{' '}
+              {video.media ? `${video.media.fps.toFixed(0)} fps` : '—'}
+            </span>
+            <span>
+              {formatBytes(video.size)} ·{' '}
+              {video.media ? formatDuration(video.media.durationMs) : '—'}
+            </span>
+          </span>
+        </span>
+        <span className="video-meta">
+          <b title={video.name}>{video.name}</b>
+          <span className="muted">
+            {formatBytes(video.size)}
+            {video.media ? ` · ${formatDuration(video.media.durationMs)}` : ''}
+          </span>
+        </span>
+      </button>
+    </article>
   )
 }
 

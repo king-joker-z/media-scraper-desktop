@@ -1,6 +1,10 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useRef } from 'react'
 import { mediaUrl, touchPlayPosition } from '../utils/media'
+import { formatTimecode } from '../utils/format'
+import HudCorners from './hud/HudCorners'
+import Letterbox from './hud/Letterbox'
+import MonitorBadge from './hud/MonitorBadge'
 
 /** 通用视频试看弹窗（合并页预览 / 媒体库点播共用）；传 rememberKey 时记忆播放进度 */
 function VideoModal({
@@ -17,6 +21,15 @@ function VideoModal({
 }): React.JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const storageKey = rememberKey ? `msd-play-${rememberKey}` : null
+  // 监视器时码用 ref 直写文本，避免逐帧 setState 触发整树渲染
+  const timecodeRef = useRef<HTMLSpanElement>(null)
+
+  const syncTimecode = (): void => {
+    const video = videoRef.current
+    const node = timecodeRef.current
+    if (!video || !node) return
+    node.textContent = formatTimecode(video.currentTime * 1000)
+  }
 
   const savePosition = (): void => {
     if (!storageKey || !videoRef.current) return
@@ -55,22 +68,34 @@ function VideoModal({
               </button>
             </Dialog.Close>
           </div>
-          <video
-            ref={videoRef}
-            src={mediaUrl(path)}
-            controls
-            autoPlay
-            className="detail-player"
-            onLoadedMetadata={() => {
-              if (storageKey && videoRef.current) {
-                const saved = Number(localStorage.getItem(storageKey) ?? 0)
-                if (saved > 0 && saved < videoRef.current.duration - 5) {
-                  videoRef.current.currentTime = saved
+          <div className="monitor-stage">
+            <video
+              ref={videoRef}
+              src={mediaUrl(path)}
+              controls
+              autoPlay
+              className="detail-player"
+              onLoadedMetadata={() => {
+                if (storageKey && videoRef.current) {
+                  const saved = Number(localStorage.getItem(storageKey) ?? 0)
+                  if (saved > 0 && saved < videoRef.current.duration - 5) {
+                    videoRef.current.currentTime = saved
+                  }
                 }
-              }
-            }}
-            onPause={savePosition}
-          />
+                syncTimecode()
+              }}
+              onTimeUpdate={syncTimecode}
+              onSeeked={syncTimecode}
+              onPause={savePosition}
+            />
+            {/* 片场监视器装饰：仅 terminal 色板可见 */}
+            <Letterbox />
+            <MonitorBadge text="PREVIEW" />
+            <span className="monitor-timecode" aria-hidden="true">
+              TC <span ref={timecodeRef}>00:00:00.000</span>
+            </span>
+            <HudCorners size="m" />
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

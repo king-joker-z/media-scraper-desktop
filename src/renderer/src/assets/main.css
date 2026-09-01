@@ -464,6 +464,8 @@ h2 {
 }
 .page-host::-webkit-scrollbar {
   display: none;
+  width: 0;
+  height: 0;
 }
 .page-host.page-hidden {
   display: none;
@@ -5147,7 +5149,7 @@ h2 {
     line-height: 1.5;
   }
   .page-header .actions,
-  .page-header > .saved-badge {
+  .page-header .saved-badge {
     align-self: center;
   }
   .workspace-with-background .settings-card,

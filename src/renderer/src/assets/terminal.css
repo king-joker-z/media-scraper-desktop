@@ -1,0 +1,1499 @@
+/* ============================================================
+ * 作战终端皮肤（terminal 色板）
+ * 设计语言取自明日方舟式 HUD：深黑底 + 琥珀信号色 + 蓝图网格 +
+ * 扫描线/颗粒 + 切角卡片 + 等宽微文案。全部纯 CSS，无 Canvas/WebGL。
+ * 动画仅 transform/opacity，任务繁忙 / 降低效果 / 减少动态时统一停摆。
+ * 非终端皮肤下，下方装饰元素默认 display:none，零负担。
+ * 文件在 main.tsx 中最后导入以赢得级联顺序。
+ * ============================================================ */
+
+/* ---------- 装饰元素默认隐藏（所有皮肤；terminal 内重新开启） ---------- */
+.hud-corners,
+.terminal-atmosphere,
+.picker-status,
+.picker-bootline,
+.nav-index {
+  display: none;
+}
+
+/* ---------- 设置页色板预览（不限定 palette，常驻） ---------- */
+.palette-swatch-terminal {
+  background: linear-gradient(135deg, #0b0d11 0 44%, #35c8ff 45% 69%, #f2f4f8 70%);
+}
+
+/* ---------- 终端令牌：强制暗色表面，覆盖主题与系统深浅色 ---------- */
+:root[data-palette='terminal'] {
+  color-scheme: dark;
+  --accent: #35c8ff;
+  --accent-press: #17a8d8;
+  --accent-soft: color-mix(in srgb, #35c8ff 16%, transparent);
+  --focus-ring: color-mix(in srgb, #35c8ff 55%, transparent);
+  --label-primary: #f2f4f8;
+  --label-secondary: #aab2bf;
+  --label-tertiary: #6f7782;
+  --bg-window: #0a0c10;
+  --bg-card: #11141a;
+  --bg-sidebar: #0c0f14;
+  --fill-quaternary: #161a21;
+  --fill-tertiary: #1f252e;
+  --separator: #262c36;
+  --success: #3ddc97;
+  --warning: #f0b545;
+  --danger: #ff6b6b;
+  --radius-control: 3px;
+  --radius-card: 6px;
+  --shadow-card: 0 1px 0 rgba(0, 0, 0, 0.5), 0 8px 22px rgba(0, 0, 0, 0.32);
+  --shadow-pop: 0 0 0 1px color-mix(in srgb, #35c8ff 22%, transparent),
+    0 16px 38px rgba(0, 0, 0, 0.5);
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas,
+    monospace;
+  --window-edge: 1px solid #1c2129;
+  /* 工作台抬头也交给终端接管（此前一直是亮色表面令牌） */
+  --workspace-header-surface: #0c0f14;
+  --workspace-header-border: #1c2129;
+  --workspace-header-shadow: transparent;
+}
+
+:root[data-palette='terminal'][data-theme='light'] {
+  color-scheme: dark;
+}
+
+/* ---------- HUD 四角括号 ---------- */
+:root[data-palette='terminal'] .hud-corners {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+  display: block;
+}
+:root[data-palette='terminal'] .hud-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 0 solid color-mix(in srgb, #35c8ff 42%, transparent);
+  transition: border-color 0.18s ease;
+}
+:root[data-palette='terminal'] .hud-corner-tl {
+  top: 0;
+  left: 0;
+  border-top-width: 2px;
+  border-left-width: 2px;
+}
+:root[data-palette='terminal'] .hud-corner-tr {
+  top: 0;
+  right: 0;
+  border-top-width: 2px;
+  border-right-width: 2px;
+}
+:root[data-palette='terminal'] .hud-corner-bl {
+  bottom: 0;
+  left: 0;
+  border-bottom-width: 2px;
+  border-left-width: 2px;
+}
+:root[data-palette='terminal'] .hud-corner-br {
+  bottom: 0;
+  right: 0;
+  border-bottom-width: 2px;
+  border-right-width: 2px;
+}
+/* 尺寸档 */
+:root[data-palette='terminal'] .hud-corners-l {
+  inset: 14px;
+}
+:root[data-palette='terminal'] .hud-corners-l .hud-corner {
+  width: 26px;
+  height: 26px;
+}
+:root[data-palette='terminal'] .hud-corners-m {
+  inset: 12px;
+}
+:root[data-palette='terminal'] .hud-corners-s {
+  inset: 7px;
+}
+:root[data-palette='terminal'] .hud-corners-s .hud-corner {
+  width: 10px;
+  height: 10px;
+  border-color: color-mix(in srgb, #35c8ff 0%, transparent);
+}
+:root[data-palette='terminal'] .module-card:hover .hud-corners-s .hud-corner {
+  border-color: color-mix(in srgb, #35c8ff 55%, transparent);
+}
+
+/* ---------- 终端氛围层：蓝图网格 / 扫描线 / 扫描光束 / 颗粒 ---------- */
+:root[data-palette='terminal'] .terminal-atmosphere {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  display: block;
+  overflow: hidden;
+}
+:root[data-palette='terminal'] .terminal-atmosphere > * {
+  position: absolute;
+  inset: 0;
+}
+:root[data-palette='terminal'] .terminal-grid {
+  background-image: linear-gradient(
+      color-mix(in srgb, #35c8ff 5%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(90deg, color-mix(in srgb, #35c8ff 5%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  background-position: -1px -1px;
+  mask-image: radial-gradient(120% 90% at 50% 30%, #000 30%, transparent 92%);
+  opacity: 0.5;
+}
+:root[data-palette='terminal'] .terminal-scanlines {
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.18) 0,
+    rgba(0, 0, 0, 0.18) 1px,
+    transparent 2px,
+    transparent 4px
+  );
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+}
+:root[data-palette='terminal'] .terminal-scanbeam {
+  height: 140px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, #35c8ff 12%, transparent) 45%,
+    color-mix(in srgb, #35c8ff 20%, transparent) 50%,
+    color-mix(in srgb, #35c8ff 12%, transparent) 55%,
+    transparent
+  );
+  opacity: 0.6;
+  animation: terminal-scanbeam 11s linear infinite;
+}
+:root[data-palette='terminal'] .terminal-noise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  opacity: 0.04;
+}
+@keyframes terminal-scanbeam {
+  0% {
+    transform: translateY(-14vh);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  60%,
+  100% {
+    transform: translateY(114vh);
+    opacity: 0;
+  }
+}
+
+/* ---------- 模块选择页：终端启动画面 ---------- */
+:root[data-palette='terminal'] .module-picker {
+  position: relative;
+  align-items: stretch;
+  justify-content: center;
+  gap: 30px;
+  padding: 86px clamp(32px, 7vw, 96px) 72px;
+  background:
+    radial-gradient(720px 460px at 100% 0%, color-mix(in srgb, #35c8ff 14%, transparent), transparent 64%),
+    radial-gradient(620px 420px at 0% 100%, rgba(70, 120, 160, 0.08), transparent 70%),
+    var(--bg-window);
+  border: var(--window-edge);
+}
+:root[data-palette='terminal'] .module-picker-intro,
+:root[data-palette='terminal'] .module-cards,
+:root[data-palette='terminal'] .picker-status,
+:root[data-palette='terminal'] .picker-bootline {
+  position: relative;
+  z-index: 1;
+}
+:root[data-palette='terminal'] .picker-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: absolute;
+  top: 18px;
+  left: 28px;
+  right: 28px;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--label-tertiary);
+  padding-bottom: 10px;
+  border-bottom: 1px dashed color-mix(in srgb, #35c8ff 22%, transparent);
+}
+:root[data-platform='win32'][data-palette='terminal'] .picker-status {
+  top: 50px;
+}
+:root[data-palette='terminal'] .picker-bootline {
+  display: block;
+  position: absolute;
+  bottom: 18px;
+  left: 28px;
+  right: 28px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--label-tertiary);
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, #35c8ff 22%, transparent);
+}
+:root[data-palette='terminal'] .module-picker-mark {
+  border: 1px solid color-mix(in srgb, #35c8ff 55%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: #35c8ff;
+  box-shadow: none;
+}
+:root[data-palette='terminal'] .module-picker h1 {
+  letter-spacing: -0.04em;
+  text-shadow: 0 0 32px color-mix(in srgb, #35c8ff 18%, transparent);
+}
+:root[data-palette='terminal'] .module-picker > .muted {
+  color: var(--label-secondary);
+}
+:root[data-palette='terminal'] .module-cards {
+  gap: 18px;
+}
+:root[data-palette='terminal'] .module-card {
+  position: relative;
+  min-height: 248px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  border: 1px solid var(--separator);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+}
+:root[data-palette='terminal'] .module-card::before {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #35c8ff 9%, transparent),
+    transparent 32%
+  );
+  opacity: 1;
+}
+:root[data-palette='terminal'] .module-card-index {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 2;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--label-tertiary);
+  transition: color 0.18s ease;
+}
+:root[data-palette='terminal'] .module-card:hover .module-card-index {
+  color: #35c8ff;
+}
+:root[data-palette='terminal'] .module-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, #35c8ff 62%, var(--separator));
+  box-shadow: var(--shadow-pop);
+}
+:root[data-palette='terminal'] .module-card-kicker,
+:root[data-palette='terminal'] .module-card-enter {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+/* ---------- 启动入场动画 ---------- */
+:root[data-palette='terminal'] .picker-status,
+:root[data-palette='terminal'] .module-picker-intro,
+:root[data-palette='terminal'] .picker-bootline {
+  animation: terminal-boot-in 0.5s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+:root[data-palette='terminal'] .module-card {
+  animation: terminal-boot-in 0.55s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+:root[data-palette='terminal'] .module-cards > *:nth-child(1) .module-card {
+  animation-delay: 0.14s;
+}
+:root[data-palette='terminal'] .module-cards > *:nth-child(2) .module-card {
+  animation-delay: 0.26s;
+}
+@keyframes terminal-boot-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------- 侧边栏：终端导航 ---------- */
+:root[data-palette='terminal'] .sidebar {
+  background: var(--bg-sidebar);
+  border-right: var(--window-edge);
+  backdrop-filter: none;
+}
+:root[data-palette='terminal'] .sidebar-nav {
+  position: relative;
+  gap: 4px;
+  padding-top: 14px;
+  border-top: 1px solid #1b2028;
+}
+:root[data-palette='terminal'] .sidebar-nav::before {
+  content: '// OPERATIONS';
+  display: block;
+  padding: 0 12px 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--label-tertiary);
+}
+:root[data-palette='terminal'] .nav-item {
+  position: relative;
+  min-height: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--label-secondary);
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+:root[data-palette='terminal'] .nav-index {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--label-tertiary);
+  min-width: 22px;
+  text-align: right;
+  transition: color 0.16s ease;
+}
+:root[data-palette='terminal'] .nav-icon {
+  color: inherit;
+}
+:root[data-palette='terminal'] .nav-item:hover:not(.active) {
+  border-color: color-mix(in srgb, #35c8ff 22%, transparent);
+  background: color-mix(in srgb, #35c8ff 7%, transparent);
+  color: var(--label-primary);
+}
+:root[data-palette='terminal'] .nav-item:hover:not(.active) .nav-index {
+  color: #35c8ff;
+}
+:root[data-palette='terminal'] .nav-item.active {
+  border-color: color-mix(in srgb, #35c8ff 55%, transparent);
+  background: color-mix(in srgb, #35c8ff 14%, transparent);
+  color: #fff;
+  box-shadow: inset 2px 0 0 #35c8ff;
+}
+:root[data-palette='terminal'] .nav-item.active .nav-index {
+  color: #35c8ff;
+}
+:root[data-palette='terminal'] .sidebar-footer {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--label-tertiary);
+}
+
+/* ---------- 页头：HUD 括号 + 等宽眉标 ---------- */
+:root[data-palette='terminal'] .page-header {
+  position: relative;
+  padding-left: 20px;
+  border-bottom: 1px solid #1b2028;
+}
+:root[data-palette='terminal'] .page-header::before,
+:root[data-palette='terminal'] .page-header::after {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  content: '';
+}
+:root[data-palette='terminal'] .page-header::before {
+  top: 4px;
+  left: 0;
+  border-top: 2px solid color-mix(in srgb, #35c8ff 55%, transparent);
+  border-left: 2px solid color-mix(in srgb, #35c8ff 55%, transparent);
+}
+:root[data-palette='terminal'] .page-header::after {
+  bottom: 4px;
+  right: 0;
+  border-bottom: 2px solid color-mix(in srgb, #35c8ff 40%, transparent);
+  border-right: 2px solid color-mix(in srgb, #35c8ff 40%, transparent);
+}
+:root[data-palette='terminal'] .eyebrow {
+  font-family: var(--font-mono);
+}
+:root[data-palette='terminal'] .page-header h1 {
+  letter-spacing: -0.02em;
+}
+
+/* ---------- 通用表面收口：按钮 / 卡片 / 面板圆角统一 ---------- */
+:root[data-palette='terminal'] button,
+:root[data-palette='terminal'] .dialog,
+:root[data-palette='terminal'] .detail-modal,
+:root[data-palette='terminal'] .poster-detail-modal,
+:root[data-palette='terminal'] .command-palette,
+:root[data-palette='terminal'] .task-panel,
+:root[data-palette='terminal'] .recents-pop {
+  border-radius: var(--radius-control);
+}
+:root[data-palette='terminal'] .video-card,
+:root[data-palette='terminal'] .path-card {
+  border-radius: var(--radius-card);
+}
+
+/* ---------- 停摆策略：批量任务 / 降低效果 / 减少动态 ---------- */
+:root[data-palette='terminal'][data-task-busy='true'] .terminal-scanbeam,
+:root[data-performance-mode='reduced'] .terminal-scanbeam {
+  animation: none;
+  opacity: 0.25;
+}
+:root[data-performance-mode='reduced'] .terminal-noise,
+:root[data-performance-mode='reduced'] .terminal-grid {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-palette='terminal'] .terminal-scanbeam {
+    animation: none;
+    opacity: 0.25;
+  }
+  :root[data-palette='terminal'] .picker-status,
+  :root[data-palette='terminal'] .module-picker-intro,
+  :root[data-palette='terminal'] .picker-bootline,
+  :root[data-palette='terminal'] .module-card {
+    animation: none;
+  }
+}
+
+/* ============================================================
+ * 影片场监视器层：时码 / 黑边 / 监视器徽章 / 接触表齿孔 / 任务终端
+ * ============================================================ */
+
+/* ---------- 装饰元素默认隐藏（terminal 皮肤内重新开启） ---------- */
+.hud-timecode,
+.hud-letterbox,
+.hud-monitor-badge,
+.monitor-timecode {
+  display: none;
+}
+
+/* ---------- 片场时码芯片 ---------- */
+:root[data-palette='terminal'] .hud-timecode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, #35c8ff 30%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, #0a0c10 78%, transparent);
+  color: #f2f4f8;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+}
+:root[data-palette='terminal'] .hud-timecode i {
+  color: #35c8ff;
+  font-style: normal;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+}
+
+/* ---------- 电影黑边 ---------- */
+:root[data-palette='terminal'] .hud-letterbox {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+  z-index: 4;
+}
+:root[data-palette='terminal'] .hud-letterbox-top,
+:root[data-palette='terminal'] .hud-letterbox-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 5.5%;
+  min-height: 18px;
+  background: #000;
+}
+:root[data-palette='terminal'] .hud-letterbox-top {
+  top: 0;
+  border-bottom: 1px solid color-mix(in srgb, #35c8ff 24%, transparent);
+}
+:root[data-palette='terminal'] .hud-letterbox-bottom {
+  bottom: 0;
+  border-top: 1px solid color-mix(in srgb, #35c8ff 24%, transparent);
+}
+
+/* ---------- 监视器徽章 ---------- */
+:root[data-palette='terminal'] .hud-monitor-badge {
+  position: absolute;
+  top: calc(5.5% + 12px);
+  right: 14px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, #35c8ff 40%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, #0a0c10 72%, transparent);
+  color: #35c8ff;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+:root[data-palette='terminal'] .hud-monitor-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #35c8ff;
+  box-shadow: 0 0 8px color-mix(in srgb, #35c8ff 80%, transparent);
+  animation: terminal-monitor-blink 1.6s ease-in-out infinite;
+}
+@keyframes terminal-monitor-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------- 视频监视器外壳 ---------- */
+:root[data-palette='terminal'] .monitor-stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #262c36;
+  border-radius: 3px;
+  background: #000;
+}
+:root[data-palette='terminal'] .monitor-stage .detail-player {
+  display: block;
+  border-radius: 0;
+}
+:root[data-palette='terminal'] .monitor-timecode {
+  position: absolute;
+  bottom: calc(5.5% + 12px);
+  left: 14px;
+  z-index: 5;
+  display: inline-flex;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, #35c8ff 30%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, #0a0c10 72%, transparent);
+  color: var(--label-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+:root[data-palette='terminal'] .monitor-timecode > span {
+  color: #f2f4f8;
+}
+:root[data-palette='terminal'] .monitor-stage .hud-corners-m {
+  inset: calc(5.5% + 6px) 8px;
+  z-index: 5;
+}
+
+/* ---------- 合并时间线：片场轨道 ---------- */
+:root[data-palette='terminal'] .merge-timeline-head h2 {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+:root[data-palette='terminal'] .merge-timeline-total b {
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+:root[data-palette='terminal'] .merge-timeline-scroll {
+  border: 1px solid #262c36;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, #35c8ff 7%, transparent) 0,
+      color-mix(in srgb, #35c8ff 7%, transparent) 1px,
+      transparent 1px,
+      transparent 72px
+    ),
+    #0d1015;
+}
+:root[data-palette='terminal'] .merge-timeline-clip {
+  border-radius: 2px;
+}
+:root[data-palette='terminal'] .merge-timeline-clip .hud-timecode {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  z-index: 2;
+}
+:root[data-palette='terminal'] .merge-timeline-clip-main {
+  position: relative;
+}
+:root[data-palette='terminal'] .merge-timeline-overlay b,
+:root[data-palette='terminal'] .merge-timeline-overlay small,
+:root[data-palette='terminal'] .merge-output-strip {
+  font-family: var(--font-mono);
+}
+:root[data-palette='terminal'] .merge-output-strip {
+  border: 1px solid #262c36;
+  border-radius: 3px;
+  background: #0d1015;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- 封面接触表：胶片齿孔 ---------- */
+:root[data-palette='terminal'] .contact-sheet-summary b {
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+}
+:root[data-palette='terminal'] .contact-frame {
+  border-radius: 2px;
+}
+:root[data-palette='terminal'] .contact-frame-thumbnail {
+  position: relative;
+  background: #000;
+}
+:root[data-palette='terminal'] .contact-frame-thumbnail::before,
+:root[data-palette='terminal'] .contact-frame-thumbnail::after {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 9px;
+  z-index: 2;
+  pointer-events: none;
+  content: '';
+  background-image: radial-gradient(
+    circle 2.4px,
+    color-mix(in srgb, #f2f4f8 22%, transparent) 2.2px,
+    transparent 2.6px
+  );
+  background-size: 16px 9px;
+  background-position: center;
+  background-color: #000;
+}
+:root[data-palette='terminal'] .contact-frame-thumbnail::before {
+  top: 0;
+}
+:root[data-palette='terminal'] .contact-frame-thumbnail::after {
+  bottom: 0;
+}
+:root[data-palette='terminal'] .contact-frame-thumbnail img {
+  padding: 9px 0;
+  box-sizing: border-box;
+}
+:root[data-palette='terminal'] .contact-frame-topline,
+:root[data-palette='terminal'] .contact-frame-caption {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+:root[data-palette='terminal'] .contact-frame.selected {
+  outline: 1px solid color-mix(in srgb, #35c8ff 65%, transparent);
+  outline-offset: 2px;
+}
+
+/* ---------- 任务动态岛 / 任务队列：终端状态行 ---------- */
+:root[data-palette='terminal'] .task-island {
+  border-radius: 3px;
+  background: color-mix(in srgb, #0c0f14 92%, transparent);
+  border: 1px solid #262c36;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+:root[data-palette='terminal'] .task-island-copy small,
+:root[data-palette='terminal'] .task-island-detail-head,
+:root[data-palette='terminal'] .task-island-count {
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
+:root[data-palette='terminal'] .task-island-detail {
+  border-radius: 3px;
+  background: #0c0f14;
+  border: 1px solid #262c36;
+}
+:root[data-palette='terminal'] .task-island-detail::before {
+  content: '// TASK STATUS';
+  display: block;
+  padding: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--label-tertiary);
+}
+:root[data-palette='terminal'] .task-island-state {
+  border: 1px solid color-mix(in srgb, #35c8ff 35%, transparent);
+  border-radius: 2px;
+}
+:root[data-palette='terminal'] .task-panel {
+  border-radius: 3px;
+  background: #0c0f14;
+  border: 1px solid #262c36;
+}
+:root[data-palette='terminal'] .task-panel-title > div > small,
+:root[data-palette='terminal'] .task-panel .progress-track + * {
+  font-family: var(--font-mono);
+}
+:root[data-palette='terminal'] .task-panel-header {
+  border-bottom: 1px dashed color-mix(in srgb, #35c8ff 22%, transparent);
+}
+:root[data-palette='terminal'] .task-panel-header::after {
+  content: '// TASK QUEUE';
+  margin-left: auto;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--label-tertiary);
+}
+
+/* ---------- 监视器层停摆策略 ---------- */
+:root[data-palette='terminal'][data-task-busy='true'] .hud-monitor-dot,
+:root[data-performance-mode='reduced'] .hud-monitor-dot {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-palette='terminal'] .hud-monitor-dot {
+    animation: none;
+  }
+}
+
+/* ============================================================
+ * 几何重构 v3 —— 黑 / 白 / 冰蓝单点 + 几何切角（明日方舟式）
+ * 原则：大粗中文标题 + 极小等宽拉丁微文案、切角卡片、
+ * 平行四边形动作条按钮、斜纹装饰线、阴影退场改发丝描边。
+ * 等宽字体只用于拉丁文 / 数字，中文保持黑体，不再套 mono。
+ * ============================================================ */
+
+/* ---------- 切角表面：右上 14px 切角 + 内描边 ---------- */
+:root[data-palette='terminal'] .path-card,
+:root[data-palette='terminal'] .pick-card,
+:root[data-palette='terminal'] .plan,
+:root[data-palette='terminal'] .video-card,
+:root[data-palette='terminal'] .video-card-open,
+:root[data-palette='terminal'] .settings-card,
+:root[data-palette='terminal'] .report-grid,
+:root[data-palette='terminal'] .dialog,
+:root[data-palette='terminal'] .task-panel,
+:root[data-palette='terminal'] .task-island,
+:root[data-palette='terminal'] .task-island-detail {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+  border: none;
+  background: #101216;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+:root[data-palette='terminal'] .warning {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+  border: none;
+  background: rgba(255, 107, 107, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 107, 0.3), inset 3px 0 0 rgba(255, 107, 107, 0.7);
+}
+
+/* ---------- 页头：大粗标题 + 冰蓝眉标 + 斜纹分割线 ---------- */
+:root[data-palette='terminal'] .page-header {
+  display: block;
+  position: relative;
+  padding: 26px 24px 22px;
+  background: var(--workspace-header-surface);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+:root[data-palette='terminal'] .page-header::before {
+  content: none;
+}
+:root[data-palette='terminal'] .page-header::after {
+  content: '';
+  position: absolute;
+  left: 24px;
+  bottom: -1px;
+  width: 220px;
+  height: 3px;
+  background: repeating-linear-gradient(
+    135deg,
+    #35c8ff 0 7px,
+    transparent 7px 13px
+  );
+  opacity: 0.85;
+}
+:root[data-palette='terminal'] .page-header .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  color: #35c8ff;
+}
+:root[data-palette='terminal'] .page-header .eyebrow::before {
+  content: '▍';
+  color: #35c8ff;
+}
+:root[data-palette='terminal'] .page-header h1 {
+  margin: 0 0 4px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  color: #f2f4f8;
+}
+:root[data-palette='terminal'] .page-header .muted {
+  margin: 0;
+  color: var(--label-secondary);
+}
+:root[data-palette='terminal'] .page-header .actions {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------- 平行四边形按钮（仅页头动作条） ---------- */
+:root[data-palette='terminal'] .page-header .actions button {
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  border: none;
+  margin: 0;
+  padding: 10px 24px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  color: rgba(232, 234, 238, 0.9);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+:root[data-palette='terminal'] .page-header .actions button:not(.secondary):not(.danger-button) {
+  background: #f2f4f8;
+  color: #0b0c0e;
+  box-shadow: none;
+}
+:root[data-palette='terminal'] .page-header .actions button:not(.secondary):not(.danger-button):hover:not(:disabled) {
+  background: #ffffff;
+}
+:root[data-palette='terminal'] .page-header .actions .secondary:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px #35c8ff;
+  color: #35c8ff;
+}
+:root[data-palette='terminal'] .page-header .actions .danger-button {
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 107, 0.55);
+  color: #ff8a8a;
+}
+:root[data-palette='terminal'] .page-header .actions .danger-button:hover:not(:disabled) {
+  background: rgba(255, 107, 107, 0.12);
+  color: #ff9d9d;
+}
+:root[data-palette='terminal'] .page-header .actions button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ---------- path-card：左轴冰蓝刻度 ---------- */
+:root[data-palette='terminal'] .path-card {
+  position: relative;
+  padding: 16px 18px 16px 24px;
+}
+:root[data-palette='terminal'] .path-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  background: linear-gradient(180deg, #35c8ff, transparent);
+}
+:root[data-palette='terminal'] .path-card h2,
+:root[data-palette='terminal'] .path-card h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--label-tertiary);
+}
+:root[data-palette='terminal'] .path-card .path-line,
+:root[data-palette='terminal'] .path-card code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: #f2f4f8;
+  word-break: break-all;
+}
+
+/* ---------- stats 统计块：独立切角面板 + 冰蓝刻度 ---------- */
+:root[data-palette='terminal'] .stats {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+:root[data-palette='terminal'] .stats > * {
+  position: relative;
+  margin: 0;
+  padding: 18px 18px 14px 24px;
+  border: none;
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+  background: #101216;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+:root[data-palette='terminal'] .stats > *::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 20px;
+  width: 2px;
+  height: 22px;
+  background: #35c8ff;
+  box-shadow: 0 0 8px rgba(53, 200, 255, 0.6);
+}
+:root[data-palette='terminal'] .stats > *::after {
+  display: none;
+}
+:root[data-palette='terminal'] .stats b,
+:root[data-palette='terminal'] .stats strong,
+:root[data-palette='terminal'] .stats .num {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f2f4f8;
+  line-height: 1;
+}
+:root[data-palette='terminal'] .stats span,
+:root[data-palette='terminal'] .stats small,
+:root[data-palette='terminal'] .stats .label {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--label-secondary);
+}
+
+/* ---------- plan 列表面板：保留 / 删除 / 上移 ---------- */
+:root[data-palette='terminal'] .plan {
+  position: relative;
+  overflow: hidden;
+}
+:root[data-palette='terminal'] .plan.keep {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 2px 0 0 rgba(61, 220, 151, 0.7);
+}
+:root[data-palette='terminal'] .plan.delete {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 2px 0 0 rgba(255, 107, 107, 0.7);
+}
+:root[data-palette='terminal'] .plan.move {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 2px 0 0 rgba(53, 200, 255, 0.7);
+}
+:root[data-palette='terminal'] .plan h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 14px;
+  font-weight: 700;
+  color: #f2f4f8;
+}
+:root[data-palette='terminal'] .plan h2::before {
+  content: '▍';
+  color: #35c8ff;
+  font-size: 12px;
+}
+:root[data-palette='terminal'] .plan h2 small {
+  margin-left: auto;
+  padding: 1px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #35c8ff;
+  background: rgba(53, 200, 255, 0.1);
+}
+:root[data-palette='terminal'] .plan > div {
+  padding: 4px 0;
+}
+:root[data-palette='terminal'] .plan article {
+  display: grid;
+  gap: 2px;
+  padding: 10px 16px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+}
+:root[data-palette='terminal'] .plan article:last-child {
+  border-bottom: none;
+}
+:root[data-palette='terminal'] .plan article b {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8eaee;
+  word-break: break-all;
+}
+:root[data-palette='terminal'] .plan article span {
+  font-size: 11px;
+  color: var(--label-tertiary);
+}
+:root[data-palette='terminal'] .plan .secondary {
+  margin: 10px 16px 14px;
+}
+
+/* ---------- pick-card / pick-row ---------- */
+:root[data-palette='terminal'] .pick-card {
+  padding: 16px 18px;
+}
+:root[data-palette='terminal'] .pick-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+:root[data-palette='terminal'] .pick-row:last-child {
+  border-bottom: none;
+}
+
+/* ---------- empty / warning 标题 ---------- */
+:root[data-palette='terminal'] .empty {
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: var(--label-tertiary);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 44px 16px;
+}
+:root[data-palette='terminal'] .warning h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ff8a8a;
+}
+
+/* ---------- 媒体库卡片：切角监视帧 ---------- */
+:root[data-palette='terminal'] .video-card,
+:root[data-palette='terminal'] .video-card-open {
+  position: relative;
+}
+:root[data-palette='terminal'] .video-card:hover,
+:root[data-palette='terminal'] .video-card-open:hover {
+  box-shadow: inset 0 0 0 1px rgba(53, 200, 255, 0.5);
+}
+:root[data-palette='terminal'] .video-card-thumb,
+:root[data-palette='terminal'] .video-card-thumb img,
+:root[data-palette='terminal'] .video-card-overlay {
+  border-radius: 0;
+}
+:root[data-palette='terminal'] .video-card-meta b {
+  font-size: 13px;
+  font-weight: 600;
+}
+:root[data-palette='terminal'] .video-card-meta small,
+:root[data-palette='terminal'] .video-card-meta span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--label-tertiary);
+}
+
+/* ---------- 表单控件：直角 + 冰蓝聚焦 ---------- */
+:root[data-palette='terminal'] input,
+:root[data-palette='terminal'] select,
+:root[data-palette='terminal'] textarea {
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0d0f12;
+  color: #e8eaee;
+}
+:root[data-palette='terminal'] input:focus,
+:root[data-palette='terminal'] select:focus,
+:root[data-palette='terminal'] textarea:focus {
+  border-color: rgba(53, 200, 255, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(53, 200, 255, 0.25);
+  outline: none;
+}
+:root[data-palette='terminal'] input[type='checkbox'],
+:root[data-palette='terminal'] input[type='radio'] {
+  accent-color: #35c8ff;
+}
+
+/* ---------- 报告区 ---------- */
+:root[data-palette='terminal'] .report-grid {
+  padding: 16px 18px;
+}
+:root[data-palette='terminal'] .report-failed {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+  border: none;
+  background: rgba(255, 107, 107, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 107, 0.28), inset 2px 0 0 rgba(255, 107, 107, 0.6);
+  padding: 14px 16px;
+}
+
+/* ---------- 设置页卡片 ---------- */
+:root[data-palette='terminal'] .settings-card {
+  padding: 18px 20px;
+}
+:root[data-palette='terminal'] .settings-card h2,
+:root[data-palette='terminal'] .settings-card h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--label-secondary);
+}
+
+/* ---------- 滚动条 ---------- */
+:root[data-palette='terminal'] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+:root[data-palette='terminal'] ::-webkit-scrollbar-track {
+  background: #0a0c10;
+}
+:root[data-palette='terminal'] ::-webkit-scrollbar-thumb {
+  background: #2a2f37;
+  border: 2px solid #0a0c10;
+}
+:root[data-palette='terminal'] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(53, 200, 255, 0.4);
+}
+:root[data-palette='terminal'] ::-webkit-scrollbar-corner {
+  background: #0a0c10;
+}
+/* 总界面（页面宿主）滚动条一律隐藏：页头贴合窗口右缘，覆盖上方全局规则 */
+:root[data-palette='terminal'] .page-host {
+  scrollbar-width: none;
+}
+:root[data-palette='terminal'] .page-host::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* ---------- section 标题：冰蓝短杠前缀 ---------- */
+:root[data-palette='terminal'] .page section > h2 {
+  position: relative;
+  margin: 0 0 10px;
+  padding-left: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f2f4f8;
+}
+:root[data-palette='terminal'] .page section > h2::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  background: #35c8ff;
+}
+
+/* ============================================================
+ * 终端皮肤专属组件 DOM（不只是换色，而是不同结构）
+ * 仅 data-palette='terminal' 下生效，其余皮肤沿用原 DOM + 通用规则。
+ * ============================================================ */
+
+/* ---------- 终端页头（WorkbenchHeader 变体） ---------- */
+:root[data-palette='terminal'] .terminal-header {
+  padding-bottom: 18px;
+}
+:root[data-palette='terminal'] .terminal-header::after {
+  content: none; /* 去掉通用页头条纹，改用内部斜纹 */
+}
+:root[data-palette='terminal'] .th-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+:root[data-palette='terminal'] .th-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: #35c8ff;
+  text-transform: uppercase;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+:root[data-palette='terminal'] .th-eyebrow i {
+  font-style: normal;
+}
+:root[data-palette='terminal'] .th-status {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.32);
+  text-transform: uppercase;
+}
+:root[data-palette='terminal'] .th-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+:root[data-palette='terminal'] .th-main h1 {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  margin: 0;
+  line-height: 1.1;
+}
+:root[data-palette='terminal'] .th-slash {
+  flex: 0 0 auto;
+  width: 140px;
+  height: 7px;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(53, 200, 255, 0.85) 0 8px,
+    transparent 8px 15px
+  );
+}
+:root[data-palette='terminal'] .th-desc {
+  margin-top: 8px;
+}
+/* 动作条：连排平行四边形，相邻仅 2px 缝隙形成整条 */
+:root[data-palette='terminal'] .th-actions {
+  margin-top: 16px;
+  gap: 2px;
+}
+
+/* ---------- 读数板（StatGrid 终端变体） ---------- */
+:root[data-palette='terminal'] .terminal-statboard {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+:root[data-palette='terminal'] .tsb-cell {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 4px;
+  padding: 12px 14px 10px;
+  background: #0d1014;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+:root[data-palette='terminal'] .tsb-cell::before {
+  display: none; /* 去掉通用刻度点 */
+}
+:root[data-palette='terminal'] .tsb-index {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: rgba(53, 200, 255, 0.7);
+  font-style: normal;
+}
+:root[data-palette='terminal'] .tsb-cell b {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: #f2f4f8;
+  line-height: 1;
+}
+:root[data-palette='terminal'] .tsb-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+:root[data-palette='terminal'] .tsb-bar {
+  display: block;
+  height: 2px;
+  margin-top: 6px;
+  background: linear-gradient(90deg, #35c8ff, rgba(53, 200, 255, 0.12));
+  text-decoration: none;
+}
+:root[data-palette='terminal'] .tsb-cell:nth-child(3n + 1) .tsb-bar {
+  width: 88%;
+}
+:root[data-palette='terminal'] .tsb-cell:nth-child(3n + 2) .tsb-bar {
+  width: 54%;
+}
+:root[data-palette='terminal'] .tsb-cell:nth-child(3n + 3) .tsb-bar {
+  width: 72%;
+}
+:root[data-palette='terminal'] .tsb-cell.selectable {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  border: none;
+  transition: box-shadow 0.15s, background 0.15s;
+}
+:root[data-palette='terminal'] .tsb-cell.selectable:hover {
+  box-shadow: inset 0 0 0 1px rgba(53, 200, 255, 0.45);
+}
+:root[data-palette='terminal'] .tsb-cell.selectable.active {
+  background: color-mix(in srgb, #35c8ff 12%, #0d1014);
+  box-shadow: inset 0 0 0 1px rgba(53, 200, 255, 0.6);
+}
+
+/* ---------- 账本行（CleanPage PlanList 终端变体） ---------- */
+:root[data-palette='terminal'] .terminal-ledger {
+  padding: 0;
+}
+:root[data-palette='terminal'] .terminal-ledger .tl-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+:root[data-palette='terminal'] .tl-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f2f4f8;
+}
+:root[data-palette='terminal'] .tl-title::before {
+  content: '▍';
+  color: #35c8ff;
+  margin-right: 8px;
+}
+:root[data-palette='terminal'] .tl-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #35c8ff;
+  background: color-mix(in srgb, #35c8ff 14%, transparent);
+  padding: 1px 8px;
+}
+:root[data-palette='terminal'] .tl-rule {
+  flex: 1;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.12);
+  transform: translateY(-3px);
+}
+:root[data-palette='terminal'] .tl-body {
+  padding: 6px 0 8px;
+}
+:root[data-palette='terminal'] .tl-row {
+  display: flex;
+  gap: 10px;
+  padding: 5px 16px;
+  align-items: flex-start;
+}
+:root[data-palette='terminal'] .tl-row i {
+  font-style: normal;
+  font-family: var(--font-mono);
+  color: rgba(255, 255, 255, 0.32);
+  font-size: 12px;
+}
+:root[data-palette='terminal'] .tl-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+:root[data-palette='terminal'] .tl-row-copy {
+  min-width: 0;
+}
+:root[data-palette='terminal'] .tl-row-copy b {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: #e8eaee;
+  display: block;
+  word-break: break-all;
+}
+:root[data-palette='terminal'] .tl-row-copy span {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+:root[data-palette='terminal'] .tl-empty {
+  padding: 12px 16px;
+  color: rgba(255, 255, 255, 0.4);
+}
+:root[data-palette='terminal'] .terminal-ledger > .secondary {
+  margin: 8px 16px 12px;
+}
+
+/* ---------- 监视卡（LibraryPage 视频卡终端变体） ---------- */
+:root[data-palette='terminal'] .video-card.terminal-view {
+  background: #0d1014;
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+}
+:root[data-palette='terminal'] .video-card.terminal-view.selected {
+  box-shadow: inset 0 0 0 1px rgba(53, 200, 255, 0.7);
+  background: color-mix(in srgb, #35c8ff 7%, #0d1014);
+}
+:root[data-palette='terminal'] .tv-frame.video-card-open {
+  display: block;
+  padding: 0;
+  background: none;
+  border: none;
+  width: 100%;
+}
+:root[data-palette='terminal'] .terminal-view .video-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 0;
+}
+:root[data-palette='terminal'] .terminal-view .video-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+:root[data-palette='terminal'] .tv-timecode {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #f2f4f8;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(53, 200, 255, 0.35);
+  padding: 1px 6px;
+}
+:root[data-palette='terminal'] .tv-res {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 5px;
+}
+:root[data-palette='terminal'] .tv-playglyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #35c8ff;
+  font-size: 26px;
+  background: rgba(10, 12, 14, 0.25);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+:root[data-palette='terminal'] .video-card.terminal-view:hover .tv-playglyph {
+  opacity: 1;
+}
+:root[data-palette='terminal'] .tv-select {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+}
+:root[data-palette='terminal'] .tv-meta {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px 10px;
+}
+:root[data-palette='terminal'] .tv-meta b {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e8eaee;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-palette='terminal'] .tv-read {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.42);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

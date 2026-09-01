@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NfoPlan, NfoReport } from '../../../shared/types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBanner from '../components/ErrorBanner'
+import WorkbenchHeader from '../components/WorkbenchHeader'
 import { useWorkspaceSync } from '../utils/useWorkspaceSync'
 
 function NfoPage({
@@ -81,38 +82,36 @@ function NfoPage({
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">模块五 · NFO 归档</p>
-          <h1>NFO 与独立归档</h1>
-          <p className="muted">
-            每个视频建立同名文件夹，移入视频与 poster，生成兼容 Kodi/Jellyfin/Emby 的 NFO。
-          </p>
-        </div>
-        <div className="actions">
-          <button className="secondary" onClick={onChooseWorkspace} disabled={executing}>
-            选择工作区
-          </button>
-          <button
-            className="secondary"
-            onClick={scan}
-            data-command="scan"
-            disabled={!workspace || loading || executing}
-          >
-            {loading ? '扫描中…' : '生成归档计划'}
-          </button>
-          {activePlan && targets.length > 0 && (
-            <button disabled={executing || !actorName.trim()} onClick={() => setConfirming(true)}>
-              {executing ? '执行中…' : `执行归档（${targets.length}）`}
+      <WorkbenchHeader
+        eyebrow="模块五 · NFO 归档"
+        title="NFO 与独立归档"
+        description="每个视频建立同名文件夹，移入视频与 poster，生成兼容 Kodi/Jellyfin/Emby 的 NFO。"
+        actions={
+          <>
+            <button className="secondary" onClick={onChooseWorkspace} disabled={executing}>
+              选择工作区
             </button>
-          )}
-          {executing && (
-            <button className="secondary" onClick={() => window.api.cancelNfo()}>
-              取消
+            <button
+              className="secondary"
+              onClick={scan}
+              data-command="scan"
+              disabled={!workspace || loading || executing}
+            >
+              {loading ? '扫描中…' : '生成归档计划'}
             </button>
-          )}
-        </div>
-      </header>
+            {activePlan && targets.length > 0 && (
+              <button disabled={executing || !actorName.trim()} onClick={() => setConfirming(true)}>
+                {executing ? '执行中…' : `执行归档（${targets.length}）`}
+              </button>
+            )}
+            {executing && (
+              <button className="secondary" onClick={() => window.api.cancelNfo()}>
+                取消
+              </button>
+            )}
+          </>
+        }
+      />
 
       <section className="path-card">
         <span>当前工作区</span>

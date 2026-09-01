@@ -214,6 +214,7 @@ export type ThemePalette =
   | 'mecha'
   | 'nautical'
   | 'ink'
+  | 'terminal'
   | 'custom'
 
 export interface AppSettings {
