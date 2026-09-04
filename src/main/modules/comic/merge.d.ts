@@ -11,6 +11,8 @@ declare module './merge.mjs' {
     ComicPdfQuality,
     { label: string; maxWidth: number; quality: number; chromaSubsampling: '4:2:0' | '4:4:4' }
   >
+  /** 判断解码异常是否属于可宽容解码修复的坏图告警（failOn 升级类） */
+  export function isRepairableJpegError(error: unknown): boolean
   export function resolvePdfQuality(pdfQuality: unknown, raw?: boolean): ComicPdfQuality
   export function prepareComicPage(
     absPath: string,

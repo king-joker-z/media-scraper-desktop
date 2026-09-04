@@ -92,24 +92,44 @@ const isJpegExt = (ext) => ext === 'jpg' || ext === 'jpeg'
  * 原样 JPEG 只有在已明确识别为 3 通道 sRGB、没有 EXIF 方向变换时才能直嵌流式 PDF。
  * CMYK、灰度、带方向变换或无法识别色彩空间的 JPEG 交给 pdf-lib，以免错误以 DeviceRGB
  * 解释 DCT 数据。Sharp 在这里只读取元数据，不参与 PDF 生成。
+ * 读取失败（坏图告警升级抛错）返回 false，回退兼容模式由逐页修复处理。
  */
 const supportsStreamRawJpeg = async (path) => {
-  if (!isJpegExt(extOf(path))) return false
-  const metadata = await sharp(path, { limitInputPixels: false }).metadata()
-  return (
-    metadata.format === 'jpeg' &&
-    (metadata.orientation ?? 1) === 1 &&
-    metadata.space === 'srgb' &&
-    metadata.channels === 3
-  )
+  try {
+    if (!isJpegExt(extOf(path))) return false
+    const metadata = await sharp(path, { limitInputPixels: false }).metadata()
+    return (
+      metadata.format === 'jpeg' &&
+      (metadata.orientation ?? 1) === 1 &&
+      metadata.space === 'srgb' &&
+      metadata.channels === 3
+    )
+  } catch {
+    return false
+  }
 }
 
 // sharp 0.35 默认 failOn='warning'：libjpeg 对「标记前有多余字节」等坏 JPEG 告警会直接抛错，
-// 导致漫画合并整本失败。此正则识别这类可宽容解码修复的错误（严格解码失败时降级重试）。
-const isRepairableJpegError = (error) =>
-  /VipsJpeg|Corrupt JPEG data|extraneous bytes|Premature end of JPEG/i.test(
+// 分块存储的 TIFF（瓦片损坏时报「error in tile 0 x 0 … read gave 1 warnings」）等其它加载器
+// 的告警也会被升级为异常，导致漫画合并整本失败。此正则识别这类可宽容解码修复的错误
+// （严格解码失败时降级 failOn='none' 重试），导出供单测覆盖真实报错样本。
+export const isRepairableJpegError = (error) =>
+  /VipsJpeg|Corrupt JPEG data|extraneous bytes|Premature end of JPEG|Warning treated as error|error in tile|read gave \d+ warnings/i.test(
     String(error?.message ?? error)
   )
+
+/**
+ * 读取图片元数据。坏图的告警可能被 sharp 默认 failOn='warning' 升级为异常（极端情况下
+ * 仅读头也会触发），此时返回 null，由调用方决定是否走宽容解码转码修复。
+ */
+async function readMetadataSafe(input) {
+  try {
+    return await sharp(input, { limitInputPixels: false }).metadata()
+  } catch (error) {
+    if (isRepairableJpegError(error)) return null
+    throw error
+  }
+}
 
 /**
  * 经 sharp 编码为 JPEG。宽容模式（failOn:'none'）让 libjpeg 跳过垃圾字节完成解码，
@@ -181,7 +201,15 @@ export async function prepareComicPage(absPath, { format, raw, pdfQuality = 'bal
         sourceBytes: buffer.length
       }
     }
-    const metadata = await sharp(buffer, { limitInputPixels: false }).metadata()
+    const metadata = await readMetadataSafe(buffer)
+    if (!metadata) {
+      // 结构扫描未见异常但解码仍告警（如瓦片损坏）：宽容解码转码为干净 JPEG
+      return {
+        ...(await encodeToJpeg(buffer, { quality: RAW_JPEG_QUALITY, tolerant: true })),
+        repaired: true,
+        sourceBytes: buffer.length
+      }
+    }
     return {
       data: buffer,
       width: metadata.width ?? 0,
@@ -307,7 +335,16 @@ export async function mergeOneComic(
             sourceBytes += buffer.length
             return { ...page, sourceBytes: buffer.length, repaired: true }
           }
-          const metadata = await sharp(buffer, { limitInputPixels: false }).metadata()
+          const metadata = await readMetadataSafe(buffer)
+          if (!metadata) {
+            const page = await encodeToJpeg(buffer, {
+              quality: RAW_JPEG_QUALITY,
+              tolerant: true
+            })
+            repairedPages += 1
+            sourceBytes += buffer.length
+            return { ...page, sourceBytes: buffer.length, repaired: true }
+          }
           sourceBytes += buffer.length
           return {
             sourcePath: path,
@@ -318,7 +355,15 @@ export async function mergeOneComic(
             repaired: false
           }
         }
-        const metadata = await sharp(path, { limitInputPixels: false }).metadata()
+        const metadata = await readMetadataSafe(path)
+        if (!metadata) {
+          // 无法确认元数据的坏图（如瓦片损坏）：宽容解码转码为干净 JPEG，避免整本失败
+          const buffer = await readBinaryFile(path)
+          const page = await encodeToJpeg(buffer, { quality: RAW_JPEG_QUALITY, tolerant: true })
+          repairedPages += 1
+          sourceBytes += buffer.length
+          return { ...page, sourceBytes: buffer.length, repaired: true }
+        }
         const source = await fileSize(path)
         sourceBytes += source
         return {

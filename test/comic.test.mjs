@@ -37,6 +37,7 @@ import {
 } from '../src/main/modules/comic/pdf-native.mjs'
 import {
   deleteComicSources,
+  isRepairableJpegError,
   mergeComics,
   mergeOneComic,
   prepareComicPage,
@@ -813,6 +814,33 @@ test('漫画合并：仅 EOI 后多余字节的 jpg，原样模式不触发修�
     // 尾部垃圾解码器普遍宽容，保留源字节以维持原样模式「零重编码」语义
     assert.equal(Buffer.compare(files[image], source), 0)
   })
+})
+
+test('宽容解码修复判定：覆盖瓦片损坏等 failOn 升级类报错样本', () => {
+  // 复刻真实报障：分块存储的坏图在 sharp 默认 failOn='warning' 下的完整报错
+  assert.equal(
+    isRepairableJpegError(
+      new Error(
+        'Warning treated as error due to failOn setting\n' +
+          'error in tile 0 x 0\nerror in tile 0 x 8\nerror in tile 0 x 16\n' +
+          'error in tile 0 x 0\nerror in tile 0 x 10\nread gave 1 warnings'
+      )
+    ),
+    true
+  )
+  // 既有 libjpeg 风格样本
+  assert.equal(
+    isRepairableJpegError(
+      new Error('Corrupt JPEG data: 16128 extraneous bytes before marker 0xda')
+    ),
+    true
+  )
+  // 非解码类错误（文件缺失、权限等）不得触发宽容重试
+  assert.equal(isRepairableJpegError(new Error('ENOENT: no such file or directory')), false)
+  assert.equal(
+    isRepairableJpegError(new Error('Input file has corrupt header: VipsJpeg: bogus')),
+    true
+  )
 })
 
 test('漫画合并：合并失败时将漫画目录移入「合并失败」文件夹，且扫描自动忽略该文件夹', async () => {
